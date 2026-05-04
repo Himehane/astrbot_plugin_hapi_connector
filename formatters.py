@@ -390,8 +390,8 @@ def format_session_status(s: dict) -> str:
         f"权限模式: {perm}",
         f"模型:     {model}",
     ]
-    if flavor == "codex" and collab == "plan":
-        lines.append("协作模式: plan（计划模式）")
+    if flavor == "codex":
+        lines.append(f"协作模式: {collab}")
     return "\n".join(lines)
 
 
