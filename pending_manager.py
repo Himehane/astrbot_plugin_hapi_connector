@@ -128,13 +128,13 @@ class PendingManager:
                         return
 
                     # 询问备注
-                    await event.send(event.plain_result("请输入备注（直接回车跳过）:"))
+                    await event.send(event.plain_result("请输入备注（输入 n 跳过）:"))
 
                     @session_waiter(timeout=60, record_history_chains=False)
                     async def note_waiter(controller: SessionController, ev: AstrMessageEvent,
                                          _collected=collected):
                         reply = (ev.message_str or "").strip()
-                        if reply:
+                        if reply and reply.lower() != "n":
                             _collected.append(f"user_note: {reply}")
                         controller.stop()
 
