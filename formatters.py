@@ -226,7 +226,7 @@ def session_label_short(sid: str, sessions_cache: list[dict]) -> str:
 
     in_plan = session.get("permissionMode") == "plan" or (flavor == "codex" and session.get("collaborationMode") == "plan")
     plan_tag = " | 📋Plan Mode" if in_plan else ""
-    return f"💬 {title}\n📂 {path}\n🤖 {flavor}{plan_tag} | 🏷️ {sid[:8]}"
+    return f"💬 {title}{plan_tag}\n📂 {path}\n🤖 {flavor} | 🏷️ {sid[:8]}"
 
 
 def group_sessions_by_path(sessions: list[dict]) -> dict[str, list[dict]]:
