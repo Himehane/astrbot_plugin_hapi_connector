@@ -495,10 +495,20 @@ class CommandHandlers:
             current = detail.get("permissionMode", "default")
             target = "default" if current == "plan" else "plan"
             ok, msg = await session_ops.set_permission_mode(self.client, sid, target)
+            if ok:
+                for s in self.sessions_cache:
+                    if s.get("id") == sid:
+                        s["permissionMode"] = target
+                        break
         else:
             current = detail.get("collaborationMode", "default")
             target = "default" if current == "plan" else "plan"
             ok, msg = await session_ops.set_collaboration_mode(self.client, sid, target)
+            if ok:
+                for s in self.sessions_cache:
+                    if s.get("id") == sid:
+                        s["collaborationMode"] = target
+                        break
 
         action = "已开启" if target == "plan" else "已关闭"
         yield event.plain_result(f"Plan 模式{action}" if ok else msg)

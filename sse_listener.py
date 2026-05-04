@@ -348,6 +348,10 @@ class SSEListener:
                     s.setdefault("metadata", {}).update(updated_data["metadata"])
                 if "pendingRequestsCount" in updated_data:
                     s["pendingRequestsCount"] = updated_data["pendingRequestsCount"]
+                if "permissionMode" in updated_data:
+                    s["permissionMode"] = updated_data["permissionMode"]
+                if "collaborationMode" in updated_data:
+                    s["collaborationMode"] = updated_data["collaborationMode"]
                 break
         else:
             metadata = updated_data.get("metadata")
