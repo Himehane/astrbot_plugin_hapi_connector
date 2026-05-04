@@ -508,7 +508,7 @@ def format_round(round_msgs: list[dict], round_idx: int, total_rounds: int,
     return "\n\n".join(lines)
 
 
-_QUESTION_TOOLS = {"AskUserQuestion", "ask_user_question"}
+_QUESTION_TOOLS = {"AskUserQuestion", "ask_user_question", "request_user_input"}
 _COMPACT_TOOL = "__compact__"
 
 
@@ -523,13 +523,15 @@ def is_compact_request(req: dict) -> bool:
 
 
 def format_question_notification(req: dict, label: str, total: int, session_total: int, index: int) -> str:
-    """格式化 AskUserQuestion SSE 通知"""
+    """格式化问题请求 SSE 通知（支持 AskUserQuestion 和 request_user_input）"""
     args = req.get("arguments") or {}
     questions = args.get("questions", []) if isinstance(args, dict) else []
+    is_rui = req.get("tool") == "request_user_input"
     lines = [f"❓ 问题请求 {label}"]
     for q in questions:
-        if q.get("header"):
-            lines.append(f"  [{q['header']}]")
+        header = q.get("header") or q.get("id")
+        if header:
+            lines.append(f"  [{header}]")
         if q.get("question"):
             lines.append(f"  {q['question']}")
         for i, opt in enumerate(q.get("options", []), 1):

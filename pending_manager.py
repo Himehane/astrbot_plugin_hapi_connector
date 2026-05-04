@@ -94,7 +94,8 @@ class PendingManager:
                 await event.send(event.plain_result("❌ 当前问题请求缺少题目内容，无法继续回答"))
                 continue
 
-            answers: dict[str, list[str]] = {}
+            is_rui = req.get("tool") == "request_user_input"
+            answers: dict = {}
 
             for qi, question in enumerate(question_list):
                 opts = question.get("options", [])
@@ -133,7 +134,13 @@ class PendingManager:
                     await event.send(event.plain_result("操作超时，已取消"))
                     return
 
-                answers[str(qi)] = collected
+                # request_user_input 用嵌套格式 { id: { answers: [...] } }
+                # AskUserQuestion 用扁平格式 { "0": [...] }
+                key = question.get("id", str(qi)) if is_rui else str(qi)
+                if is_rui:
+                    answers[key] = {"answers": collected}
+                else:
+                    answers[key] = collected
 
             success, msg = await approval_ops.answer_question(client, sid, rid, answers)
             if success:
