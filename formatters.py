@@ -275,6 +275,7 @@ def format_bind_status(sessions: list[dict], session_owners: dict[str, str], win
 
         parts = [status, f"🤖{flavor}:{model}"]
         if pending:
+            parts.append(f"⚠️ {pending}待审批")
         if owner:
             owner_display = owner[:20] + "..." if len(owner) > 20 else owner
             parts.append(f"📌{owner_display}")
