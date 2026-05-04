@@ -173,6 +173,18 @@ def _fmt_tool_call(block: dict, max_len: int) -> str:
     if isinstance(inp, dict):
         if name == "TodoWrite":
             return _fmt_todo_write(inp)
+        if name == "request_user_input":
+            questions = inp.get("questions", [])
+            if questions:
+                lines = ["❓ request_user_input:"]
+                for q in questions:
+                    qid = q.get("id", "")
+                    qtext = q.get("question", "")
+                    if qtext:
+                        lines.append(f"  [{qid}] {qtext}")
+                    for i, opt in enumerate(q.get("options", []), 1):
+                        lines.append(f"    [{i}] {opt.get('label', '')}")
+                return "\n".join(lines)
         cmd = inp.get("command", "")
         if cmd:
             return f"🛠️ {name}: {cmd[:max_len]}"
