@@ -272,6 +272,8 @@ def format_bind_status(sessions: list[dict], session_owners: dict[str, str], win
         lines.append(f"[{idx} | 🏷️{sid_short}] {summary}")
 
         parts = [status, f"🤖{flavor}:{model}"]
+        if s.get("permissionMode") == "plan" or (flavor == "codex" and s.get("collaborationMode") == "plan"):
+            parts.append("📋Planning")
         if pending:
             parts.append(f"⚠️ {pending}待审批")
 
@@ -358,6 +360,8 @@ def format_session_list(
 
         # 第二行：状态 | 模型 | 待审批 | 当前
         parts = [status, f"🤖{flavor}:{model}"]
+        if s.get("permissionMode") == "plan" or (flavor == "codex" and s.get("collaborationMode") == "plan"):
+            parts.append("📋Planning")
         if pending:
             parts.append(f"⚠️ {pending}待审批")
         if current_sid and sid == current_sid:
@@ -378,6 +382,7 @@ def format_session_status(s: dict) -> str:
     thinking = s.get("thinking", False)
     perm = s.get("permissionMode", "default")
     model = s.get("modelMode", "default")
+    collab = s.get("collaborationMode", "default")
     summary = (meta.get("summary") or {}).get("text", "(无标题)")
 
     lines = [
@@ -390,6 +395,8 @@ def format_session_status(s: dict) -> str:
         f"权限模式: {perm}",
         f"模型:     {model}",
     ]
+    if flavor == "codex" and collab == "plan":
+        lines.append("协作模式: plan（计划模式）")
     return "\n".join(lines)
 
 
@@ -974,9 +981,23 @@ HELP_COMMANDS = [
     },
     {
         "topic": "config",
-        "usage": "/hapi model [模式]",
-        "summary": "查看或切换模型模式（仅 Claude）",
+        "usage": "/hapi plan",
+        "summary": "切换 Plan 模式（toggle）。Claude 切换 permissionMode，Codex 切换 collaborationMode。再次执行关闭。",
         "example": None,
+        "home": True,
+    },
+    {
+        "topic": "config",
+        "usage": "/hapi model [模式]",
+        "summary": "查看或切换当前使用的模型（Claude / Gemini）",
+        "example": None,
+        "home": True,
+    },
+    {
+        "topic": "config",
+        "usage": "/hapi effort [值]",
+        "summary": "查看或切换推理强度。Claude：auto/medium/high/max；Codex：none/minimal/low/medium/high/xhigh",
+        "example": "/hapi effort high",
         "home": True,
     },
     {

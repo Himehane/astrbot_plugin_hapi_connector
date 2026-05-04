@@ -1,5 +1,20 @@
 # 更新日志
 
+## v2.1.0 — 同步 HAPI 新特性，新增 Plan 模式切换
+
+1. **新增 `/hapi plan` 指令**：一键切换 Plan 模式（toggle）（对于codex，需 HAPI >= 0.16.3）
+   - Claude session：切换 `permissionMode` 在 `plan` ↔ `default` 之间
+   - Codex session：切换 `collaborationMode` 在 `plan` ↔ `default` 之间
+   - session 列表和状态详情中新增 `📋Planning` 标记
+
+2. **新增 `/hapi effort` 指令**：查看/切换推理强度（需 HAPI >= 0.16.4）
+   - Claude：`auto`、`medium`、`high`、`max`
+   - Codex：`none`、`minimal`、`low`、`medium`、`high`、`xhigh`
+
+3. **`/hapi model` 支持 Gemini**：Gemini session 现可远程切换模型（需 HAPI >= 0.16.6）
+   - 新增 Gemini 模型列表：`gemini-2.5-pro`、`gemini-2.5-flash`、`gemini-2.5-flash-lite`、`gemini-3-flash-preview`、`gemini-3.1-pro-preview`
+   - Claude 模型列表补充 `sonnet[1m]`、`opus[1m]`
+
 ## v2.0.6 - 新增 `/hapi resume` 指令，用于恢复已经存档的session
 
 ## v2.0.5 — Codex 思考深度支持

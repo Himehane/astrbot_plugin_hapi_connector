@@ -9,7 +9,25 @@ PERMISSION_MODES = {
 }
 
 # Claude 可用的模型模式
-MODEL_MODES = ["default", "sonnet", "opus"]
+MODEL_MODES = ["default", "sonnet", "sonnet[1m]", "opus", "opus[1m]"]
+
+# Gemini 可用的模型模式
+GEMINI_MODEL_MODES = [
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3-flash-preview",
+    "gemini-3.1-pro-preview",
+]
+
+# Claude 可用的推理强度；None 表示 auto
+CLAUDE_EFFORT_OPTIONS = [
+    (None, "auto（默认）"),
+    ("medium", "medium"),
+    ("high", "high"),
+    ("max", "max"),
+]
+CLAUDE_EFFORT_VALUES = [v for v, _ in CLAUDE_EFFORT_OPTIONS if v]
 
 # Codex 可用的思考深度；None 表示继承 Codex 默认设置
 CODEX_REASONING_EFFORT_OPTIONS = [

@@ -49,6 +49,8 @@ class CommandHandlers:
             "to": (self.cmd_to, True),
             "perm": (self.cmd_perm, True),
             "model": (self.cmd_model, True),
+            "effort": (self.cmd_effort, True),
+            "plan": (self.cmd_plan, True),
             "remote": (self.cmd_remote, False),
             "output": (self.cmd_output, True),
             "out": (self.cmd_output, True),
@@ -335,7 +337,7 @@ class CommandHandlers:
 
     async def cmd_model(self, event: AstrMessageEvent, mode: str = ""):
         """查看/切换模型: /hapi model [模式名]"""
-        from .constants import MODEL_MODES
+        from .constants import MODEL_MODES, GEMINI_MODEL_MODES
         await self.state_mgr.set_user_state(event)
         sid = self.state_mgr.effective_sid(event)
         if not sid:
@@ -343,16 +345,18 @@ class CommandHandlers:
             return
 
         flavor = self.state_mgr.effective_flavor(event) or "claude"
-        if flavor != "claude":
-            yield event.plain_result("模型切换仅支持 Claude session")
+        if flavor not in ("claude", "gemini"):
+            yield event.plain_result("模型切换仅支持 Claude / Gemini session")
             return
+
+        modes = GEMINI_MODEL_MODES if flavor == "gemini" else MODEL_MODES
 
         if mode:
             target = mode
-            if mode.isdigit() and 1 <= int(mode) <= len(MODEL_MODES):
-                target = MODEL_MODES[int(mode) - 1]
-            if target not in MODEL_MODES:
-                yield event.plain_result(f"❌ 无效模式: {mode}\n可用: {', '.join(MODEL_MODES)}")
+            if mode.isdigit() and 1 <= int(mode) <= len(modes):
+                target = modes[int(mode) - 1]
+            if target not in modes:
+                yield event.plain_result(f"❌ 无效模式: {mode}\n可用: {', '.join(modes)}")
                 return
             ok, msg = await session_ops.set_model_mode(self.client, sid, target)
             yield event.plain_result(msg)
@@ -360,7 +364,7 @@ class CommandHandlers:
             try:
                 detail = await session_ops.fetch_session_detail(self.client, sid)
                 current = detail.get("modelMode", "default")
-                text = formatters.format_model_modes(MODEL_MODES, current)
+                text = formatters.format_model_modes(modes, current)
                 yield event.plain_result(text)
             except Exception:
                 yield event.plain_result("获取模型信息失败")
@@ -373,10 +377,10 @@ class CommandHandlers:
                     controller.keep(timeout=30, reset_timeout=True)
                     return
                 target = reply
-                if reply.isdigit() and 1 <= int(reply) <= len(MODEL_MODES):
-                    target = MODEL_MODES[int(reply) - 1]
-                if target not in MODEL_MODES:
-                    await ev.send(ev.plain_result(f"无效模式，可用: {', '.join(MODEL_MODES)}"))
+                if reply.isdigit() and 1 <= int(reply) <= len(modes):
+                    target = modes[int(reply) - 1]
+                if target not in modes:
+                    await ev.send(ev.plain_result(f"无效模式，可用: {', '.join(modes)}"))
                 else:
                     ok, msg = await session_ops.set_model_mode(self.client, sid, target)
                     await ev.send(ev.plain_result(msg))
@@ -388,6 +392,116 @@ class CommandHandlers:
                 yield event.plain_result("操作超时，已取消")
             finally:
                 event.stop_event()
+
+    # ── effort ──
+
+    async def cmd_effort(self, event: AstrMessageEvent, effort: str = ""):
+        """查看/切换推理强度: /hapi effort [值]"""
+        from .constants import CLAUDE_EFFORT_OPTIONS, CLAUDE_EFFORT_VALUES, CODEX_REASONING_EFFORT_OPTIONS, CODEX_REASONING_EFFORT_VALUES
+        await self.state_mgr.set_user_state(event)
+        sid = self.state_mgr.effective_sid(event)
+        if not sid:
+            yield event.plain_result("请先用 /hapi sw <序号> 选择一个 session")
+            return
+
+        flavor = self.state_mgr.effective_flavor(event) or "claude"
+        if flavor not in ("claude", "codex"):
+            yield event.plain_result("推理强度设置仅支持 Claude / Codex session")
+            return
+
+        is_codex = flavor == "codex"
+        options = CODEX_REASONING_EFFORT_OPTIONS if is_codex else CLAUDE_EFFORT_OPTIONS
+        valid_values = CODEX_REASONING_EFFORT_VALUES if is_codex else CLAUDE_EFFORT_VALUES
+        none_aliases = ("inherit", "继承", "default") if is_codex else ("auto", "default")
+        none_label = "继承默认" if is_codex else "auto"
+
+        async def _apply(target):
+            if is_codex:
+                return await session_ops.set_codex_reasoning_effort(self.client, sid, target)
+            return await session_ops.set_effort(self.client, sid, target)
+
+        if effort:
+            val = effort.lower()
+            target = None if val in none_aliases else val
+            if target is not None and target not in valid_values:
+                yield event.plain_result(f"❌ 无效值: {effort}\n可用: {none_label}, {', '.join(valid_values)}")
+                return
+            ok, msg = await _apply(target)
+            yield event.plain_result(msg)
+        else:
+            try:
+                detail = await session_ops.fetch_session_detail(self.client, sid)
+                current = detail.get("modelReasoningEffort") if is_codex else detail.get("effort")
+                current = current or none_label
+            except Exception:
+                yield event.plain_result("获取推理强度信息失败")
+                return
+
+            lines = ["当前推理强度，回复序号或名称切换："]
+            for i, (val, label) in enumerate(options, 1):
+                mark = " ◀" if (val or none_label) == current else ""
+                lines.append(f"  {i}. {label}{mark}")
+            yield event.plain_result("\n".join(lines))
+
+            @session_waiter(timeout=30, record_history_chains=False)
+            async def effort_waiter(controller: SessionController, ev: AstrMessageEvent):
+                reply = ev.message_str.strip().lower()
+                if not reply:
+                    controller.keep(timeout=30, reset_timeout=True)
+                    return
+                if reply.isdigit() and 1 <= int(reply) <= len(options):
+                    target = options[int(reply) - 1][0]
+                elif reply in none_aliases:
+                    target = None
+                elif reply in valid_values:
+                    target = reply
+                else:
+                    await ev.send(ev.plain_result(f"无效值，可用: {none_label}, {', '.join(valid_values)}"))
+                    controller.stop()
+                    return
+                ok, msg = await _apply(target)
+                await ev.send(ev.plain_result(msg))
+                controller.stop()
+
+            try:
+                await effort_waiter(event)
+            except TimeoutError:
+                yield event.plain_result("操作超时，已取消")
+            finally:
+                event.stop_event()
+
+    # ── plan ──
+
+    async def cmd_plan(self, event: AstrMessageEvent):
+        """切换 Plan 模式（toggle）: Claude 切换 permissionMode，Codex 切换 collaborationMode"""
+        await self.state_mgr.set_user_state(event)
+        sid = self.state_mgr.effective_sid(event)
+        if not sid:
+            yield event.plain_result("请先用 /hapi sw <序号> 选择一个 session")
+            return
+
+        flavor = self.state_mgr.effective_flavor(event) or "claude"
+        if flavor not in ("claude", "codex"):
+            yield event.plain_result("Plan 模式仅支持 Claude / Codex session")
+            return
+
+        try:
+            detail = await session_ops.fetch_session_detail(self.client, sid)
+        except Exception:
+            yield event.plain_result("获取 session 状态失败")
+            return
+
+        if flavor == "claude":
+            current = detail.get("permissionMode", "default")
+            target = "default" if current == "plan" else "plan"
+            ok, msg = await session_ops.set_permission_mode(self.client, sid, target)
+        else:
+            current = detail.get("collaborationMode", "default")
+            target = "default" if current == "plan" else "plan"
+            ok, msg = await session_ops.set_collaboration_mode(self.client, sid, target)
+
+        action = "已开启" if target == "plan" else "已关闭"
+        yield event.plain_result(f"Plan 模式{action}" if ok else msg)
 
     # ── remote ──
 
