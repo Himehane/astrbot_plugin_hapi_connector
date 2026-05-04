@@ -100,39 +100,77 @@ class PendingManager:
             for qi, question in enumerate(question_list):
                 opts = question.get("options", [])
                 prompt = approval_ops.build_question_prompt(
-                    questions, qi_idx, qi, question, self.sse_listener.sessions_cache
+                    questions, qi_idx, qi, question, self.sse_listener.sessions_cache, is_rui=is_rui
                 )
                 await event.send(event.plain_result(prompt))
 
                 collected: list[str] = []
 
-                @session_waiter(timeout=120, record_history_chains=False)
-                async def q_waiter(controller: SessionController, ev: AstrMessageEvent,
-                                   _opts=opts, _collected=collected, _state={"other": False}):
-                    reply = (ev.message_str or "").strip()
-                    if not reply:
-                        controller.keep(timeout=120, reset_timeout=True)
+                if is_rui:
+                    # request_user_input：先选选项，再可选附加备注
+                    @session_waiter(timeout=120, record_history_chains=False)
+                    async def q_waiter(controller: SessionController, ev: AstrMessageEvent,
+                                       _opts=opts, _collected=collected):
+                        reply = (ev.message_str or "").strip()
+                        if not reply:
+                            controller.keep(timeout=120, reset_timeout=True)
+                            return
+                        if reply.isdigit() and 1 <= int(reply) <= len(_opts):
+                            _collected.append(_opts[int(reply) - 1]["label"])
+                        else:
+                            _collected.append(reply)
+                        controller.stop()
+
+                    try:
+                        await q_waiter(event)
+                    except TimeoutError:
+                        await event.send(event.plain_result("操作超时，已取消"))
                         return
 
-                    if _state["other"]:
-                        _collected.append(reply)
-                        controller.stop()
-                    elif reply.isdigit() and 1 <= int(reply) <= len(_opts):
-                        _collected.append(_opts[int(reply) - 1]["label"])
-                        controller.stop()
-                    elif reply.isdigit() and int(reply) == len(_opts) + 1:
-                        _state["other"] = True
-                        await ev.send(ev.plain_result("请输入自定义回答:"))
-                        controller.keep(timeout=120, reset_timeout=True)
-                    else:
-                        _collected.append(reply)
+                    # 询问备注
+                    await event.send(event.plain_result("请输入备注（直接回车跳过）:"))
+
+                    @session_waiter(timeout=60, record_history_chains=False)
+                    async def note_waiter(controller: SessionController, ev: AstrMessageEvent,
+                                         _collected=collected):
+                        reply = (ev.message_str or "").strip()
+                        if reply:
+                            _collected.append(f"user_note: {reply}")
                         controller.stop()
 
-                try:
-                    await q_waiter(event)
-                except TimeoutError:
-                    await event.send(event.plain_result("操作超时，已取消"))
-                    return
+                    try:
+                        await note_waiter(event)
+                    except TimeoutError:
+                        pass  # 备注超时直接跳过
+
+                else:
+                    # AskUserQuestion：支持"其他"自定义输入
+                    @session_waiter(timeout=120, record_history_chains=False)
+                    async def q_waiter(controller: SessionController, ev: AstrMessageEvent,
+                                       _opts=opts, _collected=collected, _state={"other": False}):
+                        reply = (ev.message_str or "").strip()
+                        if not reply:
+                            controller.keep(timeout=120, reset_timeout=True)
+                            return
+                        if _state["other"]:
+                            _collected.append(reply)
+                            controller.stop()
+                        elif reply.isdigit() and 1 <= int(reply) <= len(_opts):
+                            _collected.append(_opts[int(reply) - 1]["label"])
+                            controller.stop()
+                        elif reply.isdigit() and int(reply) == len(_opts) + 1:
+                            _state["other"] = True
+                            await ev.send(ev.plain_result("请输入自定义回答:"))
+                            controller.keep(timeout=120, reset_timeout=True)
+                        else:
+                            _collected.append(reply)
+                            controller.stop()
+
+                    try:
+                        await q_waiter(event)
+                    except TimeoutError:
+                        await event.send(event.plain_result("操作超时，已取消"))
+                        return
 
                 # request_user_input 用嵌套格式 { id: { answers: [...] } }
                 # AskUserQuestion 用扁平格式 { "0": [...] }

@@ -47,7 +47,7 @@ async def approve_all(client: AsyncHapiClient,
 
 
 def build_question_prompt(q_items: list, qi_idx: int, qi: int,
-                          q: dict, sessions_cache: list) -> str:
+                          q: dict, sessions_cache: list, is_rui: bool = False) -> str:
     """构建单个问题的提示文本"""
     sid = q_items[qi_idx][0]
     opts = q.get("options", [])
@@ -58,14 +58,18 @@ def build_question_prompt(q_items: list, qi_idx: int, qi: int,
     questions = (q_items[qi_idx][2].get("arguments") or {}).get("questions", [])
     if len(questions) > 1:
         lines.append(f"[{qi + 1}/{len(questions)}]")
-    if q.get("header"):
-        lines.append(f"[{q['header']}]")
+    header = q.get("header") or (q.get("id") if is_rui else None)
+    if header:
+        lines.append(f"[{header}]")
     if q.get("question"):
         lines.append(q["question"])
     for i, opt in enumerate(opts, 1):
         desc = f" — {opt['description']}" if opt.get("description") else ""
         lines.append(f"  [{i}] {opt['label']}{desc}")
-    lines.append(f"  [{len(opts) + 1}] 其他（自定义输入）")
+    if is_rui:
+        lines.append("（选择序号后可附加备注）")
+    else:
+        lines.append(f"  [{len(opts) + 1}] 其他（自定义输入）")
     return "\n".join(lines)
 
 
