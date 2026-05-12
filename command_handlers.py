@@ -1000,6 +1000,23 @@ class CommandHandlers:
             if not sid:
                 yield event.plain_result("请先用 /hapi sw <序号> 选择一个 session，或使用 /hapi resume <序号>")
                 return
+            exact = next((s for s in self.sessions_cache if s.get("id") == sid), None)
+            if exact is None:
+                matches = [s for s in self.sessions_cache if s.get("id", "").startswith(sid)]
+                if len(matches) == 1:
+                    sid = matches[0]["id"]
+                    flavor = matches[0].get("metadata", {}).get("flavor", self.state_mgr.effective_flavor(event) or "claude")
+                    await self.state_mgr.capture_window(sid, event.unified_msg_origin, flavor)
+                elif len(matches) > 1:
+                    labels = [f"  {s['id'][:8]}..." for s in matches]
+                    yield event.plain_result(
+                        f"当前窗口保存的 session 前缀匹配到 {len(matches)} 个 session，请使用 /hapi resume <序号或更长ID前缀>\n"
+                        + "\n".join(labels))
+                    return
+                else:
+                    yield event.plain_result(
+                        f"当前窗口保存的 session [{sid[:8]}] 已不在列表中，请使用 /hapi sw <序号> 重新选择")
+                    return
         else:
             sid = None
             if target.isdigit():
@@ -1034,9 +1051,9 @@ class CommandHandlers:
             resumed = next((s for s in self.sessions_cache if s.get("id") == resumed_sid), None)
             flavor = (resumed or {}).get("metadata", {}).get("flavor") or self.state_mgr.effective_flavor(event) or "claude"
             if resumed_sid != sid:
-                msg += f"已自动切换到可用 session [{flavor}] {resumed_sid[:8]}..."
+                msg += f"已切换到恢复后的会话 [{flavor}] {resumed_sid[:8]}..."
             elif not msg:
-                msg = f"Session [{sid[:8]}] 已可用"
+                msg = f"会话 [{sid[:8]}] 已可用"
         yield event.plain_result(msg)
 
     # ── rename ──

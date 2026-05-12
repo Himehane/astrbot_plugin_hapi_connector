@@ -342,48 +342,10 @@ class HapiConnectorPlugin(Star):
             resumed = next((s for s in self.sessions_cache if s.get("id") == resumed_sid), None)
             flavor = (resumed or session).get("metadata", {}).get("flavor") or self.state_mgr.effective_flavor(event) or "claude"
             await self.state_mgr.capture_window(resumed_sid, event.unified_msg_origin, flavor)
-            note = f"已恢复 inactive session -> [{resumed_sid[:8]}]\n"
+            note = f"已恢复会话 [{resumed_sid[:8]}]\n"
             return True, resumed_sid, note
 
-        if "resume_unavailable" not in msg and "Resume session ID unavailable" not in msg:
-            return False, sid, msg
-
-        metadata = session.get("metadata") or {}
-        if not isinstance(metadata, dict):
-            metadata = {}
-        path = metadata.get("path")
-        if not path:
-            return False, sid, f"{msg}\n无法重建：session metadata 缺少 path"
-
-        flavor = metadata.get("flavor") or self.state_mgr.effective_flavor(event) or "claude"
-        machines = await session_ops.fetch_machines(self.client)
-        target_machine = None
-        machine_id = metadata.get("machineId")
-        host = metadata.get("host")
-        if machine_id:
-            target_machine = next((m for m in machines if m.get("id") == machine_id), None)
-        if target_machine is None and host:
-            target_machine = next((m for m in machines if (m.get("metadata") or {}).get("host") == host), None)
-        if target_machine is None and len(machines) == 1:
-            target_machine = machines[0]
-        if target_machine is None:
-            return False, sid, f"{msg}\n无法重建：未找到匹配的在线 machine"
-
-        ok, spawn_msg, new_sid = await session_ops.spawn_session(
-            self.client,
-            target_machine.get("id"),
-            path,
-            flavor,
-        )
-        if not ok or not new_sid:
-            return False, sid, f"{msg}\n尝试新建 session 也失败: {spawn_msg}"
-
-        await self._refresh_sessions()
-        await self.state_mgr.capture_window(new_sid, event.unified_msg_origin, flavor)
-        note = (
-            f"原 session 无法按原生 session id 恢复，已按前端逻辑重新创建 [{flavor}] session -> [{new_sid[:8]}]\n"
-        )
-        return True, new_sid, note
+        return False, sid, msg
 
     def _format_no_visible_sessions_text(self, event: AstrMessageEvent) -> str:
         lines = [
