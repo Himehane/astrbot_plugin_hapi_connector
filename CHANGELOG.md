@@ -1,5 +1,9 @@
 # 更新日志
 
+## v2.1.3
+
+修复 `formatters.py` 中 `format_bind_status` 函数的 bug：修复 `owner` 变量未定义导致的 `NameError`
+
 ## v2.1.2
 
 修复 `/hapi resume` 相关问题，并在hapi服务端出现错误时补充更完善的报错说明 
