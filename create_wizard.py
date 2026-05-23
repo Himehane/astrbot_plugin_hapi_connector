@@ -144,10 +144,10 @@ class CreateWizard:
         if raw.isdigit() and recent and 1 <= int(raw) <= len(recent):
             s["directory"] = recent[int(raw) - 1]
         elif raw:
-            # 修复：如果路径看起来像绝对路径但开头的 / 或 \ 被命令前缀吃掉，自动补回
-            if raw and not raw.startswith(("/", "\\")):
-                # Windows 盘符路径 (C:, D: 等) 或 Unix 根路径被吃掉的情况
-                if len(raw) >= 2 and raw[1] == ":" or raw.startswith(("home", "Users", "root", "opt", "var", "usr")):
+            # 修复：如果 Unix 路径开头的 / 被命令前缀吃掉，自动补回
+            # Windows 盘符路径 (C:\...) 不处理
+            if raw and not raw.startswith(("/", "\\")) and not (len(raw) >= 2 and raw[1] == ":"):
+                if raw.startswith(("home", "Users", "root", "opt", "var", "usr")):
                     raw = "/" + raw
             s["directory"] = raw
         else:

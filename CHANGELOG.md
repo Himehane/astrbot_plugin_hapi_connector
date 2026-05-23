@@ -1,5 +1,9 @@
 # 更新日志
 
+## v2.1.4
+
+修复 `/hapi create` 向导在 Windows 上输入盘符路径（如 `C:\Users\...`）时被错误添加前缀 `/` 的问题
+
 ## v2.1.3
 
 修复 `formatters.py` 中 `format_bind_status` 函数的 bug：修复 `owner` 变量未定义导致的 `NameError`
