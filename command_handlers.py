@@ -211,7 +211,7 @@ class CommandHandlers:
         flavor = chosen.get("metadata", {}).get("flavor", "claude")
         umo = event.unified_msg_origin
         await self.state_mgr.capture_window(sid, umo, flavor)
-        summary = chosen.get("metadata", {}).get("summary", {}).get("text", "(无标题)")
+        summary = formatters.get_session_title(chosen)
         yield event.plain_result(f"已切换到 [{flavor}] {sid[:8]}... {summary}")
 
     # ── s (status) ──
@@ -1476,14 +1476,7 @@ class CommandHandlers:
                 if not isinstance(metadata, dict):
                     metadata = {}
                 flavor = metadata.get("flavor", "?")
-                summary_data = metadata.get("summary") or {}
-                if isinstance(summary_data, dict):
-                    summary_text = summary_data.get("text", "")
-                else:
-                    summary_text = summary_data
-                if summary_text is None:
-                    summary_text = ""
-                summary = str(summary_text)[:20]
+                summary = formatters.get_session_title(s)[:20]
                 umo_display = umo[:40] + "..." if len(umo) > 40 else umo
                 lines.append(f"  [{flavor}] {sid[:8]} {summary}\n    → {umo_display}")
                 has_routes = True
