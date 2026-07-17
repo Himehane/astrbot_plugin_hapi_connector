@@ -37,8 +37,8 @@ except Exception:
 
 
 @register("astrbot_plugin_hapi_connector", "LiJinHao999",
-          "连接 HAPI，随时随地用 Claude Code / Codex / Gemini / OpenCode vibe coding",
-          "2.1.4")
+          "连接 HAPI，随时随地用 Claude / Codex / Cursor / Grok / Kimi / OpenCode / Pi vibe coding",
+          "2.2.0")
 class HapiConnectorPlugin(Star):
 
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -139,7 +139,7 @@ class HapiConnectorPlugin(Star):
         Args:
             window(string): 窗口过滤，空=当前窗口，all=所有窗口
             path(string): 路径搜索关键词
-            agent(string): 代理类型，claude/codex/gemini/opencode
+            agent(string): 代理类型，如 claude/codex/cursor/grok/kimi/opencode/pi
         '''
         async for result in self.llm_integration.tool_list_sessions(event, window, path, agent):
             yield result
@@ -206,11 +206,11 @@ class HapiConnectorPlugin(Star):
 
         Args:
             directory(string): 工作目录路径
-            agent(string): 代理类型，claude/codex/gemini/opencode
+            agent(string): 代理类型，推荐 claude/codex/cursor/grok/kimi/opencode/pi（gemini 不可新建）
             machine_id(string): 机器ID，可选，管理多机器时必填
             session_type(string): session类型，simple或worktree，默认simple
             yolo(boolean): 是否自动批准所有权限，默认false
-            model_reasoning_effort(string): 仅 Codex 可选；留空表示继承 Codex 默认设置，可选 none/minimal/low/medium/high/xhigh
+            model_reasoning_effort(string): 支持 reasoning effort 的代理可选；留空继承默认，可选 none/minimal/low/medium/high/xhigh
         '''
         async for result in self.llm_integration.tool_create_session(
                 event, directory, agent, machine_id, session_type, yolo, model_reasoning_effort):
@@ -351,7 +351,7 @@ class HapiConnectorPlugin(Star):
         lines = [
             "当前窗口没有接收任何 session 通知。",
             "如果希望在此聊天窗口接收默认通知，可使用 /hapi bind。",
-            "如需按模型隔离默认通知，可使用 /hapi bind claude|codex|gemini。",
+            "如需按 agent 隔离默认通知，可使用 /hapi bind <flavor>（如 claude|codex|cursor|grok）。",
             "也可以使用 /hapi list all 查看所有 session 和全局绑定状态。",
         ]
 

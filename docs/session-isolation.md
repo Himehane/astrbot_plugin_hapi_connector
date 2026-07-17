@@ -29,6 +29,6 @@
 在某个窗口使用 `sw` / `create` 命令后，将会自动把对应 session 的通知路由到当前会话。
 
 - 使用 `hapi bind` 命令设置主要推送窗口。有通知时会默认发往此窗口，其它通知再根据绑定逻辑路由。
-- 使用 `hapi bind claude|codex|gemini` 可以分别给不同 flavor 的 session 指定默认通知窗口。
+- 使用 `hapi bind <flavor>`（如 `claude|codex|cursor|grok|kimi|opencode|pi`）可以分别给不同 flavor 的 session 指定默认通知窗口。
 - 使用 `hapi bind reset` 命令可以清除所有绑定路由关系。
 - 不同对话窗口之间的通知、权限审批、所操作的窗口互相独立。

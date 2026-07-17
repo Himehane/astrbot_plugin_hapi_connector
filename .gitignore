@@ -212,5 +212,8 @@ __marimo__/
 # Claude Code
 .claude/
 
+# Local development reference docs (not for release)
+dev-docs/
+
 # Git
 .gitignore

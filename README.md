@@ -35,7 +35,7 @@ https://github.com/LiJinHao999/astrbot_plugin_hapi_connector
 
 这是一个**通过聊天指令远程管理 AI 编码会话的插件**。
 
-你在外面摸鱼，电脑在家跑代码——通过这个插件，你可以在 QQ、微信、Telegram 等任意聊天平台上，直接操控跑在远端机器上的 Claude Code / Codex / Gemini / OpenCode，发消息、审批权限、切换模型，一条指令,甚至拍一拍QQ机器人搞定。
+你在外面摸鱼，电脑在家跑代码——通过这个插件，你可以在 QQ、微信、Telegram 等任意聊天平台上，直接操控跑在远端机器上的 Claude Code / Codex / Cursor / Grok / Kimi / OpenCode / Pi 等，发消息、审批权限、切换模型，一条指令,甚至拍一拍QQ机器人搞定。
 
 **它连接的后端是 [HAPI](https://github.com/tiann/hapi)**，一个统一用于方便管理多个 AI 编码代理会话后台运行和管理的服务，是 [HAPPY CODER](https://github.com/slopus/happy?tab=readme-ov-file) 的开源本地实现版本——**数据全部留在本地**
 
@@ -267,7 +267,7 @@ hapi codex    # Open Codex
 
 - **按聊天窗口隔离**：私聊、群聊、不同群之间互不影响，每个窗口只接收属于自己的会话通知与审批请求
 - **支持默认通知窗口**：`/hapi bind` 把当前聊天窗口设为默认通知窗口
-- **支持模型级默认窗口**：`/hapi bind claude|codex|gemini` 可以分别给不同类型的vibe coding 远程 session 指定默认通知窗口
+- **支持 agent 级默认窗口**：`/hapi bind <flavor>`（如 `claude|codex|cursor|grok`）可以分别给不同类型的 vibe coding 远程 session 指定默认通知窗口
 - **会话绑定优先级最高**：某个 session 一旦被当前聊天窗口接管，后续通知优先回到该窗口
 - **查看范围明确**：`/hapi list` 只展示当前窗口可见的 session，`/hapi list all` 和 `/hapi bind status` 用来查看全局状态
 
@@ -277,9 +277,7 @@ hapi codex    # Open Codex
 | 指令 | 说明 |
 |------|------|
 | `/hapi bind` | 设置当前聊天窗口为默认通知窗口 |
-| `/hapi bind claude` | 设置当前聊天窗口为 Claude 的默认通知窗口 |
-| `/hapi bind codex` | 设置当前聊天窗口为 Codex 的默认通知窗口 |
-| `/hapi bind gemini` | 设置当前聊天窗口为 Gemini 的默认通知窗口 |
+| `/hapi bind <flavor>` | 设置当前聊天窗口为指定 agent 的默认通知窗口（如 claude/codex/cursor/grok/kimi/opencode/pi） |
 | `/hapi bind status` | 查看默认窗口、模型默认窗口和 session 绑定状态 |
 | `/hapi bind reset` | 清除 session 绑定和窗口状态，保留默认通知窗口配置 |
 | `/hapi routes` | 查看当前生效的会话推送路由 |
@@ -304,7 +302,8 @@ astrbot_plugin_hapi_connector/
 ├── approval_ops.py         # 审批业务逻辑
 ├── create_wizard.py        # 创建会话交互式向导
 ├── formatters.py           # 格式化输出工具
-├── constants.py            # 常量定义（权限模式、模型、代理类型、Codex 思考深度）
+├── flavor_profiles.py      # Agent flavor 能力表（权限/模型/effort/plan/可创建）
+├── constants.py            # 兼容导出 + SESSION_TYPES
 ├── _conf_schema.json       # 插件配置 schema
 └── metadata.yaml           # 插件元信息
 ```

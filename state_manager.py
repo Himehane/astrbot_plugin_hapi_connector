@@ -3,9 +3,7 @@
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 from .binding_manager import BindingManager
-
-
-NOTIFICATION_ROUTE_FLAVORS = ("claude", "codex", "gemini")
+from .flavor_profiles import is_bindable_flavor, normalize_flavor
 
 
 class StateManager:
@@ -106,16 +104,19 @@ class StateManager:
 
     @staticmethod
     def normalized_flavor_primary_umos(state: dict) -> dict[str, str]:
-        """Normalize persisted flavor -> default window mappings."""
+        """Normalize persisted flavor -> default window mappings.
+
+        任意合法 flavor 字符串均可绑定，不再限制为固定白名单。
+        """
         raw = state.get("flavor_primary_umos", {})
         if not isinstance(raw, dict):
             return {}
 
         normalized: dict[str, str] = {}
         for flavor, umo in raw.items():
-            flavor_key = str(flavor).strip().lower()
+            flavor_key = normalize_flavor(str(flavor))
             target_umo = str(umo).strip() if umo is not None else ""
-            if flavor_key in NOTIFICATION_ROUTE_FLAVORS and target_umo:
+            if is_bindable_flavor(flavor_key) and target_umo:
                 normalized[flavor_key] = target_umo
         return normalized
 

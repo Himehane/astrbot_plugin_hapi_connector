@@ -76,7 +76,7 @@ async def set_permission_mode(client: AsyncHapiClient, sid: str, mode: str) -> t
 
 
 async def set_model_mode(client: AsyncHapiClient, sid: str, model: str) -> tuple[bool, str]:
-    """设置模型模式（仅 Claude）"""
+    """设置模型模式（由 session flavor / HAPI 决定是否支持）"""
     resp = await client.post(f"/api/sessions/{sid}/model", json={"model": model})
     if resp.ok:
         resp.release()
@@ -88,7 +88,7 @@ async def set_model_mode(client: AsyncHapiClient, sid: str, model: str) -> tuple
 
 
 async def set_effort(client: AsyncHapiClient, sid: str, effort: str | None) -> tuple[bool, str]:
-    """设置推理强度（仅 Claude）"""
+    """设置推理强度（/effort，如 Claude / Grok / Pi）"""
     resp = await client.post(f"/api/sessions/{sid}/effort", json={"effort": effort})
     if resp.ok:
         resp.release()
@@ -101,12 +101,12 @@ async def set_effort(client: AsyncHapiClient, sid: str, effort: str | None) -> t
 
 
 async def set_codex_reasoning_effort(client: AsyncHapiClient, sid: str, effort: str | None) -> tuple[bool, str]:
-    """设置 Codex 推理强度"""
+    """设置 modelReasoningEffort（Codex 等）"""
     resp = await client.post(f"/api/sessions/{sid}/model-reasoning-effort", json={"modelReasoningEffort": effort})
     if resp.ok:
         resp.release()
         label = effort or "继承默认"
-        return True, f"Codex 推理强度已切换为: {label}"
+        return True, f"推理强度已切换为: {label}"
     else:
         body = await resp.text()
         resp.release()
@@ -114,7 +114,7 @@ async def set_codex_reasoning_effort(client: AsyncHapiClient, sid: str, effort: 
 
 
 async def set_collaboration_mode(client: AsyncHapiClient, sid: str, mode: str) -> tuple[bool, str]:
-    """设置协作模式（仅 Codex remote）"""
+    """设置协作模式（如 Codex plan）"""
     resp = await client.post(f"/api/sessions/{sid}/collaboration-mode", json={"mode": mode})
     if resp.ok:
         resp.release()
@@ -281,8 +281,15 @@ async def fetch_recent_paths(client: AsyncHapiClient) -> list[str]:
 async def spawn_session(client: AsyncHapiClient, machine_id: str,
                         directory: str, agent: str, session_type: str = "simple",
                         yolo: bool = False, worktree_name: str = "",
-                        model_reasoning_effort: str | None = None) -> tuple[bool, str, str | None]:
-    """创建新 session，返回 (成功, 消息, session_id 或 None)"""
+                        model_reasoning_effort: str | None = None,
+                        model: str | None = None,
+                        effort: str | None = None,
+                        permission_mode: str | None = None) -> tuple[bool, str, str | None]:
+    """创建新 session，返回 (成功, 消息, session_id 或 None)
+
+    额外可选参数对齐 HAPI SpawnSessionRequest：model / effort / permissionMode。
+    现有调用方可不传，保持兼容。
+    """
     body = {
         "directory": directory,
         "agent": agent,
@@ -293,6 +300,12 @@ async def spawn_session(client: AsyncHapiClient, machine_id: str,
         body["worktreeName"] = worktree_name
     if model_reasoning_effort:
         body["modelReasoningEffort"] = model_reasoning_effort
+    if model:
+        body["model"] = model
+    if effort:
+        body["effort"] = effort
+    if permission_mode:
+        body["permissionMode"] = permission_mode
 
     resp = await client.post(f"/api/machines/{machine_id}/spawn", json=body)
     if resp.status != 200:

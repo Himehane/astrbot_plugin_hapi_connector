@@ -236,7 +236,10 @@ def session_label_short(sid: str, sessions_cache: list[dict]) -> str:
     if len(path) > 40:
         path = "..." + path[-37:]
 
-    in_plan = session.get("permissionMode") == "plan" or (flavor == "codex" and session.get("collaborationMode") == "plan")
+    in_plan = (
+        session.get("permissionMode") == "plan"
+        or session.get("collaborationMode") == "plan"
+    )
     plan_tag = " | 📋Plan Mode" if in_plan else ""
     return f"💬 {title}{plan_tag}\n📂 {path}\n🤖 {flavor} | 🏷️ {sid[:8]}"
 
@@ -431,7 +434,10 @@ def format_session_status(s: dict) -> str:
         f"权限模式: {perm}",
         f"模型:     {model}",
     ]
-    if flavor == "codex":
+    # Codex 等使用 collaborationMode 表达 plan 时展示；其他 flavor 有值也展示
+    if collab and collab != "default":
+        lines.append(f"协作模式: {collab}")
+    elif flavor == "codex":
         lines.append(f"协作模式: {collab}")
     return "\n".join(lines)
 
@@ -816,8 +822,8 @@ HELP_COMMANDS = [
     },
     {
         "topic": "push",
-        "usage": "/hapi bind [claude|codex|gemini]",
-        "summary": "设置当前聊天为默认通知窗口；带 claude/codex/gemini 时只对对应模型生效",
+        "usage": "/hapi bind [<flavor>]",
+        "summary": "设置当前聊天为默认通知窗口；带 flavor（如 claude/codex/cursor）时只对对应 agent 生效",
         "example": None,
         "home": True,
     },

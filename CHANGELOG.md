@@ -1,5 +1,13 @@
 # 更新日志
 
+## v2.2.0 — Agent flavor 自适应兼容
+
+1. **新增 `flavor_profiles.py` 能力表**：对齐 HAPI `claude/codex/cursor/gemini/grok/kimi/opencode/pi`
+2. **创建路径**：向导与 FC 工具支持 Cursor / Grok / Kimi / OpenCode / Pi；Gemini 仅兼容旧 session、不可新建
+3. **权限/模型/推理/Plan**：按 profile 能力开关，不再写死 claude/codex/gemini 白名单
+4. **`/hapi bind <flavor>`**：任意合法 flavor 均可绑定默认通知窗口（含未来新类型）
+5. **`spawn_session`** 补充可选 `model` / `effort` / `permissionMode` 参数，对齐 HAPI Spawn API
+
 ## v2.1.4
 
 修复 `/hapi create` 向导在 Windows 上输入盘符路径（如 `C:\Users\...`）时被错误添加前缀 `/` 的问题

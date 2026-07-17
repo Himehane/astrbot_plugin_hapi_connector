@@ -307,7 +307,13 @@ class CommandHandlers:
 
     async def cmd_perm(self, event: AstrMessageEvent, mode: str = ""):
         """查看/切换权限模式: /hapi perm [模式名]"""
-        from .constants import PERMISSION_MODES
+        from .flavor_profiles import (
+            allows_any_permission_mode,
+            flavor_label,
+            is_permission_mode_allowed,
+            permission_modes_for,
+            profile_for,
+        )
         await self.state_mgr.set_user_state(event)
         sid = self.state_mgr.effective_sid(event)
         if not sid:
@@ -315,13 +321,20 @@ class CommandHandlers:
             return
 
         flavor = self.state_mgr.effective_flavor(event) or "claude"
-        modes = PERMISSION_MODES.get(flavor, ["default"])
+        p = profile_for(flavor)
+        modes = permission_modes_for(flavor)
+        passthrough = allows_any_permission_mode(flavor)
+
+        if p.permission_modes is not None and len(p.permission_modes) == 0:
+            note = p.notes or "该 agent 不支持运行时权限模式切换"
+            yield event.plain_result(f"({flavor_label(flavor)}) {note}")
+            return
 
         if mode:
             target = mode
-            if mode.isdigit() and 1 <= int(mode) <= len(modes):
+            if mode.isdigit() and modes and 1 <= int(mode) <= len(modes):
                 target = modes[int(mode) - 1]
-            if target not in modes:
+            if not passthrough and not is_permission_mode_allowed(flavor, target):
                 yield event.plain_result(f"❌ 无效模式: {mode}\n可用: {', '.join(modes)}")
                 return
             ok, msg = await session_ops.set_permission_mode(self.client, sid, target)
@@ -330,8 +343,14 @@ class CommandHandlers:
             try:
                 detail = await session_ops.fetch_session_detail(self.client, sid)
                 current = detail.get("permissionMode", "default")
-                text = formatters.format_permission_modes(modes, current)
-                yield event.plain_result(f"({flavor} 模式)\n{text}")
+                if modes:
+                    text = formatters.format_permission_modes(modes, current)
+                else:
+                    text = f"当前: {current}\n（无本地枚举，可直接输入模式名）"
+                header = f"({flavor_label(flavor)} / {flavor})"
+                if p.notes:
+                    header += f"\n{p.notes}"
+                yield event.plain_result(f"{header}\n{text}")
             except Exception:
                 yield event.plain_result("获取权限模式失败")
                 return
@@ -343,9 +362,9 @@ class CommandHandlers:
                     controller.keep(timeout=30, reset_timeout=True)
                     return
                 target = reply
-                if reply.isdigit() and 1 <= int(reply) <= len(modes):
+                if reply.isdigit() and modes and 1 <= int(reply) <= len(modes):
                     target = modes[int(reply) - 1]
-                if target not in modes:
+                if not passthrough and not is_permission_mode_allowed(flavor, target):
                     await ev.send(ev.plain_result(f"无效模式，可用: {', '.join(modes)}"))
                 else:
                     ok, msg = await session_ops.set_permission_mode(self.client, sid, target)
@@ -363,7 +382,7 @@ class CommandHandlers:
 
     async def cmd_model(self, event: AstrMessageEvent, mode: str = ""):
         """查看/切换模型: /hapi model [模式名]"""
-        from .constants import MODEL_MODES, GEMINI_MODEL_MODES
+        from .flavor_profiles import flavor_label, model_modes_for, profile_for, supports_model_change
         await self.state_mgr.set_user_state(event)
         sid = self.state_mgr.effective_sid(event)
         if not sid:
@@ -371,17 +390,23 @@ class CommandHandlers:
             return
 
         flavor = self.state_mgr.effective_flavor(event) or "claude"
-        if flavor not in ("claude", "gemini"):
-            yield event.plain_result("模型切换仅支持 Claude / Gemini session")
-            return
+        if not supports_model_change(flavor):
+            yield event.plain_result(
+                f"当前 session ({flavor_label(flavor)}) 未声明模型切换能力；"
+                "若 HAPI 支持，可直接 /hapi model <模型名> 尝试透传"
+            )
+            # 仍允许透传任意模型名（自适应）
+            if not mode:
+                return
 
-        modes = GEMINI_MODEL_MODES if flavor == "gemini" else MODEL_MODES
+        modes = model_modes_for(flavor)
+        freeform = not modes  # 无静态列表时允许自由输入
 
         if mode:
             target = mode
-            if mode.isdigit() and 1 <= int(mode) <= len(modes):
+            if mode.isdigit() and modes and 1 <= int(mode) <= len(modes):
                 target = modes[int(mode) - 1]
-            if target not in modes:
+            if modes and target not in modes and not freeform:
                 yield event.plain_result(f"❌ 无效模式: {mode}\n可用: {', '.join(modes)}")
                 return
             ok, msg = await session_ops.set_model_mode(self.client, sid, target)
@@ -389,8 +414,17 @@ class CommandHandlers:
         else:
             try:
                 detail = await session_ops.fetch_session_detail(self.client, sid)
-                current = detail.get("modelMode", "default")
-                text = formatters.format_model_modes(modes, current)
+                current = detail.get("modelMode") or detail.get("model") or "default"
+                if modes:
+                    text = formatters.format_model_modes(modes, current)
+                else:
+                    text = (
+                        f"({flavor_label(flavor)}) 当前模型: {current}\n"
+                        "无本地模型列表，直接回复模型名即可切换"
+                    )
+                p = profile_for(flavor)
+                if p.notes:
+                    text = f"{p.notes}\n{text}"
                 yield event.plain_result(text)
             except Exception:
                 yield event.plain_result("获取模型信息失败")
@@ -403,9 +437,9 @@ class CommandHandlers:
                     controller.keep(timeout=30, reset_timeout=True)
                     return
                 target = reply
-                if reply.isdigit() and 1 <= int(reply) <= len(modes):
+                if reply.isdigit() and modes and 1 <= int(reply) <= len(modes):
                     target = modes[int(reply) - 1]
-                if target not in modes:
+                if modes and target not in modes and not freeform:
                     await ev.send(ev.plain_result(f"无效模式，可用: {', '.join(modes)}"))
                 else:
                     ok, msg = await session_ops.set_model_mode(self.client, sid, target)
@@ -423,7 +457,16 @@ class CommandHandlers:
 
     async def cmd_effort(self, event: AstrMessageEvent, effort: str = ""):
         """查看/切换推理强度: /hapi effort [值]"""
-        from .constants import CLAUDE_EFFORT_OPTIONS, CLAUDE_EFFORT_VALUES, CODEX_REASONING_EFFORT_OPTIONS, CODEX_REASONING_EFFORT_VALUES
+        from .flavor_profiles import (
+            effort_none_aliases,
+            effort_none_label,
+            effort_options_for,
+            effort_values_for,
+            flavor_label,
+            profile_for,
+            supports_any_effort,
+            supports_reasoning_effort,
+        )
         await self.state_mgr.set_user_state(event)
         sid = self.state_mgr.effective_sid(event)
         if not sid:
@@ -431,39 +474,50 @@ class CommandHandlers:
             return
 
         flavor = self.state_mgr.effective_flavor(event) or "claude"
-        if flavor not in ("claude", "codex"):
-            yield event.plain_result("推理强度设置仅支持 Claude / Codex session")
+        if not supports_any_effort(flavor):
+            yield event.plain_result(
+                f"推理强度设置当前未映射到 {flavor_label(flavor)} session"
+            )
             return
 
-        is_codex = flavor == "codex"
-        options = CODEX_REASONING_EFFORT_OPTIONS if is_codex else CLAUDE_EFFORT_OPTIONS
-        valid_values = CODEX_REASONING_EFFORT_VALUES if is_codex else CLAUDE_EFFORT_VALUES
-        none_aliases = ("inherit", "继承", "default") if is_codex else ("auto", "default")
-        none_label = "继承默认" if is_codex else "auto"
+        use_reasoning = supports_reasoning_effort(flavor)
+        options = effort_options_for(flavor)
+        valid_values = effort_values_for(flavor)
+        none_aliases = effort_none_aliases(flavor)
+        none_label = effort_none_label(flavor)
 
         async def _apply(target):
-            if is_codex:
+            if use_reasoning:
                 return await session_ops.set_codex_reasoning_effort(self.client, sid, target)
             return await session_ops.set_effort(self.client, sid, target)
 
         if effort:
             val = effort.lower()
             target = None if val in none_aliases else val
-            if target is not None and target not in valid_values:
-                yield event.plain_result(f"❌ 无效值: {effort}\n可用: {none_label}, {', '.join(valid_values)}")
+            if target is not None and valid_values and target not in valid_values:
+                yield event.plain_result(
+                    f"❌ 无效值: {effort}\n可用: {none_label}, {', '.join(valid_values)}"
+                )
                 return
             ok, msg = await _apply(target)
             yield event.plain_result(msg)
         else:
             try:
                 detail = await session_ops.fetch_session_detail(self.client, sid)
-                current = detail.get("modelReasoningEffort") if is_codex else detail.get("effort")
+                current = (
+                    detail.get("modelReasoningEffort")
+                    if use_reasoning
+                    else detail.get("effort")
+                )
                 current = current or none_label
             except Exception:
                 yield event.plain_result("获取推理强度信息失败")
                 return
 
-            lines = ["当前推理强度，回复序号或名称切换："]
+            p = profile_for(flavor)
+            lines = [f"({flavor_label(flavor)}) 当前推理强度，回复序号或名称切换："]
+            if p.notes:
+                lines.append(p.notes)
             for i, (val, label) in enumerate(options, 1):
                 mark = " ◀" if (val or none_label) == current else ""
                 lines.append(f"  {i}. {label}{mark}")
@@ -479,10 +533,14 @@ class CommandHandlers:
                     target = options[int(reply) - 1][0]
                 elif reply in none_aliases:
                     target = None
-                elif reply in valid_values:
+                elif not valid_values or reply in valid_values:
                     target = reply
                 else:
-                    await ev.send(ev.plain_result(f"无效值，可用: {none_label}, {', '.join(valid_values)}"))
+                    await ev.send(
+                        ev.plain_result(
+                            f"无效值，可用: {none_label}, {', '.join(valid_values)}"
+                        )
+                    )
                     controller.stop()
                     return
                 ok, msg = await _apply(target)
@@ -499,7 +557,8 @@ class CommandHandlers:
     # ── plan ──
 
     async def cmd_plan(self, event: AstrMessageEvent, arg: str = ""):
-        """切换 Plan 模式（toggle）: Claude 切换 permissionMode，Codex 切换 collaborationMode"""
+        """切换 Plan 模式（toggle）: permissionMode 或 collaborationMode，按 flavor profile"""
+        from .flavor_profiles import flavor_label, profile_for, supports_plan
         await self.state_mgr.set_user_state(event)
         sid = self.state_mgr.effective_sid(event)
         if not sid:
@@ -507,8 +566,11 @@ class CommandHandlers:
             return
 
         flavor = self.state_mgr.effective_flavor(event) or "claude"
-        if flavor not in ("claude", "codex"):
-            yield event.plain_result("Plan 模式仅支持 Claude / Codex session")
+        p = profile_for(flavor)
+        if not supports_plan(flavor):
+            yield event.plain_result(
+                f"Plan 模式当前未映射到 {flavor_label(flavor)} session"
+            )
             return
 
         try:
@@ -517,16 +579,7 @@ class CommandHandlers:
             yield event.plain_result("获取 session 状态失败")
             return
 
-        if flavor == "claude":
-            current = detail.get("permissionMode", "default")
-            target = "default" if current == "plan" else "plan"
-            ok, msg = await session_ops.set_permission_mode(self.client, sid, target)
-            if ok:
-                for s in self.sessions_cache:
-                    if s.get("id") == sid:
-                        s["permissionMode"] = target
-                        break
-        else:
+        if p.plan_via_collaboration:
             current = detail.get("collaborationMode", "default")
             target = "default" if current == "plan" else "plan"
             ok, msg = await session_ops.set_collaboration_mode(self.client, sid, target)
@@ -534,6 +587,15 @@ class CommandHandlers:
                 for s in self.sessions_cache:
                     if s.get("id") == sid:
                         s["collaborationMode"] = target
+                        break
+        else:
+            current = detail.get("permissionMode", "default")
+            target = "default" if current == "plan" else "plan"
+            ok, msg = await session_ops.set_permission_mode(self.client, sid, target)
+            if ok:
+                for s in self.sessions_cache:
+                    if s.get("id") == sid:
+                        s["permissionMode"] = target
                         break
 
         action = "已开启" if target == "plan" else "已关闭"
@@ -1419,12 +1481,12 @@ class CommandHandlers:
     # ── bind ──
 
     async def cmd_bind(self, event: AstrMessageEvent, arg: str = ""):
-        """设置默认发送窗口: /hapi bind [claude|codex|gemini|status|reset]"""
-        from .state_manager import NOTIFICATION_ROUTE_FLAVORS
+        """设置默认发送窗口: /hapi bind [<flavor>|status|reset]"""
+        from .flavor_profiles import format_bind_flavor_examples, is_bindable_flavor, normalize_flavor
         await self.state_mgr.ensure_primary_session(event)
         sender_id = str(event.get_sender_id())
         umo = event.unified_msg_origin
-        action = (arg or "").strip().lower()
+        action = normalize_flavor(arg)
 
         if not action:
             # 设置当前窗口为默认
@@ -1433,7 +1495,7 @@ class CommandHandlers:
             self.state_mgr._user_states_cache[sender_id] = state
             await self.plugin.put_kv_data(f"user_state_{sender_id}", state)
             yield event.plain_result("✓ 已设置当前窗口为默认发送窗口")
-        elif action in NOTIFICATION_ROUTE_FLAVORS:
+        elif is_bindable_flavor(action):
             state = dict(self.state_mgr._user_states_cache.get(sender_id, {}))
             flavor_routes = self.state_mgr.normalized_flavor_primary_umos(state)
             flavor_routes[action] = umo
@@ -1448,13 +1510,12 @@ class CommandHandlers:
             async for result in self.cmd_reset(event):
                 yield result
         else:
+            examples = format_bind_flavor_examples()
             yield event.plain_result(
                 f"❌ 无效参数: {action}\n\n"
                 "用法:\n"
                 "  /hapi bind              设置当前窗口为默认\n"
-                "  /hapi bind claude       设置当前窗口为 claude 默认\n"
-                "  /hapi bind codex        设置当前窗口为 codex 默认\n"
-                "  /hapi bind gemini       设置当前窗口为 gemini 默认\n"
+                f"  /hapi bind <flavor>     设置当前窗口为某 agent 默认（如 {examples}）\n"
                 "  /hapi bind status       查看推送路由\n"
                 "  /hapi bind reset        重置窗口路由"
             )
