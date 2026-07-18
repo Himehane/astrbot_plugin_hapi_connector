@@ -363,6 +363,33 @@ def merge_seen_flavors(base: Iterable[str], seen: Iterable[str]) -> list[str]:
     return out
 
 
+def export_profiles_meta() -> dict:
+    """JSON-friendly flavor capability table for WebUI meta endpoint."""
+    flavors = []
+    permission_modes: dict[str, list[str]] = {}
+    for p in known_profiles():
+        flavors.append({
+            "key": p.key,
+            "label": p.label,
+            "creatable": p.creatable,
+            "permission_modes": list(p.permission_modes) if p.permission_modes is not None else None,
+            "supports_model": p.supports_model,
+            "model_modes": list(p.model_modes),
+            "supports_effort": p.supports_effort,
+            "supports_reasoning_effort": p.supports_reasoning_effort,
+            "supports_plan": p.supports_plan,
+            "notes": p.notes,
+        })
+        if p.permission_modes is not None:
+            permission_modes[p.key] = list(p.permission_modes)
+    return {
+        "known_flavors": list(KNOWN_FLAVORS),
+        "creatable": creatable_agents(),
+        "flavors": flavors,
+        "permission_modes": permission_modes,
+    }
+
+
 # 兼容旧 constants 导入名
 AGENTS = creatable_agents()  # 动态：不含 gemini
 PERMISSION_MODES = {

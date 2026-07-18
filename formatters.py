@@ -1123,6 +1123,36 @@ def format_unknown_command_help(command: str) -> str:
     return "\n".join(lines)
 
 
+def export_help_data() -> dict:
+    """Structured help payload for WebUI (single source with HELP_* constants)."""
+    # HELP_TOPICS uses Chinese names; map to English topic ids used by HELP_COMMANDS
+    zh_to_id = {
+        "会话": "session",
+        "对话": "chat",
+        "审批": "approve",
+        "通知": "push",
+        "文件": "files",
+        "配置": "config",
+    }
+    topics = []
+    for zh, desc in HELP_TOPICS:
+        tid = zh_to_id.get(zh)
+        if not tid:
+            continue
+        topics.append({"id": tid, "name": zh, "desc": desc})
+    commands = [
+        {
+            "topic": item["topic"],
+            "usage": item["usage"],
+            "summary": item["summary"],
+            "example": item.get("example"),
+            "home": bool(item.get("home")),
+        }
+        for item in HELP_COMMANDS
+    ]
+    return {"topics": topics, "commands": commands}
+
+
 def _normalize_help_topic(topic: str) -> str | None:
     key = topic.strip().lower()
     return HELP_TOPIC_ALIASES.get(key)

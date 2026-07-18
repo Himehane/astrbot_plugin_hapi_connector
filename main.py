@@ -72,8 +72,9 @@ class HapiConnectorPlugin(Star):
             cf_access_mgr=cf_mgr,
         )
 
-        # session 缓存
+        # session 缓存（WebUI soft_refresh 用时间戳节流全量拉取）
         self.sessions_cache: list[dict] = []
+        self._sessions_cache_ts: float = 0.0
 
         # 绑定管理器
         self.binding_mgr = BindingManager()
@@ -112,6 +113,14 @@ class HapiConnectorPlugin(Star):
         # LLM 工具集成
         from .llm_integration import LLMIntegration
         self.llm_integration = LLMIntegration(self)
+
+        # WebUI Plugin Pages：按官方示例在 __init__ 注册 API
+        # 静态页由 AstrBot 扫描 pages/console/index.html 自动发现
+        try:
+            from .web_api import register_pages
+            register_pages(self)
+        except Exception as e:
+            logger.exception("注册 WebUI API 失败: %s", e)
 
     def _is_admin(self, event: AstrMessageEvent) -> bool:
         """检查发送者是否为管理员（动态读取配置）"""
@@ -287,9 +296,15 @@ class HapiConnectorPlugin(Star):
         return from_message
 
     async def _refresh_sessions(self):
-        """刷新 session 缓存"""
+        """刷新 session 缓存；成功时更新时间戳并清理 SSE 侧过期序号 map。"""
+        import time
         try:
             self.sessions_cache[:] = await session_ops.fetch_sessions(self.client)
+            self._sessions_cache_ts = time.monotonic()
+            live = {s.get("id") for s in self.sessions_cache if s.get("id")}
+            prune = getattr(self.sse_listener, "prune_stale_session_maps", None)
+            if callable(prune):
+                prune(live)
         except Exception as e:
             logger.warning("刷新 session 列表失败: %s", e)
 
@@ -399,6 +414,7 @@ class HapiConnectorPlugin(Star):
             summary_msg_count=self._summary_msg_count,
             max_reconnect_attempts=max_reconnect,
         )
+
         logger.info("HAPI Connector 已初始化，SSE 输出级别: %s", output_level)
 
     async def terminate(self):

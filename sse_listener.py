@@ -116,9 +116,32 @@ class SSEListener:
                 self._task = asyncio.create_task(self._listen_loop())
                 logger.info("SSE 监听器已唤醒，重新开始连接")
 
+    def get_connection_status(self) -> dict:
+        """供 WebUI / 诊断使用的连接状态快照（不暴露私有字段直接读写）。"""
+        task_running = bool(self._task and not self._task.done())
+        if self._hibernated:
+            sse_status = "hibernated"
+        elif self.conn_error:
+            sse_status = "reconnecting"
+        elif task_running and self.conn_fail_count == 0:
+            sse_status = "connected"
+        elif task_running:
+            sse_status = "reconnecting"
+        else:
+            sse_status = "disconnected"
+        return {
+            "sse_status": sse_status,
+            "conn_fail_count": self.conn_fail_count,
+            "conn_error": self.conn_error,
+            "hibernated": self._hibernated,
+            "task_running": task_running,
+            "output_level": self.output_level,
+            "max_reconnect_attempts": self._max_reconnect,
+        }
+
     def get_all_pending(self) -> dict[str, dict]:
         """返回所有 session 的待审批请求（同步读取快照）"""
-        # 移除 Future 后再 deepcopy
+        # 移除 Future 后再浅拷贝（避免 deepcopy 整表）
         result = {}
         for sid, reqs in self.pending.items():
             result[sid] = {}
@@ -127,6 +150,30 @@ class SSEListener:
                 req_copy.pop("future", None)
                 result[sid][rid] = req_copy
         return result
+
+    def pending_counts(self) -> dict[str, int]:
+        """仅计数，WebUI snapshot 用，避免拷贝 pending 内容。"""
+        return {sid: len(reqs) for sid, reqs in self.pending.items() if reqs}
+
+    def prune_stale_session_maps(self, live_ids: set[str] | None = None):
+        """清理已不存在 session 的序号记忆，控制内存。不碰 pending（审批仍需）。"""
+        if live_ids is None:
+            live_ids = {s.get("id") for s in self.sessions_cache if s.get("id")}
+        maps = (
+            self._compact_notified_seqs,
+            self._message_notified_seqs,
+            self._compaction_completed_seqs,
+            self._completion_notified_seqs,
+        )
+        for m in maps:
+            for sid in list(m.keys()):
+                if sid not in live_ids:
+                    m.pop(sid, None)
+        # 排队通知里的孤儿 sid
+        for sid in list(self._queued_request_notifications.keys()):
+            if sid not in live_ids:
+                self._queued_request_notifications.pop(sid, None)
+        self._request_notify_sids &= live_ids if live_ids else set()
 
     async def _listen_loop(self):
         """主循环：SSE 监听 + 指数退避重连"""
