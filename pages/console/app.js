@@ -7,7 +7,7 @@
  * 页面：概览 / 会话 / 交互 / 命令帮助 / 设置
  */
 
-import { hasBridge, initBridge, createApi } from "./api.js";
+import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.1";
 
 /* ---------- constants ---------- */
 
@@ -142,17 +142,6 @@ const SETTINGS = [
         label: "配置级默认推送窗口 ID",
         type: "text",
         help: "多数用聊天 /hapi bind 设默认推送窗口。这里是配置里的窗口 ID；不确定请留空。",
-      },
-      {
-        key: "render_mode",
-        label: "推送呈现模式",
-        type: "enum_cards",
-        help: "结构信息是否出卡片。详细样式与预览请到「交互优化」页。需可选依赖 Pillow。",
-        options: [
-          { value: "text", title: "纯文本", desc: "全部文字推送，速度最快（默认）。" },
-          { value: "auto", title: "结构出卡", desc: "list/pending 等出卡片，Agent 对话仍文本。" },
-          { value: "card", title: "尽量出卡", desc: "更多结构类型出卡；未装 Pillow 时回退文本。" },
-        ],
       },
     ],
   },
@@ -448,7 +437,6 @@ function createStore() {
     card_font_path: "",
     render_engine: {
       pillow: false,
-      playwright: false,
       install_hint: "pip install Pillow",
       installable: [
         { id: "font_noto_sc", group: "font", label: "中文字体 Noto Sans SC", desc: "下载到插件 assets/fonts/", installed: false },
@@ -1366,19 +1354,6 @@ const FALLBACK_INSTALLABLE = [
   },
 ];
 
-const RENDER_PRESETS = [
-  { id: "terminal_light", label: "终端浅色" },
-  { id: "terminal_dark", label: "终端深色" },
-  { id: "clean", label: "简洁" },
-  { id: "compact", label: "紧凑（手机）" },
-];
-
-const PRESET_STYLE = {
-  terminal_light: { bg: "#faf8f2", fg: "#1c1914", accent: "#1a7f4b", width: 720 },
-  terminal_dark: { bg: "#1c1914", fg: "#f0ebe0", accent: "#3ecf8e", width: 720 },
-  clean: { bg: "#ffffff", fg: "#111827", accent: "#2563eb", width: 720 },
-  compact: { bg: "#faf8f2", fg: "#1c1914", accent: "#1a7f4b", width: 560 },
-};
 
 function interactRenderState(cfg) {
   const kinds = Array.isArray(cfg.render_kinds_list)
@@ -1390,22 +1365,16 @@ function interactRenderState(cfg) {
   const metaCss =
     (state.meta && state.meta.render && state.meta.render.default_css) ||
     DEFAULT_CARD_CSS_FALLBACK;
+  const custom = (cfg.card_custom_css || "").trim();
   return {
     render_mode: cfg.render_mode || "text",
     formula_mode: cfg.formula_mode || "off",
     kinds,
-    card_style_preset: cfg.card_style_preset || "terminal_light",
-    card_width: Number(cfg.card_width) || 720,
-    card_accent: cfg.card_accent || "#1a7f4b",
-    card_bg: cfg.card_bg || "#faf8f2",
-    card_fg: cfg.card_fg || "#1c1914",
-    card_font_scale: Number(cfg.card_font_scale) || 100,
-    card_density: cfg.card_density || "comfortable",
-    card_show_brand: cfg.card_show_brand !== false,
-    card_mono: cfg.card_mono !== false,
-    card_custom_css: cfg.card_custom_css || "",
     card_font_path: cfg.card_font_path || "",
     default_css: metaCss,
+    // 编辑器里直接显示「当前生效」的 CSS：有自定义用自定义，否则默认
+    effective_css: custom || metaCss,
+    using_default_css: !custom,
   };
 }
 
@@ -1492,15 +1461,6 @@ function paintDomCardPreview() {
   const root = $("#ix-dom-preview");
   if (!root) return;
   const kind = $("#ix-sample")?.value || "session_list";
-  const bg = $("#ix-bg")?.value || "#faf8f2";
-  const fg = $("#ix-fg")?.value || "#1c1914";
-  const accent = $("#ix-accent")?.value || "#1a7f4b";
-  const width = Number($("#ix-width")?.value) || 720;
-  const scale = (Number($("#ix-scale")?.value) || 100) / 100;
-  const density = $("#ix-density")?.value || "comfortable";
-  const brand = $("#ix-brand")?.checked;
-  const mono = $("#ix-mono")?.checked;
-  const pad = density === "compact" ? 12 : 18;
   const rows = sampleDomRows(kind)
     .map((r) => {
       const head = r.i ? `[${r.i}] ${r.a}` : r.a;
@@ -1508,59 +1468,38 @@ function paintDomCardPreview() {
     })
     .join("");
   root.innerHTML = `
-    <div class="render-preview-card" style="
-      --rpc-bg:${attr(bg)};
-      --rpc-fg:${attr(fg)};
-      --rpc-accent:${attr(accent)};
-      --rpc-muted:${attr(fg)}99;
-      max-width:${Math.min(width, 640)}px;
-      padding:${pad}px;
-      font-family:${mono ? "var(--font)" : "var(--font-ui)"};
-      font-size:${(13 * scale).toFixed(1)}px;
-    ">
+    <div class="render-preview-card">
       <div class="rpc-title">${esc(sampleTitle(kind))}</div>
       <div class="rpc-sub">${esc(sampleSub(kind))}</div>
       <div class="rpc-bar"></div>
       ${rows}
       <div class="rpc-foot">${esc(sampleFooter(kind))}</div>
-      ${brand ? `<div class="rpc-brand">hapi connector</div>` : ""}
-    </div>`;
+      <div class="rpc-brand">hapi connector</div>
+    </div>
+    <p class="field-help" style="margin-top:8px">DOM 仅示意结构。样式以自定义 CSS +「生成实卡」为准。</p>`;
 }
 
 function collectRenderPatchFromForm() {
   const kindBoxes = [...document.querySelectorAll("[data-rkind]")];
   const kinds = kindBoxes.filter((el) => el.checked).map((el) => el.value);
+  // 模式卡片（enum）或 select 兜底
+  const modeRadio = document.querySelector('input[name="ix-rmode"]:checked');
+  const render_mode = modeRadio?.value || $("#ix-rmode")?.value || "text";
+  const defaultCss =
+    (state.meta && state.meta.render && state.meta.render.default_css) ||
+    DEFAULT_CARD_CSS_FALLBACK;
+  let css = $("#ix-css")?.value ?? "";
+  // 与默认完全一致时存空，表示「用内置默认」
+  if (css.trim() === String(defaultCss).trim()) css = "";
   return {
-    render_mode: $("#ix-rmode")?.value || "text",
+    render_mode,
     formula_mode: $("#ix-fmode")?.value || "off",
     render_kinds: kinds.join(",") || "session_list,pending,message",
-    card_style_preset: $("#ix-preset")?.value || "terminal_light",
-    card_width: Number($("#ix-width")?.value) || 720,
-    card_accent: $("#ix-accent")?.value || "#1a7f4b",
-    card_bg: $("#ix-bg")?.value || "#faf8f2",
-    card_fg: $("#ix-fg")?.value || "#1c1914",
-    card_font_scale: Number($("#ix-scale")?.value) || 100,
-    card_density: $("#ix-density")?.value || "comfortable",
-    card_show_brand: Boolean($("#ix-brand")?.checked),
-    card_mono: Boolean($("#ix-mono")?.checked),
-    card_custom_css: $("#ix-css")?.value ?? "",
+    card_custom_css: css,
     card_font_path: ($("#ix-font-path")?.value || "").trim(),
   };
 }
 
-function applyPresetToForm(presetId) {
-  const p = PRESET_STYLE[presetId] || PRESET_STYLE.terminal_light;
-  if ($("#ix-width")) $("#ix-width").value = p.width;
-  if ($("#ix-accent")) $("#ix-accent").value = p.accent;
-  if ($("#ix-bg")) $("#ix-bg").value = p.bg;
-  if ($("#ix-fg")) $("#ix-fg").value = p.fg;
-  if ($("#ix-width-val")) $("#ix-width-val").textContent = String(p.width);
-  if (presetId === "compact" && $("#ix-density")) $("#ix-density").value = "compact";
-  if (presetId === "clean" && $("#ix-mono")) $("#ix-mono").checked = false;
-  if (presetId !== "clean" && $("#ix-mono") && presetId !== "compact") $("#ix-mono").checked = true;
-  if (presetId === "compact" && $("#ix-brand")) $("#ix-brand").checked = false;
-  if (presetId !== "compact" && $("#ix-brand")) $("#ix-brand").checked = true;
-}
 
 function renderInteract() {
   if (!state.data) return;
@@ -1577,14 +1516,13 @@ function renderInteract() {
       FALLBACK_INSTALLABLE;
   }
   const pillowOk = Boolean(engine.pillow);
-  const pwOk = Boolean(engine.playwright);
   const fonts = (engine.fonts || {});
   const fontOk = Boolean(fonts.sans || fonts.user_font);
   const engineTag = pillowOk
     ? "Pillow 可用"
     : "未装 Pillow · 回退文本";
   const engineTagCls = pillowOk ? "tag-ok" : "tag-muted";
-  const cssValue = rs.card_custom_css || "";
+  const cssValue = rs.effective_css || rs.default_css || "";
   const kindChecks = Object.keys(RENDER_KIND_LABELS)
     .map((k) => {
       const on = rs.kinds.includes(k);
@@ -1648,101 +1586,75 @@ function renderInteract() {
       <div class="card-head">
         <div>
           <h2>推送呈现</h2>
-          <p class="sub">结构卡与 <strong>Agent 对话</strong> 同一套卡片管线（Pillow 出图）。字体：card_font_path / assets/fonts / 系统 CJK；可下方勾选安装，不自动下载。</p>
+          <p class="sub">呈现模式、出卡类型、CSS 与字体都在本页配置。出图用 Pillow；字体可勾选装到 assets/fonts。</p>
         </div>
         <span class="tag ${engineTagCls}">${engineTag}</span>
       </div>
 
       ${
         pillowOk
-          ? fontOk
-            ? ""
-            : `<div class="alert-inline">尚未解析到中文字体。可在下方勾选「中文字体」安装到 <code>assets/fonts/</code>，或填写字体路径 / 使用系统 CJK。都没有则回退纯文本。</div>`
+          ? ""
           : `<div class="alert-inline">出卡需要 Pillow。可在下方勾选安装，或手动 <code>pip install Pillow</code>。未安装时配置可保存，运行时回退纯文本。</div>`
       }
+      <div class="font-status ${fontOk ? "is-ok" : "is-bad"}">
+        <div class="font-status-title">当前字体</div>
+        <dl class="font-status-kv">
+          <dt>正文</dt>
+          <dd>${fontOk
+            ? `<span class="tag tag-ok">${esc(fonts.sans_source_label || fonts.sans_source || "已找到")}</span>
+               <span class="mono break">${esc(fonts.sans_name || fonts.sans || "—")}</span>
+               ${fonts.sans && fonts.sans_name && fonts.sans !== fonts.sans_name
+                 ? `<div class="font-path mono break">${esc(fonts.sans)}</div>`
+                 : fonts.sans
+                   ? `<div class="font-path mono break">${esc(fonts.sans)}</div>`
+                   : ""}`
+            : `<span class="tag tag-muted">未找到</span> <span class="muted">出卡将回退纯文本</span>`}</dd>
+          <dt>等宽</dt>
+          <dd>${fonts.mono
+            ? `<span class="tag tag-muted">${esc(fonts.mono_source_label || fonts.mono_source || "—")}</span>
+               <span class="mono break">${esc(fonts.mono_name || fonts.mono)}</span>
+               ${fonts.mono_name && fonts.mono !== fonts.mono_name
+                 ? `<div class="font-path mono break">${esc(fonts.mono)}</div>`
+                 : fonts.mono && !fonts.mono_name
+                   ? `<div class="font-path mono break">${esc(fonts.mono)}</div>`
+                   : ""}`
+            : `<span class="muted">—</span>`}</dd>
+          ${fonts.user_font
+            ? `<dt>配置路径</dt><dd class="mono break">${esc(fonts.user_font_name || fonts.user_font)}
+                 <div class="font-path mono break">${esc(fonts.user_font)}</div></dd>`
+            : ""}
+        </dl>
+        <p class="font-status-hint">${esc(fonts.hint || "解析顺序：配置路径 → assets/fonts → 系统字体")}</p>
+      </div>
 
       <div class="render-layout">
         <div class="render-form">
           <div class="field">
-            <div class="field-label">渲染模式</div>
-            <p class="field-help">text=纯文本；auto/card=对下方勾选类型出卡（含 Agent 对话）。</p>
-            <select id="ix-rmode" class="ctrl">
-              <option value="text" ${rs.render_mode === "text" ? "selected" : ""}>text · 纯文本（最快）</option>
-              <option value="auto" ${rs.render_mode === "auto" ? "selected" : ""}>auto · 启用类型出卡</option>
-              <option value="card" ${rs.render_mode === "card" ? "selected" : ""}>card · 尽量出卡</option>
-            </select>
+            <div class="field-label">推送呈现模式</div>
+            <p class="field-help">是否出卡片；下方勾选具体类型。需 Pillow（可在本页勾选安装）。</p>
+            <div class="enum-cards" id="ix-rmode-cards">
+              ${[
+                { value: "text", title: "纯文本", desc: "全部文字推送，速度最快（默认）。" },
+                { value: "auto", title: "结构出卡", desc: "对已勾选类型出卡（含 Agent 对话）。" },
+                { value: "card", title: "尽量出卡", desc: "已勾选类型尽量出卡；未装 Pillow 时回退文本。" },
+              ].map((o) => `<label class="enum-card">
+                <input type="radio" name="ix-rmode" value="${o.value}" ${rs.render_mode === o.value ? "checked" : ""} />
+                <div class="t">${esc(o.title)}</div>
+                <div class="d">${esc(o.desc)}</div>
+              </label>`).join("")}
+            </div>
           </div>
 
           <div class="field">
             <div class="field-label">出卡类型</div>
-            <p class="field-help">勾选 <code>Agent 对话</code> 后，SSE 推送的 agent 消息也会渲成卡片。</p>
+            <p class="field-help">仅在「结构出卡 / 尽量出卡」时生效。勾选 <code>Agent 对话</code> 后 SSE agent 消息也出卡。</p>
             <div class="chk-grid">${kindChecks}</div>
           </div>
 
           <div class="field">
-            <div class="field-label">公式策略（预留）</div>
-            <p class="field-help">预留；开启后复杂公式仍保留源码文本。</p>
-            <select id="ix-fmode" class="ctrl">
-              <option value="off" ${rs.formula_mode === "off" ? "selected" : ""}>off · 关闭</option>
-              <option value="detect" ${rs.formula_mode === "detect" ? "selected" : ""}>detect · 检测到 $ 时（预留）</option>
-              <option value="always" ${rs.formula_mode === "always" ? "selected" : ""}>always · 总是（预留）</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <div class="field-label">样式预设（token 起点）</div>
-            <select id="ix-preset" class="ctrl">
-              ${RENDER_PRESETS.map(
-                (p) =>
-                  `<option value="${p.id}" ${rs.card_style_preset === p.id ? "selected" : ""}>${esc(p.label)}</option>`,
-              ).join("")}
-            </select>
-          </div>
-
-          <div class="field-row2">
-            <div class="field">
-              <div class="field-label">宽度 <span id="ix-width-val">${rs.card_width}</span>px</div>
-              <input id="ix-width" type="range" min="400" max="1400" step="10" value="${rs.card_width}" />
-            </div>
-            <div class="field">
-              <div class="field-label">字号 <span id="ix-scale-val">${rs.card_font_scale}</span>%</div>
-              <input id="ix-scale" type="range" min="75" max="150" step="5" value="${rs.card_font_scale}" />
-            </div>
-          </div>
-
-          <div class="field-row3">
-            <label class="field">强调色
-              <input id="ix-accent" type="color" value="${attr(rs.card_accent)}" />
-            </label>
-            <label class="field">背景
-              <input id="ix-bg" type="color" value="${attr(rs.card_bg)}" />
-            </label>
-            <label class="field">文字
-              <input id="ix-fg" type="color" value="${attr(rs.card_fg)}" />
-            </label>
-          </div>
-
-          <div class="field-row2">
-            <div class="field">
-              <div class="field-label">密度</div>
-              <select id="ix-density" class="ctrl">
-                <option value="comfortable" ${rs.card_density === "comfortable" ? "selected" : ""}>comfortable</option>
-                <option value="compact" ${rs.card_density === "compact" ? "selected" : ""}>compact</option>
-              </select>
-            </div>
-            <div class="field" style="display:flex;flex-direction:column;gap:8px;justify-content:flex-end">
-              <label class="chk"><input id="ix-mono" type="checkbox" ${rs.card_mono ? "checked" : ""}/> 等宽字体</label>
-              <label class="chk"><input id="ix-brand" type="checkbox" ${rs.card_show_brand ? "checked" : ""}/> 品牌角标</label>
-            </div>
-          </div>
-
-          <div class="field">
-            <div class="field-label-row">
-              <div class="field-label">自定义 CSS</div>
-              <button type="button" class="btn btn-ghost" id="ix-load-default-css" style="padding:2px 8px;font-size:12px">填入默认 CSS</button>
-            </div>
-            <p class="field-help">完整可编辑。Pillow 引擎识别 <code>--card-*</code> 变量与基础排版；配色滑块会注入变量覆盖，可与 CSS 叠加。</p>
-            <textarea id="ix-css" class="ctrl render-css-editor" rows="12" spellcheck="false" placeholder="留空=内置默认样式；点上方「填入默认 CSS」再改">${esc(cssValue)}</textarea>
+            <div class="field-label">卡片 CSS（当前生效）</div>
+            <p class="field-help">${rs.using_default_css ? "当前为内置默认样式，可直接改。" : "当前为已保存的自定义 CSS。"} 变量：<code>--card-bg / --card-fg / --card-accent</code> 等。</p>
+            <textarea id="ix-css" class="ctrl render-css-editor" rows="14" spellcheck="false">${esc(rs.effective_css)}</textarea>
           </div>
 
           <div class="field">
@@ -1792,7 +1704,7 @@ function renderInteract() {
                 .join("")}
             </select>
           </div>
-          <p class="field-help">DOM 预览只反映配色 token。点「生成实卡」走服务端 Pillow，与聊天发出一致。</p>
+          <p class="field-help">左侧 DOM 示意结构；点「生成实卡」走服务端 Pillow（读自定义 CSS 变量），与聊天发出一致。</p>
           <div id="ix-dom-preview" class="render-dom-host"></div>
           <div class="render-actions" style="margin-top:12px">
             <button type="button" class="btn btn-primary" id="ix-gen-card">生成实卡预览</button>
@@ -1835,41 +1747,19 @@ function renderInteract() {
   const bindPaint = () => {
     paintDomCardPreview();
   };
-  ["ix-width", "ix-scale", "ix-accent", "ix-bg", "ix-fg", "ix-density", "ix-mono", "ix-brand", "ix-sample"].forEach(
+  ["ix-sample"].forEach(
     (id) => {
       const el = document.getElementById(id);
       if (!el) return;
-      el.addEventListener("input", () => {
-        if (id === "ix-width" && $("#ix-width-val")) $("#ix-width-val").textContent = el.value;
-        if (id === "ix-scale" && $("#ix-scale-val")) $("#ix-scale-val").textContent = el.value;
-        bindPaint();
-      });
+      el.addEventListener("input", bindPaint);
       el.addEventListener("change", bindPaint);
     },
   );
-  $("#ix-preset") &&
-    ($("#ix-preset").onchange = () => {
-      applyPresetToForm($("#ix-preset").value);
-      bindPaint();
-    });
 
-  $("#ix-load-default-css") &&
-    ($("#ix-load-default-css").onclick = () => {
-      if ($("#ix-css")) $("#ix-css").value = rs.default_css || DEFAULT_CARD_CSS_FALLBACK;
-    });
 
   $("#ix-reset-style") &&
     ($("#ix-reset-style").onclick = () => {
-      if ($("#ix-preset")) $("#ix-preset").value = "terminal_light";
-      applyPresetToForm("terminal_light");
-      if ($("#ix-scale")) {
-        $("#ix-scale").value = 100;
-        if ($("#ix-scale-val")) $("#ix-scale-val").textContent = "100";
-      }
-      if ($("#ix-density")) $("#ix-density").value = "comfortable";
-      if ($("#ix-mono")) $("#ix-mono").checked = true;
-      if ($("#ix-brand")) $("#ix-brand").checked = true;
-      if ($("#ix-css")) $("#ix-css").value = "";
+      if ($("#ix-css")) $("#ix-css").value = rs.default_css || DEFAULT_CARD_CSS_FALLBACK;
       if ($("#ix-font-path")) $("#ix-font-path").value = "";
       bindPaint();
     });
@@ -1888,10 +1778,14 @@ function renderInteract() {
       if (btn) btn.disabled = true;
       try {
         let res;
-        if (liveMode && api) {
+        if (!liveMode || !api) {
+          res = { ok: false, message: "本地预览无法安装；请在 AstrBot 插件面板操作。" };
+        } else if (typeof api.renderInstall === "function") {
           res = await api.renderInstall({ ids });
+        } else if (typeof api.post === "function") {
+          res = await api.post("render/install", { ids });
         } else {
-          res = { ok: false, message: "本地 mock 无法安装依赖；请在 AstrBot 插件面板内操作。" };
+          res = { ok: false, message: "API 未就绪。请重载插件并硬刷新面板（Ctrl+Shift+R）。" };
         }
         const lines = [];
         lines.push(res?.message || (res?.ok ? "完成" : "失败"));
@@ -1948,7 +1842,6 @@ function renderInteract() {
             kind,
             style,
             formula_mode: style.formula_mode || $("#ix-fmode")?.value || "off",
-            engine: "pillow",
           });
         } else {
           // mock：无服务端时只提示用 DOM 预览

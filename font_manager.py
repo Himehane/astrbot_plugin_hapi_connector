@@ -149,24 +149,38 @@ def resolve_font_path(
     user_path: str | None = None,
     allow_download: bool = False,  # 保留参数兼容旧调用；**忽略**，永不自动下载
 ) -> Path | None:
-    _ = allow_download  # 刻意忽略：自动下载策略已移除
+    path, _src = resolve_font_path_with_source(
+        mono=mono, user_path=user_path, allow_download=allow_download
+    )
+    return path
+
+
+def resolve_font_path_with_source(
+    *,
+    mono: bool = False,
+    user_path: str | None = None,
+    allow_download: bool = False,
+) -> tuple[Path | None, str | None]:
+    """返回 (path, source)。source: user | bundled | system | None。"""
+    _ = allow_download
 
     user = resolve_user_font(user_path)
     if user is not None:
-        return user
+        return user, "user"
 
     hit = _scan_dir(_BUNDLED_DIR, prefer_mono=mono)
     if hit is not None:
-        return hit
+        return hit, "bundled"
 
-    # 等宽优先试 mono 列表，再回落到 sans（中文内容必须能显示）
     if mono:
         m = _first_existing(list(_SYSTEM_MONO))
         if m is not None:
-            # 纯拉丁 mono 不能画中文：若是 dejavu/consola，继续找 CJK sans 叠用由调用方处理；
-            # 这里若文件名不含 cjk 且无中文常见标记，仍返回它（正文会用 sans 路径另载）。
-            return m
-    return _first_existing(list(_SYSTEM_SANS if not mono else list(_SYSTEM_MONO) + list(_SYSTEM_SANS)))
+            return m, "system"
+        s = _first_existing(list(_SYSTEM_SANS))
+        return (s, "system") if s is not None else (None, None)
+
+    s = _first_existing(list(_SYSTEM_SANS))
+    return (s, "system") if s is not None else (None, None)
 
 
 def ensure_default_fonts(*, allow_download: bool = False) -> dict[str, Any]:
@@ -243,18 +257,59 @@ def load_image_font(
     raise RuntimeError(f"无法加载字体 {path}: {last_err}")
 
 
+def _source_label(src: str | None) -> str:
+    return {
+        "user": "配置路径",
+        "bundled": "插件 assets/fonts",
+        "system": "系统字体",
+    }.get(src or "", "未找到")
+
+
 def font_status(
     *, user_path: str | None = None, allow_download: bool = False
 ) -> dict[str, Any]:
-    """WebUI / meta 用。"""
-    st = ensure_default_fonts(allow_download=False)
+    """WebUI / meta 用：路径 + 来源，方便面板展示「当前用了哪套字体」。"""
+    _ = allow_download
+    sans_path, sans_src = resolve_font_path_with_source(
+        mono=False, user_path=user_path
+    )
+    mono_path, mono_src = resolve_font_path_with_source(
+        mono=True, user_path=user_path
+    )
+    # mono 找不到时 load 会回落 sans；状态里也体现这一点
+    if mono_path is None and sans_path is not None:
+        mono_path, mono_src = sans_path, sans_src
+
     user = resolve_user_font(user_path)
+    ok = sans_path is not None
     return {
-        **st,
+        "ok": ok,
+        "bundled_dir": str(_BUNDLED_DIR),
+        "sans": str(sans_path) if sans_path else None,
+        "sans_name": sans_path.name if sans_path else None,
+        "sans_source": sans_src,
+        "sans_source_label": _source_label(sans_src),
+        "mono": str(mono_path) if mono_path else None,
+        "mono_name": mono_path.name if mono_path else None,
+        "mono_source": mono_src,
+        "mono_source_label": _source_label(mono_src),
         "user_font": str(user) if user else None,
+        "user_font_name": user.name if user else None,
+        "active_label": (
+            f"{_source_label(sans_src)} · {sans_path.name}" if sans_path else "未找到中文字体"
+        ),
+        "downloaded": False,
+        "auto_download": False,
+        "error": None
+        if ok
+        else (
+            "未找到可用中文字体。"
+            f"请将字体放到 {_BUNDLED_DIR}，或配置 card_font_path。"
+            "未配置时出卡会回退纯文本。"
+        ),
         "hint": (
-            f"可选：将 CJK 字体（如 NotoSansSC-Regular.otf）放入 {_BUNDLED_DIR}，"
-            "或设置 card_font_path。插件不会自动下载字体。"
+            f"解析顺序：card_font_path → {_BUNDLED_DIR} → 系统 CJK。"
+            "不会自动下载。"
         ),
     }
 

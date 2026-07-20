@@ -217,7 +217,9 @@ class WebApi:
         # 刷新引擎状态给前端
         from . import card_render
 
-        result["engine"] = card_render.engine_status()
+        result["engine"] = card_render.engine_status(
+            user_font_path=str(_cfg_get(getattr(self.plugin, "config", None), "card_font_path", "") or "") or None
+        )
         return json_response(result)
 
     async def render_preview(self):
@@ -227,13 +229,7 @@ class WebApi:
         from . import card_render
 
         try:
-            try:
-                payload = await request.json(default={})
-            except TypeError:
-                # 旧 bridge 可能不支持 default=
-                payload = await request.json()
-            if payload is None:
-                payload = {}
+            payload = await request.json(default={})
             if not isinstance(payload, dict):
                 return error_response("请求体必须是对象", status_code=400)
 
@@ -243,13 +239,7 @@ class WebApi:
                     f"kind 必须是 {'/'.join(card_render.CARD_KINDS)}", status_code=400
                 )
 
-            # 样式：请求 style 覆盖 + 否则读插件 config
-            try:
-                cfg_view = dict(public_config(self.plugin))
-            except Exception as e:
-                logger.warning("public_config in preview failed: %s", e)
-                cfg_view = dict(card_render.config_defaults())
-
+            cfg_view = dict(public_config(self.plugin))
             style_patch = payload.get("style")
             if isinstance(style_patch, dict):
                 alias = {
@@ -270,7 +260,6 @@ class WebApi:
                     if mapped in CONFIG_KEYS or k in CONFIG_KEYS:
                         cfg_view[mapped] = v
 
-            # 顶层也允许直接传 card_custom_css
             if payload.get("card_custom_css") is not None:
                 cfg_view["card_custom_css"] = payload.get("card_custom_css")
             if payload.get("card_font_path") is not None:
@@ -286,15 +275,8 @@ class WebApi:
             if not isinstance(data, dict):
                 data = card_render.sample_payload(kind)
 
-            prefer = payload.get("engine")
-            if prefer not in ("pillow", "playwright", None, ""):
-                prefer = None
             result = card_render.render_card(
-                kind,
-                data,
-                style,
-                formula_mode=formula_mode,
-                prefer_engine=prefer or "pillow",
+                kind, data, style, formula_mode=formula_mode
             )
             body: dict[str, Any] = {
                 "ok": result.ok,
@@ -304,15 +286,9 @@ class WebApi:
                 "error": result.error,
                 "fallback_text": result.fallback_text,
                 "font_path": result.font_path,
+                "engine_status": card_render.engine_status(),
+                "style": card_render.style_to_public(style),
             }
-            try:
-                body["engine_status"] = card_render.engine_status()
-            except Exception:
-                body["engine_status"] = {"pillow": card_render.pillow_available()}
-            try:
-                body["style"] = card_render.style_to_public(style)
-            except Exception:
-                body["style"] = {}
             if result.ok and result.png:
                 body.update({
                     "mime": result.mime,
@@ -1051,11 +1027,12 @@ def public_config(plugin) -> dict[str, Any]:
     except Exception:
         out["render_kinds_list"] = list(card_render.DEFAULT_KINDS)
     try:
-        out["render_engine"] = card_render.engine_status()
+        out["render_engine"] = card_render.engine_status(
+            user_font_path=str(out.get("card_font_path") or "") or None
+        )
     except Exception:
         out["render_engine"] = {
             "pillow": False,
-            "playwright": False,
             "install_hint": "pip install Pillow",
             "installable": [],
         }

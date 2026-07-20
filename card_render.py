@@ -3,14 +3,11 @@
 能力：
 1. 结构卡（list / pending / status / permission / routes）
 2. 对话卡（message）：Markdown 子集
-3. **自定义 CSS**：`card_custom_css` 完整可编辑；HTML 引擎（Playwright 可选）完整生效；
-   Pillow 引擎解析 CSS 变量（--card-*）与基础字号
-4. **可移植字体**：见 font_manager（card_font_path → assets/fonts → 系统 CJK；无则回退文本，不自动下载）
+3. **自定义 CSS**：`card_custom_css`；Pillow 解析 `--card-*` 变量与基础排版
+4. **字体**：见 font_manager（card_font_path → assets/fonts → 系统 CJK；无则回退文本）
 
 可选依赖：
     pip install Pillow
-    # 完整 CSS 保真（推荐）：
-    pip install playwright && playwright install chromium
 """
 
 from __future__ import annotations
@@ -18,7 +15,6 @@ from __future__ import annotations
 import html
 import io
 import re
-import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -75,9 +71,8 @@ DEFAULT_KINDS = ("session_list", "pending", "status", "permission", "message")
 
 # 默认 CSS：用户可在 WebUI 整段覆盖 / 追加。变量名是 Pillow 引擎的契约。
 DEFAULT_CARD_CSS = """\
-/* HAPI Connector 推送卡片默认样式
- * 可自由改写。HTML 引擎（Playwright）完整生效；
- * Pillow 引擎识别下方 --card-* 变量与 font-size/padding。
+/* HAPI Connector 推送卡片默认样式（当前生效时可在 WebUI 直接改）
+ * Pillow 识别下方 --card-* 变量与基础字号/内边距。
  */
 :root {
   --card-bg: #faf8f2;
@@ -349,29 +344,11 @@ def pillow_available() -> bool:
     return _HAS_PILLOW
 
 
-def playwright_available() -> bool:
-    try:
-        import playwright  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
-def engine_status() -> dict[str, Any]:
-    fonts = font_manager.font_status()
-    # 默认快路径是 Pillow；完整 CSS 才上 Playwright
-    default = "pillow" if _HAS_PILLOW else ("playwright" if playwright_available() else None)
+def engine_status(user_font_path: str | None = None) -> dict[str, Any]:
+    fonts = font_manager.font_status(user_path=user_font_path or None)
     return {
         "pillow": _HAS_PILLOW,
-        "playwright": playwright_available(),
-        "formula_engine": False,
-        "engines": {
-            "card": default,
-            "fast_path": "pillow" if _HAS_PILLOW else None,
-            "full_css": "playwright" if playwright_available() else "pillow-vars",
-            "formula": None,
-        },
+        "engines": {"card": "pillow" if _HAS_PILLOW else None},
         "fonts": fonts,
         "installable": font_manager.installable_items(),
         "install_hint": _install_hint(),
@@ -673,67 +650,41 @@ def render_card(
     style: CardStyle | None = None,
     *,
     formula_mode: str = "off",
-    prefer_engine: str | None = None,
 ) -> RenderResult:
+    """首版固定 Pillow 出卡（低延迟）。无 Pillow / 无字体时 ok=False，调用方回退文本。"""
     t0 = time.perf_counter()
     kind = kind if kind in CARD_KINDS else "session_list"
     data = data or sample_payload(kind)
     style = (style or CardStyle()).resolved()
     fallback = payload_to_fallback_text(kind, data)
 
-    if not _HAS_PILLOW and not playwright_available():
+    if not _HAS_PILLOW:
         return RenderResult(
             ok=False,
             ms=(time.perf_counter() - t0) * 1000,
             engine="none",
-            error="未安装渲染引擎。可选：pip install Pillow 或 playwright",
+            error="未安装 Pillow。可在 WebUI 勾选安装，或 pip install Pillow",
             kind=kind,
             fallback_text=fallback,
         )
 
+    font_file = font_manager.resolve_font_path(
+        mono=style.mono,
+        user_path=style.font_path or None,
+    )
     try:
-        # 字体解析提前：失败时给出可移植提示，而不是出方块字
-        font_file = font_manager.resolve_font_path(
-            mono=style.mono,
-            user_path=style.font_path or None,
+        png, w, h = _render_with_pillow(
+            kind, data, style, formula_mode=formula_mode
         )
-        engine_order = _engine_order(prefer_engine, style)
-        last_err: str | None = None
-        for eng in engine_order:
-            try:
-                if eng == "playwright":
-                    html_doc, font_file = build_card_html(
-                        kind, data, style, formula_mode=formula_mode
-                    )
-                    png, w, h = _render_with_playwright(html_doc, style)
-                elif eng == "pillow":
-                    png, w, h = _render_with_pillow(
-                        kind, data, style, formula_mode=formula_mode
-                    )
-                else:
-                    continue
-                ms = (time.perf_counter() - t0) * 1000
-                return RenderResult(
-                    ok=True,
-                    png=png,
-                    width=w,
-                    height=h,
-                    bytes_len=len(png),
-                    ms=ms,
-                    engine=eng,
-                    kind=kind,
-                    fallback_text=fallback,
-                    font_path=str(font_file or ""),
-                )
-            except Exception as e:
-                last_err = f"{eng}: {e}"
-                logger.warning("card render engine %s failed: %s", eng, e)
-                continue
+        ms = (time.perf_counter() - t0) * 1000
         return RenderResult(
-            ok=False,
-            ms=(time.perf_counter() - t0) * 1000,
-            engine="none",
-            error=last_err or "所有渲染引擎均失败",
+            ok=True,
+            png=png,
+            width=w,
+            height=h,
+            bytes_len=len(png),
+            ms=ms,
+            engine="pillow",
             kind=kind,
             fallback_text=fallback,
             font_path=str(font_file or ""),
@@ -743,33 +694,12 @@ def render_card(
         return RenderResult(
             ok=False,
             ms=(time.perf_counter() - t0) * 1000,
-            engine="none",
+            engine="pillow",
             error=str(e),
             kind=kind,
             fallback_text=fallback,
+            font_path=str(font_file or ""),
         )
-
-
-def _engine_order(prefer: str | None, style: CardStyle | None = None) -> list[str]:
-    """引擎选择：
-
-    - 显式 prefer 优先
-    - 有自定义 CSS 且 Playwright 可用 → 完整 CSS 保真
-    - 否则 Pillow 低延迟快路径（结构卡 / 对话卡统一）
-    """
-    order: list[str] = []
-    if prefer in ("playwright", "pillow"):
-        order.append(prefer)
-
-    has_custom = bool(style and (style.custom_css or "").strip())
-    if has_custom and playwright_available() and "playwright" not in order:
-        order.append("playwright")
-    if _HAS_PILLOW and "pillow" not in order:
-        order.append("pillow")
-    # 无自定义 CSS 时 Playwright 仅作兜底（更慢）
-    if playwright_available() and "playwright" not in order:
-        order.append("playwright")
-    return order
 
 
 def render_meta() -> dict[str, Any]:
@@ -1083,52 +1013,6 @@ def _inline(s: str) -> str:
 
 
 # ──── Playwright 引擎 ────
-
-
-def _render_with_playwright(html_doc: str, style: CardStyle) -> tuple[bytes, int, int]:
-    from playwright.sync_api import sync_playwright  # type: ignore
-
-    # Playwright sync 在已有 asyncio loop 里可能炸；用临时线程
-    import concurrent.futures
-
-    def _run():
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                args=["--no-sandbox", "--disable-dev-shm-usage"]
-            )
-            try:
-                page = browser.new_page(
-                    viewport={"width": style.width + 40, "height": 200},
-                    device_scale_factor=2,
-                )
-                page.set_content(html_doc, wait_until="load")
-                # 等待字体
-                page.evaluate("() => document.fonts.ready")
-                card = page.locator("#card")
-                box = card.bounding_box()
-                if not box:
-                    raise RuntimeError("无法测量卡片尺寸")
-                png = card.screenshot(type="png")
-                return png, int(box["width"]), int(box["height"])
-            finally:
-                browser.close()
-
-    # 若在 running loop 中，丢到线程
-    try:
-        import asyncio
-
-        asyncio.get_running_loop()
-        in_loop = True
-    except RuntimeError:
-        in_loop = False
-
-    if in_loop:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            return ex.submit(_run).result(timeout=60)
-    return _run()
-
-
-# ──── Pillow 引擎 ────
 
 
 def _hex_to_rgb(h: str) -> tuple[int, int, int]:

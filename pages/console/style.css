@@ -2259,3 +2259,60 @@ input[type="range"] {
   font-family: var(--font-ui);
 }
 .muted { color: var(--muted); }
+
+
+/* 字体解析状态（交互优化 · 推送呈现） */
+.font-status {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.font-status.is-ok {
+  border-color: color-mix(in srgb, var(--cursor) 45%, var(--line-strong));
+  background: var(--cursor-dim);
+}
+.font-status.is-bad {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--line-strong));
+  background: var(--danger-bg);
+}
+.font-status-title {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.font-status-kv {
+  display: grid;
+  grid-template-columns: 4.5em 1fr;
+  gap: 6px 10px;
+  margin: 0;
+  font-size: 12px;
+  align-items: start;
+}
+.font-status-kv dt {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 600;
+}
+.font-status-kv dd {
+  margin: 0;
+  min-width: 0;
+}
+.font-status-kv .tag {
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.font-path {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--muted);
+  word-break: break-all;
+}
+.font-status-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  line-height: 1.4;
+}
