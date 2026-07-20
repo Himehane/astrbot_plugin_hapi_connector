@@ -394,6 +394,15 @@ button {
   max-width: 52ch;
 }
 
+.card-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
 .btn {
   border: 1px solid var(--line-strong);
   background: var(--surface);
@@ -2205,4 +2214,31 @@ input[type="range"] {
 
 .poke-action-card.is-on .pa-label {
   color: var(--cursor-ink);
+}
+
+
+/* 可选安装勾选 */
+.install-opt {
+  align-items: flex-start;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.install-opt.is-ready {
+  border-color: color-mix(in srgb, var(--cursor) 35%, var(--line));
+}
+.install-opt .install-meta {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.install-opt .install-desc {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 11px;
+  margin-top: 2px;
+  line-height: 1.4;
 }

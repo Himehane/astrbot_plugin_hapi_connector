@@ -38,8 +38,7 @@ const UMO = {
 const PAGE_META = {
   overview: { title: "概览", desc: "连接状态与常用设置" },
   sessions: { title: "会话管理", desc: "Session 管理、通知投递与推送窗口设置" },
-  hub: { title: "HAPI 网页", desc: "用已配置的 endpoint / token 打开官方 HAPI Web（可内嵌）" },
-  interact: { title: "交互优化", desc: "快捷操作、审批体验与推送呈现（CSS / 对话卡 / 预览）" },
+  interact: { title: "交互优化", desc: "戳一戳、快捷前缀与推送呈现（卡片样式 / 预览）" },
   help: { title: "命令帮助", desc: "按功能分类的 /hapi 指令说明" },
   settings: { title: "设置", desc: "对应插件 _conf_schema.json 全部配置项" },
 };
@@ -445,7 +444,6 @@ function createStore() {
     card_mono: true,
     card_custom_css: "",
     card_font_path: "",
-    card_font_auto_download: true,
     render_engine: { pillow: false, playwright: false, install_hint: "pip install Pillow" },
     card_style: {
       preset: "terminal_light",
@@ -612,14 +610,6 @@ const state = {
   helpTopic: "session",
   helpQuery: "",
   data: null,
-  hub: {
-    autologin: true,
-    launch: null, // last hub/launch payload
-    loadedUrl: null, // last launch url (token if autologin)
-    error: null,
-    /** 默认 false：跨源 iframe 嵌 HAPI SPA 常 CORS 失败，优先新窗口 */
-    preferEmbed: false,
-  },
 };
 
 function ruleText() {
@@ -723,12 +713,13 @@ function closeSidebar() {
 }
 
 function go(page) {
+  // 旧书签 #hub 等：回落到概览
+  if (page === "hub") page = "overview";
   state.page = page;
   setPageChrome(page);
   closeSidebar();
   if (page === "overview") renderOverview();
   else if (page === "sessions") renderSessions();
-  else if (page === "hub") renderHub();
   else if (page === "interact") renderInteract();
   else if (page === "help") renderHelp();
   else if (page === "settings") renderSettings();
@@ -787,7 +778,7 @@ function renderOverview() {
       <div class="card-head">
         <div>
           <h2>常用设置</h2>
-          <p class="sub">改完即时生效（demo）；完整项在「设置」</p>
+          <p class="sub">改完立即写入插件配置；完整项在「设置」</p>
         </div>
         <button type="button" class="linkish" data-go="settings">全部设置 →</button>
       </div>
@@ -843,9 +834,13 @@ function renderOverview() {
       <div class="card-head">
         <div>
           <h2>连接信息</h2>
-          <p class="sub">来自<strong>插件运行时</strong>配置与 SSE 状态（不是网页直连 HAPI）</p>
+          <p class="sub">插件当前配置与 SSE 状态</p>
         </div>
-        <button type="button" class="linkish" data-go="settings">改连接 →</button>
+        <div class="card-head-actions">
+          <button type="button" class="btn btn-sm" id="btn-open-hapi">打开 HAPI</button>
+          <button type="button" class="btn btn-sm" id="btn-reconnect">重连</button>
+          <button type="button" class="linkish" data-go="settings">改连接 →</button>
+        </div>
       </div>
       <dl class="kv">
         <dt>Endpoint</dt><dd>${esc(cfg.hapi_endpoint || c.endpoint || c.endpoint_host || "—")}</dd>
@@ -856,22 +851,6 @@ function renderOverview() {
         <dt>CF Access</dt><dd>${cfg.cf_access_enabled ? "已启用" : "未启用"}</dd>
         ${c.conn_error ? `<dt>最近错误</dt><dd>${esc(c.conn_error)}</dd>` : ""}
       </dl>
-    </div>
-
-    <div class="card">
-      <div class="card-head">
-        <div>
-          <h2>快捷操作</h2>
-          <p class="sub">${liveMode ? "操作走插件 API" : "本地 mock（无 bridge）"}</p>
-        </div>
-      </div>
-      <div class="quick-actions">
-        <button type="button" class="btn" data-go="sessions">管理会话 / 推送</button>
-        <button type="button" class="btn" data-go="settings">打开设置</button>
-        <button type="button" class="btn" id="btn-reconnect">按配置重连 HAPI</button>
-        ${liveMode ? "" : `<button type="button" class="btn" id="btn-sim-hibernate">模拟 SSE 休眠</button>
-        <button type="button" class="btn" id="btn-sim-wake">模拟唤醒</button>`}
-      </div>
     </div>
   `;
 
@@ -911,8 +890,17 @@ function renderOverview() {
   $$("#view-overview [data-go]").forEach((b) => {
     b.onclick = () => go(b.dataset.go);
   });
+  $("#btn-open-hapi")?.addEventListener("click", async () => {
+    try {
+      const launch = await fetchHubLaunch({ autologin: true });
+      if (!launch?.url) return toast("请先在设置中填写 HAPI 地址");
+      openHubUrl(launch.url);
+    } catch (e) {
+      toast("打开失败: " + (e.message || e));
+    }
+  });
   $("#btn-reconnect")?.addEventListener("click", async () => {
-    if (!confirm("按当前已保存配置重建 HAPI 客户端并重启 SSE？")) return;
+    if (!confirm("按当前已保存配置重建连接并重启 SSE？")) return;
     try {
       if (liveMode && api) {
         const res = await api.reconnect();
@@ -920,20 +908,12 @@ function renderOverview() {
         await refresh();
       } else {
         store.wake();
-        toast("demo：已模拟唤醒");
+        toast("已模拟重连");
         await refresh();
       }
     } catch (e) {
       toast("重连失败: " + (e.message || e));
     }
-  });
-  $("#btn-sim-hibernate")?.addEventListener("click", async () => {
-    store.hibernate();
-    await refresh();
-  });
-  $("#btn-sim-wake")?.addEventListener("click", async () => {
-    store.wake();
-    await refresh();
   });
 }
 
@@ -1321,7 +1301,7 @@ const RENDER_KIND_LABELS = {
 };
 
 const DEFAULT_CARD_CSS_FALLBACK = `/* 推送卡片默认 CSS（可整段覆盖）
- * Playwright=完整生效；Pillow=识别 --card-* 变量（低延迟快路径）
+ * Pillow 识别 --card-* 变量与基础排版
  */
 :root {
   --card-bg: #faf8f2;
@@ -1395,7 +1375,6 @@ function interactRenderState(cfg) {
     card_mono: cfg.card_mono !== false,
     card_custom_css: cfg.card_custom_css || "",
     card_font_path: cfg.card_font_path || "",
-    card_font_auto_download: cfg.card_font_auto_download !== false,
     default_css: metaCss,
   };
 }
@@ -1536,7 +1515,6 @@ function collectRenderPatchFromForm() {
     card_mono: Boolean($("#ix-mono")?.checked),
     card_custom_css: $("#ix-css")?.value ?? "",
     card_font_path: ($("#ix-font-path")?.value || "").trim(),
-    card_font_auto_download: Boolean($("#ix-font-dl")?.checked),
   };
 }
 
@@ -1561,16 +1539,18 @@ function renderInteract() {
   const cfg = state.data.config;
   const rs = interactRenderState(cfg);
   const engine = cfg.render_engine || {};
+  // installable 以 engine 为准，meta 兜底
+  if (!engine.installable?.length && state.meta?.render?.installable) {
+    engine.installable = state.meta.render.installable;
+  }
   const pillowOk = Boolean(engine.pillow);
   const pwOk = Boolean(engine.playwright);
   const fonts = (engine.fonts || {});
   const fontOk = Boolean(fonts.sans || fonts.user_font);
-  const engineTag = pwOk
-    ? "Playwright · 完整 CSS"
-    : pillowOk
-      ? "Pillow · 低延迟"
-      : "未装引擎 · 回退文本";
-  const engineTagCls = pwOk || pillowOk ? "tag-ok" : "tag-muted";
+  const engineTag = pillowOk
+    ? "Pillow 可用"
+    : "未装 Pillow · 回退文本";
+  const engineTagCls = pillowOk ? "tag-ok" : "tag-muted";
   const cssValue = rs.card_custom_css || "";
   const kindChecks = Object.keys(RENDER_KIND_LABELS)
     .map((k) => {
@@ -1635,20 +1615,17 @@ function renderInteract() {
       <div class="card-head">
         <div>
           <h2>推送呈现</h2>
-          <p class="sub">结构卡与 <strong>Agent 对话</strong> 同一套卡片管线。Pillow=低延迟快路径；Playwright=完整自定义 CSS。字体走插件 assets/缓存，可移植。</p>
+          <p class="sub">结构卡与 <strong>Agent 对话</strong> 同一套卡片管线（Pillow 出图）。字体：card_font_path / assets/fonts / 系统 CJK；可下方勾选安装，不自动下载。</p>
         </div>
         <span class="tag ${engineTagCls}">${engineTag}</span>
       </div>
 
       ${
-        pillowOk || pwOk
+        pillowOk
           ? fontOk
             ? ""
-            : `<div class="alert-inline">尚未解析到中文字体。首次出卡可自动下载 Noto Sans SC 到缓存；也可把字体放到插件 <code>assets/fonts/</code> 或填写字体路径。系统字体仅作兜底，不保证有。</div>`
-          : `<div class="alert-inline">实卡预览与聊天出图需要可选依赖：
-            <code>pip install Pillow</code>（快路径）或
-            <code>pip install playwright && playwright install chromium</code>（完整 CSS）。
-            未安装时配置仍可保存，运行时自动纯文本。</div>`
+            : `<div class="alert-inline">尚未解析到中文字体。可在下方勾选「中文字体」安装到 <code>assets/fonts/</code>，或填写字体路径 / 使用系统 CJK。都没有则回退纯文本。</div>`
+          : `<div class="alert-inline">出卡需要 Pillow。可在下方勾选安装，或手动 <code>pip install Pillow</code>。未安装时配置可保存，运行时回退纯文本。</div>`
       }
 
       <div class="render-layout">
@@ -1731,15 +1708,35 @@ function renderInteract() {
               <div class="field-label">自定义 CSS</div>
               <button type="button" class="btn btn-ghost" id="ix-load-default-css" style="padding:2px 8px;font-size:12px">填入默认 CSS</button>
             </div>
-            <p class="field-help">完整可编辑。Playwright 完整生效；Pillow 主要吃 <code>--card-*</code> 变量。配色滑块会注入变量覆盖，与 CSS 可叠加。</p>
+            <p class="field-help">完整可编辑。Pillow 引擎识别 <code>--card-*</code> 变量与基础排版；配色滑块会注入变量覆盖，可与 CSS 叠加。</p>
             <textarea id="ix-css" class="ctrl render-css-editor" rows="12" spellcheck="false" placeholder="留空=内置默认样式；点上方「填入默认 CSS」再改">${esc(cssValue)}</textarea>
           </div>
 
           <div class="field">
             <div class="field-label">字体路径（可选）</div>
-            <p class="field-help">绝对路径或相对插件根的 .ttf/.otf/.ttc。留空：assets/fonts → 缓存自动下载 → 系统兜底。</p>
+            <p class="field-help">绝对路径或相对插件根的 .ttf/.otf/.ttc。留空：assets/fonts → 系统已装 CJK。都没有则回退文本。</p>
             <input id="ix-font-path" class="ctrl" type="text" value="${attr(rs.card_font_path)}" placeholder="assets/fonts/NotoSansSC-Regular.otf" />
-            <label class="chk" style="margin-top:8px"><input id="ix-font-dl" type="checkbox" ${rs.card_font_auto_download ? "checked" : ""}/> 首次出卡自动下载中文字体到缓存</label>
+          </div>
+
+          <div class="field">
+            <div class="field-label">可选安装（勾选后点安装）</div>
+            <p class="field-help">勾选后点「安装所选」。字体 → 插件 <code>assets/fonts/</code>；Pillow → pip。两项可分开选。</p>
+            <div class="chk-grid" id="ix-install-grid">
+              ${(engine.installable || []).map((it) => {
+                const mark = it.installed ? "已就绪" : "未安装";
+                const detail = it.detail ? ` · ${it.detail}` : "";
+                return `<label class="chk install-opt ${it.installed ? "is-ready" : ""}">
+                  <input type="checkbox" data-install-id value="${attr(it.id)}" ${it.installed ? "" : ""}/>
+                  <span><strong>${esc(it.label)}</strong>
+                  <span class="install-meta">${esc(mark)}${esc(detail)}</span>
+                  <span class="install-desc">${esc(it.desc || "")}</span></span>
+                </label>`;
+              }).join("") || `<span class="field-help">加载安装选项失败</span>`}
+            </div>
+            <div class="render-actions" style="margin-top:10px">
+              <button type="button" class="btn" id="ix-install-selected">安装所选</button>
+            </div>
+            <div id="ix-install-log" class="field-help" style="margin-top:8px;white-space:pre-wrap"></div>
           </div>
 
           <div class="render-actions">
@@ -1757,7 +1754,7 @@ function renderInteract() {
                 .join("")}
             </select>
           </div>
-          <p class="field-help">DOM 预览只反映配色 token。点「生成实卡」走服务端（Pillow 快路径 / Playwright 完整 CSS），与聊天发出一致，中文应正常显示。</p>
+          <p class="field-help">DOM 预览只反映配色 token。点「生成实卡」走服务端 Pillow，与聊天发出一致。</p>
           <div id="ix-dom-preview" class="render-dom-host"></div>
           <div class="render-actions" style="margin-top:12px">
             <button type="button" class="btn btn-primary" id="ix-gen-card">生成实卡预览</button>
@@ -1836,8 +1833,44 @@ function renderInteract() {
       if ($("#ix-brand")) $("#ix-brand").checked = true;
       if ($("#ix-css")) $("#ix-css").value = "";
       if ($("#ix-font-path")) $("#ix-font-path").value = "";
-      if ($("#ix-font-dl")) $("#ix-font-dl").checked = true;
       bindPaint();
+    });
+
+  $("#ix-install-selected") &&
+    ($("#ix-install-selected").onclick = async () => {
+      const boxes = [...document.querySelectorAll("[data-install-id]")];
+      const ids = boxes.filter((el) => el.checked).map((el) => el.value);
+      const log = $("#ix-install-log");
+      if (!ids.length) {
+        if (log) log.textContent = "请先勾选要安装的项（中文字体 / Pillow）。";
+        return;
+      }
+      if (log) log.textContent = "安装中… " + ids.join(", ");
+      const btn = $("#ix-install-selected");
+      if (btn) btn.disabled = true;
+      try {
+        let res;
+        if (liveMode && api) {
+          res = await api.renderInstall({ ids });
+        } else {
+          res = { ok: false, message: "本地 mock 无法安装依赖；请在 AstrBot 插件面板内操作。" };
+        }
+        const lines = [];
+        lines.push(res?.message || (res?.ok ? "完成" : "失败"));
+        for (const r of res?.results || []) {
+          lines.push(`· ${r.id}: ${r.message || (r.ok ? "ok" : r.error || "fail")}`);
+        }
+        if (log) log.textContent = lines.join("\n");
+        toast(res?.ok ? "安装完成" : "安装有失败，见日志");
+        // 刷新引擎状态
+        await refresh({ silent: true });
+        if (state.page === "interact") renderInteract();
+      } catch (e) {
+        if (log) log.textContent = "安装失败: " + (e.message || e);
+        toast("安装失败: " + (e.message || e));
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     });
 
   $("#ix-save-render") &&
@@ -2421,284 +2454,52 @@ function openDetail(id) {
   });
 }
 
-/* ---------- HAPI Web（官方 SPA：默认新窗口；iframe 跨源常因 CORS 失败） ---------- */
+/* ---------- 打开官方 HAPI（连接信息按钮） ---------- */
 
-/** 安全复制：插件 iframe 里 clipboard API / 权限策略常不可用 */
 async function copyTextSafe(text) {
-  const t = String(text || "");
-  if (!t) throw new Error("空内容");
+  const s = String(text || "");
+  if (!s) throw new Error("空内容");
   try {
     if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(t);
+      await navigator.clipboard.writeText(s);
       return;
     }
-  } catch (_) {
-    /* fall through */
-  }
+  } catch (_) {}
   const ta = document.createElement("textarea");
-  ta.value = t;
+  ta.value = s;
   ta.setAttribute("readonly", "");
   ta.style.cssText = "position:fixed;left:-9999px;top:0";
   document.body.appendChild(ta);
   ta.select();
   const ok = document.execCommand("copy");
   ta.remove();
-  if (!ok) throw new Error("execCommand copy failed");
+  if (!ok) throw new Error("copy failed");
 }
 
 function openHubUrl(url) {
   if (!url) {
-    toast("尚无启动链接");
+    toast("没有可用链接");
     return false;
   }
   const w = window.open(url, "_blank", "noopener,noreferrer");
   if (!w) {
-    toast("弹窗被拦截：请允许本站弹窗，或改用「复制链接」后在浏览器粘贴打开");
+    toast("弹窗被拦截，请允许弹窗或手动打开 HAPI 地址");
     return false;
   }
   return true;
 }
 
-function hubCrossOriginHint(launch) {
-  try {
-    const origin = launch?.origin || "";
-    if (!origin) return null;
-    const hubOrigin = new URL(origin).origin;
-    const pageOrigin = window.location.origin;
-    if (hubOrigin !== pageOrigin) {
-      return (
-        `HAPI（${hubOrigin}）与本管理面板（${pageOrigin}）不同源。` +
-        "浏览器同源策略下，在 AstrBot 插件页里 iframe 嵌官方 HAPI SPA 常会 CORS 拦截模块脚本（assets/*.js），页面会空白。" +
-        "请用「新窗口打开」——这是推荐且可靠的方式。"
-      );
-    }
-  } catch (_) {
-    /* ignore */
-  }
-  return null;
-}
-
-async function fetchHubLaunch() {
+async function fetchHubLaunch(opts = {}) {
+  const autologin = opts.autologin !== false;
   if (liveMode && api) {
-    return api.hubLaunch({ autologin: state.hub.autologin });
+    return api.hubLaunch({ autologin });
   }
-  // mock / 本地预览
   const cfg = state.data?.config || {};
   const endpoint = String(cfg.hapi_endpoint || "http://127.0.0.1:3006").replace(/\/$/, "");
-  const tokenConfigured = Boolean(cfg.access_token_configured);
-  const origin = endpoint;
-  const page = origin + "/";
-  const autologin = state.hub.autologin && tokenConfigured;
-  const mockToken = "demo-token:default";
-  let url = page + "?hub=" + encodeURIComponent(origin);
-  if (autologin) url += "&token=" + encodeURIComponent(mockToken);
-  return {
-    ok: true,
-    url,
-    url_display: page,
-    origin,
-    path: "/",
-    autologin,
-    token_configured: tokenConfigured,
-    loopback: /127\.0\.0\.1|localhost/i.test(endpoint),
-    warnings: [
-      "本地预览（无 bridge）：使用 mock 启动链。",
-      ...(tokenConfigured
-        ? ["自动登录会把 token 写入启动 URL（官方 HAPI 会尽快剥离）。"]
-        : ["未配置 token：只能打开登录页。"]),
-    ],
-    note: "HAPI Web 支持 ?token= / ?hub=；跨源时请用新窗口打开。",
-  };
-}
-
-function renderHubEmpty(message, launch) {
-  const wrap = $("#hub-frame-wrap");
-  if (!wrap) return;
-  const L = launch || state.hub.launch || {};
-  const url = state.hub.loadedUrl || L.url || "";
-  const safe = L.url_display || L.origin || "";
-  wrap.innerHTML = `
-    <div class="hub-placeholder empty hub-open-card">
-      <div class="hub-open-title">HAPI 官方网页</div>
-      <p class="hub-open-desc">${esc(message || "请在新窗口打开完整 HAPI Web（会话列表、终端、文件等）。")}</p>
-      <div class="hub-open-url mono">${esc(safe || "—")}</div>
-      <div class="hub-open-actions">
-        <button type="button" class="btn btn-primary" id="hub-main-open">新窗口打开</button>
-        <button type="button" class="btn" id="hub-main-copy">复制启动链接</button>
-        <button type="button" class="btn" id="hub-try-embed">尝试面板内嵌（实验）</button>
-      </div>
-      <p class="hub-open-foot">内嵌仅在 HAPI 与 AstrBot 同源、且未禁止 iframe 时可用；跨 IP/端口几乎必定失败。</p>
-    </div>`;
-  $("#hub-main-open")?.addEventListener("click", () => openHubUrl(url));
-  $("#hub-main-copy")?.addEventListener("click", async () => {
-    try {
-      await copyTextSafe(url);
-      toast("已复制启动链接（含 token 时请勿外传）");
-    } catch {
-      toast("复制失败，请用工具栏按钮或手动复制地址栏");
-    }
-  });
-  $("#hub-try-embed")?.addEventListener("click", () => {
-    if (!url) return toast("尚无启动链接");
-    state.hub.preferEmbed = true;
-    mountHubIframe(url);
-  });
-}
-
-function mountHubIframe(url) {
-  const wrap = $("#hub-frame-wrap");
-  if (!wrap) return;
-  wrap.innerHTML = "";
-  const banner = document.createElement("div");
-  banner.className = "hub-embed-banner";
-  banner.innerHTML = `
-    <span>面板内嵌为实验功能。若下方空白或控制台 CORS 报错，请改用新窗口。</span>
-    <button type="button" class="btn btn-sm" id="hub-embed-open">新窗口打开</button>
-    <button type="button" class="btn btn-sm" id="hub-embed-exit">退出内嵌</button>`;
-  wrap.appendChild(banner);
-  $("#hub-embed-open")?.addEventListener("click", () => openHubUrl(url));
-  $("#hub-embed-exit")?.addEventListener("click", () => {
-    state.hub.preferEmbed = false;
-    state.hub.loadedUrl = url;
-    renderHubEmpty(null, state.hub.launch);
-  });
-
-  const iframe = document.createElement("iframe");
-  iframe.className = "hub-iframe";
-  iframe.title = "HAPI Web（实验内嵌）";
-  iframe.src = url;
-  // 不声明 clipboard-*：AstrBot 插件 iframe 权限策略常不支持，会抛 DOMException
-  iframe.setAttribute("referrerpolicy", "no-referrer");
-  iframe.setAttribute("loading", "lazy");
-  wrap.appendChild(iframe);
-  state.hub.loadedUrl = url;
-
-  // 无法可靠检测跨源 SPA 内部 CORS；给用户一个明显提示条即可
-  iframe.addEventListener("load", () => {
-    /* load 只表示文档响应，不表示模块加载成功 */
-  });
-}
-
-function renderHubToolbar(launch) {
-  const bar = $("#hub-toolbar");
-  if (!bar) return;
-  const L = launch || {};
-  const extra = hubCrossOriginHint(L);
-  const warns = [...(L.warnings || [])];
-  if (extra) warns.unshift(extra);
-  const warnHtml = warns.map((w) => `<div class="hub-warn">⚠ ${esc(w)}</div>`).join("");
-  bar.innerHTML = `
-    <div class="hub-toolbar-row">
-      <div class="hub-meta">
-        <div class="hub-origin mono">${esc(L.url_display || L.origin || "—")}</div>
-        <div class="hub-status">
-          ${L.autologin ? '<span class="tag tag-ok">自动登录</span>' : '<span class="tag tag-muted">仅打开页面</span>'}
-          ${L.token_configured ? "" : '<span class="tag tag-warn">无 token</span>'}
-          ${L.loopback ? '<span class="tag tag-warn">本机地址</span>' : ""}
-          ${extra ? '<span class="tag tag-warn">跨源 · 请用新窗口</span>' : ""}
-        </div>
-      </div>
-      <div class="hub-actions">
-        <label class="hub-check">
-          <input type="checkbox" id="hub-autologin" ${state.hub.autologin ? "checked" : ""} />
-          带 token 自动登录
-        </label>
-        <button type="button" class="btn btn-primary" id="hub-open">新窗口打开</button>
-        <button type="button" class="btn" id="hub-reload">刷新链接</button>
-        <button type="button" class="btn" id="hub-copy">复制链接（含登录）</button>
-        <button type="button" class="btn" id="hub-copy-safe">复制地址（无 token）</button>
-      </div>
-    </div>
-    ${warnHtml}
-    <p class="hub-note">${esc(
-      L.note ||
-        "用已配置的 hapi_endpoint / access_token 生成官方 HAPI Web 启动链。跨源时请新窗口打开，勿依赖面板 iframe。",
-    )}</p>
-  `;
-
-  $("#hub-autologin")?.addEventListener("change", async (e) => {
-    state.hub.autologin = Boolean(e.target.checked);
-    await loadHub(true);
-  });
-  $("#hub-reload")?.addEventListener("click", () => loadHub(true));
-  $("#hub-open")?.addEventListener("click", () => {
-    openHubUrl(state.hub.loadedUrl || L.url);
-  });
-  $("#hub-copy")?.addEventListener("click", async () => {
-    const u = state.hub.loadedUrl || L.url;
-    if (!u) return toast("尚无启动链接");
-    try {
-      await copyTextSafe(u);
-      toast("已复制（含 token 时请勿外传）");
-    } catch {
-      toast("复制失败：浏览器限制了剪贴板，请用「新窗口打开」后从地址栏复制");
-    }
-  });
-  $("#hub-copy-safe")?.addEventListener("click", async () => {
-    const u = L.url_display || L.origin;
-    if (!u) return toast("尚无地址");
-    try {
-      await copyTextSafe(u);
-      toast("已复制无 token 地址");
-    } catch {
-      toast("复制失败");
-    }
-  });
-}
-
-async function loadHub(force = false) {
-  const ph = $("#hub-placeholder");
-  if (ph) ph.textContent = "正在生成启动链接…";
-  try {
-    const launch = await fetchHubLaunch();
-    state.hub.launch = launch;
-    state.hub.error = null;
-    state.hub.loadedUrl = launch.url || null;
-    renderHubToolbar(launch);
-    if (!launch.url) {
-      renderHubEmpty("无法生成启动链接：请先在设置中填写 hapi_endpoint。", launch);
-      return;
-    }
-    // 默认不内嵌：跨源 CORS 会让 HAPI SPA 空白；用户可点「尝试面板内嵌」
-    if (state.hub.preferEmbed) {
-      if (!force && $("#hub-frame-wrap iframe") && state.hub.loadedUrl === launch.url) {
-        return;
-      }
-      mountHubIframe(launch.url);
-    } else {
-      renderHubEmpty(hubCrossOriginHint(launch), launch);
-    }
-  } catch (e) {
-    state.hub.error = e.message || String(e);
-    state.hub.launch = null;
-    renderHubToolbar({
-      url_display: state.data?.config?.hapi_endpoint || "—",
-      warnings: [state.hub.error],
-      autologin: false,
-      token_configured: Boolean(state.data?.config?.access_token_configured),
-    });
-    const wrap = $("#hub-frame-wrap");
-    if (wrap) {
-      wrap.innerHTML = `<div class="hub-placeholder empty">加载失败：${esc(state.hub.error)}
-        <div style="margin-top:10px"><button type="button" class="btn" id="hub-retry">重试</button></div>
-      </div>`;
-      $("#hub-retry")?.addEventListener("click", () => loadHub(true));
-    }
-  }
-}
-
-function renderHub() {
-  if (!state.hub.launch && !state.hub.error) {
-    renderHubToolbar({
-      url_display: state.data?.config?.hapi_endpoint || "—",
-      warnings: ["正在准备…"],
-      autologin: state.hub.autologin,
-      token_configured: Boolean(state.data?.config?.access_token_configured),
-    });
-  } else if (state.hub.launch) {
-    renderHubToolbar(state.hub.launch);
-  }
-  loadHub(false);
+  const page = endpoint + "/";
+  let url = page + "?hub=" + encodeURIComponent(endpoint);
+  if (autologin && cfg.access_token_configured) url += "&token=demo";
+  return { ok: true, url, url_display: page, origin: endpoint };
 }
 
 /* ---------- boot ---------- */
@@ -2764,11 +2565,7 @@ async function refresh(opts = {}) {
   // 自动轮询时：设置页有未保存草稿则不重绘表单，避免打断输入
   if (state.page === "overview") renderOverview();
   else if (state.page === "sessions") renderSessions();
-  else if (state.page === "hub") {
-    // 轮询时只刷新工具栏元信息，不重载 iframe（避免打断操作 / 反复带 token 加载）
-    if (!opts.silent) renderHub();
-    else if (state.hub.launch) renderHubToolbar(state.hub.launch);
-  } else if (state.page === "interact") renderInteract();
+  else if (state.page === "interact") renderInteract();
   else if (state.page === "help") renderHelp();
   else if (state.page === "settings") {
     if (!opts.silent || !state.draft) renderSettings();
