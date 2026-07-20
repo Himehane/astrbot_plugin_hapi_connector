@@ -3039,7 +3039,7 @@ def _draw_message_png(
     h1_size = max(18, int(22 * scale))
     h2_size = max(16, int(19 * scale))
     foot_size = max(12, int(13 * scale))
-    formula_fs = max(14.0, body_size * 1.05)
+    formula_fs = max(8.0, body_size * 0.52)
 
     tmp = Image.new("RGB", (width, 100), _hex_to_rgb(style.bg))
     d0 = ImageDraw.Draw(tmp)
@@ -3063,7 +3063,7 @@ def _draw_message_png(
             body,
             style=style,
             max_formula_w=content_w,
-            formula_fontsize=max(11.0, body_size * 0.82),
+            formula_fontsize=max(7.0, body_size * 0.42),
             formula_fontsize_display=formula_fs,
         )
     else:
@@ -3168,7 +3168,7 @@ def _draw_message_png(
     if style.show_brand:
         y += 14 + _text_size(d0, "hapi", font_foot)[1]
     y += pad
-    height = min(max(y, 160), 4500)
+    height = max(y, 160)
 
     bg = _hex_to_rgb(style.bg)
     fg = _hex_to_rgb(style.fg)
@@ -3202,9 +3202,7 @@ def _draw_message_png(
     y += 14
 
     for b in blocks:
-        if y > height - pad - 28:
-            draw.text((pad, y), "...", font=font_body, fill=sub_fg)
-            break
+        # 高度按内容估全，不够就在贴图处扩画布；不截断正文
         if b["type"] == "rich_line":
             parts = b.get("parts") or []
             # 同行：文字 + 行内公式，左对齐、垂直居中
@@ -3220,7 +3218,7 @@ def _draw_message_png(
                         line_h = max(line_h, im.height)
                     yy = y + max(0, (line_h - im.height) // 2)
                     if y + line_h > height - pad:
-                        new_h = min(4500, y + line_h + pad + 40)
+                        new_h = y + line_h + pad + 40
                         if new_h > height:
                             bigger = Image.new("RGB", (width, new_h), bg)
                             bigger.paste(img, (0, 0))
@@ -3257,7 +3255,7 @@ def _draw_message_png(
                     else:
                         x0 = pad
                     if y + im.height > height - pad:
-                        new_h = min(4500, y + im.height + pad + 40)
+                        new_h = y + im.height + pad + 40
                         if new_h > height:
                             bigger = Image.new("RGB", (width, new_h), bg)
                             bigger.paste(img, (0, 0))
