@@ -217,7 +217,7 @@ def _extract_codex_block(data: dict, max_len: int) -> str | None:
 
 
 def session_label_short(sid: str, sessions_cache: list[dict]) -> str:
-    """获取 session 的简短标识（用于 SSE 推送，多行格式）"""
+    """获取 session 的简短标识（用于 SSE 推送，多行格式，纯文本无 emoji）。"""
     session = None
     for s in sessions_cache:
         if s.get("id") == sid:
@@ -225,7 +225,7 @@ def session_label_short(sid: str, sessions_cache: list[dict]) -> str:
             break
 
     if not session:
-        return f"🏷️ {sid[:8]}"
+        return f"sid {sid[:8]}"
 
     meta = session.get("metadata", {})
     flavor = meta.get("flavor", "?")
@@ -240,8 +240,8 @@ def session_label_short(sid: str, sessions_cache: list[dict]) -> str:
         session.get("permissionMode") == "plan"
         or session.get("collaborationMode") == "plan"
     )
-    plan_tag = " | 📋Plan Mode" if in_plan else ""
-    return f"💬 {title}{plan_tag}\n📂 {path}\n🤖 {flavor} | 🏷️ {sid[:8]}"
+    plan_tag = " · Plan" if in_plan else ""
+    return f"{title}{plan_tag}\n{path}\n{flavor} · {sid[:8]}"
 
 
 def group_sessions_by_path(sessions: list[dict]) -> dict[str, list[dict]]:

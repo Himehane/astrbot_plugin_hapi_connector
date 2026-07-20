@@ -153,24 +153,24 @@
   "card_accent": {
     "description": "卡片强调色",
     "type": "string",
-    "default": "#1a7f4b",
+    "default": "#0f6b3c",
     "hint": "十六进制颜色；也会注入 CSS 变量 --card-accent"
   },
   "card_bg": {
     "description": "卡片背景色",
     "type": "string",
-    "default": "#faf8f2"
+    "default": "#f7f4ea"
   },
   "card_fg": {
     "description": "卡片主文字色",
     "type": "string",
-    "default": "#1c1914"
+    "default": "#14120f"
   },
   "card_font_scale": {
     "description": "卡片字号倍率（百分数，100=1.0）",
     "type": "int",
-    "default": 100,
-    "hint": "75–150"
+    "default": 112,
+    "hint": "75–150；默认 112 手机上更易读"
   },
   "card_density": {
     "description": "卡片密度",
@@ -186,7 +186,8 @@
   "card_mono": {
     "description": "卡片优先等宽字体",
     "type": "bool",
-    "default": true
+    "default": false,
+    "hint": "默认关闭；代码块仍用等宽"
   },
   "card_custom_css": {
     "description": "推送卡片自定义 CSS",

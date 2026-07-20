@@ -78,18 +78,18 @@ DEFAULT_CARD_CSS = """\
  * Pillow 识别下方 --card-* 变量与基础字号/内边距。
  */
 :root {
-  --card-bg: #faf8f2;
-  --card-fg: #1c1914;
-  --card-accent: #1a7f4b;
-  --card-muted: #6b665a;
-  --card-border: #d4cfc0;
-  --card-code-bg: #efe9d8;
+  --card-bg: #f7f4ea;
+  --card-fg: #14120f;
+  --card-accent: #0f6b3c;
+  --card-muted: #3a362e;
+  --card-border: #c9c2b0;
+  --card-code-bg: #ebe4d0;
   --card-radius: 12px;
-  --card-pad: 24px;
+  --card-pad: 28px;
   --card-width: 720px;
-  --card-font-scale: 1;
-  --card-title-size: 22px;
-  --card-body-size: 14px;
+  --card-font-scale: 1.12;
+  --card-title-size: 24px;
+  --card-body-size: 17px;
   --card-mono: 0; /* 1=等宽 */
 }
 
@@ -229,16 +229,16 @@ body {
 class CardStyle:
     preset: str = "terminal_light"
     width: int = 720
-    padding: int = 24
+    padding: int = 28
     radius: int = 12
-    bg: str = "#faf8f2"
-    fg: str = "#1c1914"
-    accent: str = "#1a7f4b"
-    muted: str = "#6b665a"
-    border: str = "#d4cfc0"
-    code_bg: str = "#efe9d8"
-    font_scale: float = 1.0
-    mono: bool = True
+    bg: str = "#f7f4ea"
+    fg: str = "#14120f"
+    accent: str = "#0f6b3c"
+    muted: str = "#3a362e"  # 副文也够深，手机上可读
+    border: str = "#c9c2b0"
+    code_bg: str = "#ebe4d0"
+    font_scale: float = 1.12
+    mono: bool = False  # 正文默认非等宽，更清晰
     show_brand: bool = True
     density: str = "comfortable"
     custom_css: str = ""
@@ -248,21 +248,21 @@ class CardStyle:
         preset = self.preset if self.preset in PRESETS else "terminal_light"
         dens = self.density if self.density in DENSITY_OPTIONS else "comfortable"
         width = max(400, min(1400, int(self.width or 720)))
-        scale = float(self.font_scale or 1.0)
+        scale = float(self.font_scale or 1.12)
         if scale > 3:
             scale = scale / 100.0
-        scale = max(0.75, min(1.5, scale))
+        scale = max(0.85, min(1.6, scale))
         return CardStyle(
             preset=preset,
             width=width,
-            padding=max(8, min(48, int(self.padding or 24))),
+            padding=max(12, min(48, int(self.padding or 28))),
             radius=max(0, min(28, int(self.radius or 12))),
-            bg=self.bg or "#faf8f2",
-            fg=self.fg or "#1c1914",
-            accent=self.accent or "#1a7f4b",
-            muted=self.muted or "#6b665a",
-            border=self.border or "#d4cfc0",
-            code_bg=self.code_bg or "#efe9d8",
+            bg=self.bg or "#f7f4ea",
+            fg=self.fg or "#14120f",
+            accent=self.accent or "#0f6b3c",
+            muted=self.muted or "#3a362e",
+            border=self.border or "#c9c2b0",
+            code_bg=self.code_bg or "#ebe4d0",
             font_scale=scale,
             mono=bool(self.mono),
             show_brand=bool(self.show_brand),
@@ -276,64 +276,64 @@ PRESETS: dict[str, dict[str, Any]] = {
     "terminal_light": {
         "preset": "terminal_light",
         "width": 720,
-        "padding": 24,
+        "padding": 28,
         "radius": 12,
-        "bg": "#faf8f2",
-        "fg": "#1c1914",
-        "accent": "#1a7f4b",
-        "muted": "#6b665a",
-        "border": "#d4cfc0",
-        "code_bg": "#efe9d8",
-        "font_scale": 1.0,
-        "mono": True,
+        "bg": "#f7f4ea",
+        "fg": "#14120f",
+        "accent": "#0f6b3c",
+        "muted": "#3a362e",
+        "border": "#c9c2b0",
+        "code_bg": "#ebe4d0",
+        "font_scale": 1.12,
+        "mono": False,
         "show_brand": True,
         "density": "comfortable",
     },
     "terminal_dark": {
         "preset": "terminal_dark",
         "width": 720,
-        "padding": 24,
+        "padding": 28,
         "radius": 12,
-        "bg": "#1c1914",
-        "fg": "#f0ebe0",
-        "accent": "#3ecf8e",
-        "muted": "#9a9486",
+        "bg": "#16140f",
+        "fg": "#f4efe4",
+        "accent": "#4ade9b",
+        "muted": "#c4bba8",
         "border": "#3d3a32",
         "code_bg": "#2a261e",
-        "font_scale": 1.0,
-        "mono": True,
+        "font_scale": 1.12,
+        "mono": False,
         "show_brand": True,
         "density": "comfortable",
     },
     "clean": {
         "preset": "clean",
         "width": 720,
-        "padding": 28,
+        "padding": 30,
         "radius": 16,
         "bg": "#ffffff",
-        "fg": "#111827",
-        "accent": "#2563eb",
-        "muted": "#6b7280",
-        "border": "#e5e7eb",
-        "code_bg": "#f3f4f6",
-        "font_scale": 1.05,
+        "fg": "#0f172a",
+        "accent": "#1d4ed8",
+        "muted": "#334155",
+        "border": "#cbd5e1",
+        "code_bg": "#f1f5f9",
+        "font_scale": 1.15,
         "mono": False,
         "show_brand": True,
         "density": "comfortable",
     },
     "compact": {
         "preset": "compact",
-        "width": 560,
-        "padding": 16,
-        "radius": 8,
-        "bg": "#faf8f2",
-        "fg": "#1c1914",
-        "accent": "#1a7f4b",
-        "muted": "#6b665a",
-        "border": "#d4cfc0",
-        "code_bg": "#efe9d8",
-        "font_scale": 0.92,
-        "mono": True,
+        "width": 600,
+        "padding": 20,
+        "radius": 10,
+        "bg": "#f7f4ea",
+        "fg": "#14120f",
+        "accent": "#0f6b3c",
+        "muted": "#3a362e",
+        "border": "#c9c2b0",
+        "code_bg": "#ebe4d0",
+        "font_scale": 1.05,
+        "mono": False,
         "show_brand": False,
         "density": "compact",
     },
@@ -827,13 +827,13 @@ def config_defaults() -> dict[str, Any]:
         "render_kinds": kinds_to_storage(list(DEFAULT_KINDS)),
         "card_style_preset": "terminal_light",
         "card_width": 720,
-        "card_accent": "#1a7f4b",
-        "card_bg": "#faf8f2",
-        "card_fg": "#1c1914",
-        "card_font_scale": 100,
+        "card_accent": "#0f6b3c",
+        "card_bg": "#f7f4ea",
+        "card_fg": "#14120f",
+        "card_font_scale": 112,
         "card_density": "comfortable",
         "card_show_brand": True,
-        "card_mono": True,
+        "card_mono": False,
         "card_custom_css": "",
         "card_font_path": "",
     }
@@ -1200,25 +1200,25 @@ def _draw_session_list_png(
     width = style.width
     content_w = width - pad * 2
 
-    title_size = max(15, int(22 * scale))
-    sub_size = max(11, int(12.5 * scale))
-    body_size = max(12, int(14.5 * scale))
-    meta_size = max(10, int(11.5 * scale))
-    foot_size = max(10, int(11.5 * scale))
-    idx_size = max(11, int(12 * scale))
+    title_size = max(18, int(24 * scale))
+    sub_size = max(13, int(14.5 * scale))
+    body_size = max(14, int(16.5 * scale))
+    meta_size = max(12, int(13.5 * scale))
+    foot_size = max(12, int(13 * scale))
+    idx_size = max(13, int(14 * scale))
 
-    row_pad_y = 8 if dense else 11
-    row_pad_x = 10 if dense else 12
-    section_gap = 10 if dense else 14
-    row_gap = 6 if dense else 8
+    row_pad_y = 10 if dense else 13
+    row_pad_x = 12 if dense else 14
+    section_gap = 12 if dense else 16
+    row_gap = 8 if dense else 10
 
     tmp = Image.new("RGB", (width, 100), _hex_to_rgb(style.bg))
     d0 = ImageDraw.Draw(tmp)
     font_title = _load_font(title_size, False, style)
-    font_sub = _load_font(sub_size, style.mono, style)
+    font_sub = _load_font(sub_size, False, style)
     font_body = _load_font(body_size, False, style)
-    font_meta = _load_font(meta_size, style.mono, style)
-    font_foot = _load_font(foot_size, style.mono, style)
+    font_meta = _load_font(meta_size, False, style)
+    font_foot = _load_font(foot_size, False, style)
     font_idx = _load_font(idx_size, True, style)
 
     title = str(data.get("title") or "Session 列表")
@@ -1230,13 +1230,14 @@ def _draw_session_list_png(
     fg = _hex_to_rgb(style.fg)
     accent = _hex_to_rgb(style.accent)
     muted = _hex_to_rgb(style.muted)
+    sub_fg = _mix_rgb(muted, fg, 0.35)
     border = _hex_to_rgb(style.border)
     # 行底：略深/浅于背景，保证对比
-    row_bg = _mix_rgb(bg, fg, 0.04)
-    row_bg_cur = _mix_rgb(bg, accent, 0.12)
-    section_bg = _mix_rgb(bg, accent, 0.06)
+    row_bg = _mix_rgb(bg, fg, 0.05)
+    row_bg_cur = _mix_rgb(bg, accent, 0.14)
+    section_bg = _mix_rgb(bg, accent, 0.08)
 
-    idx_box_w = max(36, int(40 * scale))
+    idx_box_w = max(42, int(46 * scale))
     # 预估高度
     y = pad
     y += _text_size(d0, title, font_title)[1] + 6
@@ -1280,11 +1281,11 @@ def _draw_session_list_png(
     y += _text_size(draw, title, font_title)[1] + 6
     if subtitle:
         for line in _wrap_text(draw, subtitle, font_sub, content_w):
-            draw.text((pad, y), line, font=font_sub, fill=muted)
+            draw.text((pad, y), line, font=font_sub, fill=sub_fg)
             y += _text_size(draw, line or " ", font_sub)[1] + 2
         y += 6
-    draw.rectangle((pad, y, pad + min(140, content_w // 3), y + 3), fill=accent)
-    y += 12
+    draw.rectangle((pad, y, pad + min(140, content_w // 3), y + 4), fill=accent)
+    y += 14
 
     for row in rows:
         rtype = str(row.get("type") or "row")
@@ -1298,7 +1299,7 @@ def _draw_session_list_png(
             else:
                 count_txt = f"{count}"
             # 分组条
-            sec_h = max(24, int(26 * scale))
+            sec_h = max(28, int(30 * scale))
             _draw_rounded_rect(
                 draw,
                 (pad, y, width - pad, y + sec_h),
@@ -1307,18 +1308,18 @@ def _draw_session_list_png(
                 outline=None,
             )
             # 左侧色条
-            draw.rectangle((pad, y + 4, pad + 3, y + sec_h - 4), fill=accent)
-            tx = pad + 12
+            draw.rectangle((pad, y + 4, pad + 4, y + sec_h - 4), fill=accent)
+            tx = pad + 14
             ty = y + (sec_h - _text_size(draw, "测", font_meta)[1]) // 2
-            for line in _wrap_text(draw, label, font_meta, content_w - 80)[:1]:
+            for line in _wrap_text(draw, label, font_meta, content_w - 90)[:1]:
                 draw.text((tx, ty), line, font=font_meta, fill=accent)
             if count_txt:
                 badge = f"{count_txt} 个" if not str(count_txt).endswith("个") else str(count_txt)
                 bw, bh = _text_size(draw, badge, font_meta)
-                bx = width - pad - bw - 10
+                bx = width - pad - bw - 12
                 by = y + (sec_h - bh) // 2
-                draw.text((bx, by), badge, font=font_meta, fill=muted)
-            y += sec_h + 6
+                draw.text((bx, by), badge, font=font_meta, fill=sub_fg)
+            y += sec_h + 8
             continue
 
         label = str(row.get("label") or "")
@@ -1334,7 +1335,7 @@ def _draw_session_list_png(
         if not status and row.get("detail"):
             status = str(row.get("detail"))
 
-        title_max_w = content_w - idx_box_w - row_pad_x * 2 - 8
+        title_max_w = content_w - idx_box_w - row_pad_x * 2 - 10
         title_lines = _wrap_text(draw, label, font_body, title_max_w) or [""]
         meta_bits = []
         if status:
@@ -1349,8 +1350,8 @@ def _draw_session_list_png(
             meta_bits.append(str(row.get("detail")))
         meta_line = "  ·  ".join(meta_bits)
         meta_h = _text_size(draw, meta_line or "测", font_meta)[1]
-        title_h = sum(_text_size(draw, ln or " ", font_body)[1] + 2 for ln in title_lines)
-        row_h = row_pad_y * 2 + title_h + 4 + meta_h
+        title_h = sum(_text_size(draw, ln or " ", font_body)[1] + 3 for ln in title_lines)
+        row_h = row_pad_y * 2 + title_h + 6 + meta_h
 
         fill = row_bg_cur if is_current else row_bg
         outline = accent if is_current else border
@@ -1363,47 +1364,46 @@ def _draw_session_list_png(
             width=2 if is_current else 1,
         )
         if is_current:
-            draw.rectangle((pad + 2, y + 6, pad + 5, y + row_h - 6), fill=accent)
+            draw.rectangle((pad + 2, y + 6, pad + 6, y + row_h - 6), fill=accent)
 
         # 序号块
-        idx_txt = str(idx) if idx else "·"
+        idx_txt = str(idx) if idx else "-"
         iw, ih = _text_size(draw, idx_txt, font_idx)
         ix = pad + row_pad_x + (idx_box_w - iw) // 2
         iy = y + row_pad_y
-        # 序号底
         _draw_rounded_rect(
             draw,
-            (pad + row_pad_x, y + row_pad_y - 2, pad + row_pad_x + idx_box_w, y + row_pad_y + ih + 6),
+            (pad + row_pad_x, y + row_pad_y - 2, pad + row_pad_x + idx_box_w, y + row_pad_y + ih + 8),
             radius=6,
-            fill=_mix_rgb(fill, accent, 0.18 if is_current else 0.10),
+            fill=_mix_rgb(fill, accent, 0.22 if is_current else 0.12),
             outline=None,
         )
-        draw.text((ix, iy + 2), idx_txt, font=font_idx, fill=accent if is_current else muted)
+        draw.text((ix, iy + 2), idx_txt, font=font_idx, fill=accent if is_current else sub_fg)
 
-        tx = pad + row_pad_x + idx_box_w + 10
+        tx = pad + row_pad_x + idx_box_w + 12
         ty = y + row_pad_y
         for line in title_lines:
             draw.text((tx, ty), line, font=font_body, fill=fg)
-            ty += _text_size(draw, line or " ", font_body)[1] + 2
+            ty += _text_size(draw, line or " ", font_body)[1] + 3
 
-        # 状态色点 + meta
+        # 状态色点 + meta（meta 用更深的 sub_fg）
         sc = _status_color(status_key, accent, muted, fg)
-        my = ty + 2
-        dot_r = 3
+        my = ty + 3
+        dot_r = 4
         draw.ellipse((tx, my + meta_h // 2 - dot_r, tx + dot_r * 2, my + meta_h // 2 + dot_r), fill=sc)
-        draw.text((tx + 12, my), meta_line, font=font_meta, fill=muted)
+        draw.text((tx + 14, my), meta_line, font=font_meta, fill=sub_fg)
 
         # 右上角 sid
         if sid:
             sw, sh = _text_size(draw, sid, font_meta)
-            draw.text((width - pad - row_pad_x - sw, y + row_pad_y), sid, font=font_meta, fill=muted)
+            draw.text((width - pad - row_pad_x - sw, y + row_pad_y), sid, font=font_meta, fill=sub_fg)
 
         y += row_h + row_gap
 
     if footer:
-        y += 6
+        y += 8
         draw.line((pad, y, width - pad, y), fill=border, width=1)
-        y += 10
+        y += 12
         for line in _wrap_text(draw, footer, font_foot, content_w):
             draw.text((pad, y), line, font=font_foot, fill=accent)
             y += _text_size(draw, line or " ", font_foot)[1] + 2
@@ -1412,7 +1412,7 @@ def _draw_session_list_png(
         brand = "hapi connector"
         bw, bh = _text_size(draw, brand, font_foot)
         draw.text(
-            (width - pad - bw, height - pad - bh), brand, font=font_foot, fill=muted
+            (width - pad - bw, height - pad - bh), brand, font=font_foot, fill=sub_fg
         )
 
     buf = io.BytesIO()
@@ -1580,30 +1580,33 @@ def _draw_struct_png(
 
 
 def _draw_message_png(data: dict[str, Any], style: CardStyle) -> tuple[bytes, int, int]:
-    """Pillow 对话卡：Markdown 子集的简易排版。"""
+    """Pillow 对话卡：Markdown 子集；字号偏大、副文够深、无 emoji。"""
     scale = style.font_scale
     pad = style.padding
     width = style.width
     content_w = width - pad * 2
+    line_extra = 4  # 行距
 
-    title_size = max(14, int(20 * scale))
-    sub_size = max(11, int(12 * scale))
-    body_size = max(11, int(14 * scale))
-    code_size = max(10, int(12.5 * scale))
-    h1_size = max(16, int(20 * scale))
-    h2_size = max(15, int(17 * scale))
-    foot_size = max(10, int(12 * scale))
+    # 手机聊天气泡里看：正文至少 ~16–18px 量级
+    title_size = max(18, int(24 * scale))
+    sub_size = max(13, int(15 * scale))
+    body_size = max(15, int(17 * scale))
+    code_size = max(13, int(14.5 * scale))
+    h1_size = max(18, int(22 * scale))
+    h2_size = max(16, int(19 * scale))
+    foot_size = max(12, int(13 * scale))
 
     tmp = Image.new("RGB", (width, 100), _hex_to_rgb(style.bg))
     d0 = ImageDraw.Draw(tmp)
 
-    font_title = _load_font(title_size, style.mono, style)
-    font_sub = _load_font(sub_size, style.mono, style)
+    # 标题/正文优先非等宽；代码等宽
+    font_title = _load_font(title_size, False, style)
+    font_sub = _load_font(sub_size, False, style)
     font_body = _load_font(body_size, False, style)
     font_code = _load_font(code_size, True, style)
     font_h1 = _load_font(h1_size, False, style)
     font_h2 = _load_font(h2_size, False, style)
-    font_foot = _load_font(foot_size, style.mono, style)
+    font_foot = _load_font(foot_size, False, style)
 
     title = str(data.get("title") or "Agent 消息")
     subtitle = str(data.get("subtitle") or "")
@@ -1615,50 +1618,51 @@ def _draw_message_png(data: dict[str, Any], style: CardStyle) -> tuple[bytes, in
     def measure_block(b) -> int:
         h = 0
         if b["type"] == "code":
-            for line in _wrap_text(d0, b["text"], font_code, content_w - 20) or [""]:
-                h += _text_size(d0, line or " ", font_code)[1] + 2
-            return h + 20
+            for line in _wrap_text(d0, b["text"], font_code, content_w - 24) or [""]:
+                h += _text_size(d0, line or " ", font_code)[1] + line_extra
+            return h + 24
         if b["type"] in ("h1", "h2", "h3"):
             f = font_h1 if b["type"] == "h1" else font_h2
             for line in _wrap_text(d0, b["text"], f, content_w):
-                h += _text_size(d0, line or " ", f)[1] + 2
-            return h + 8
+                h += _text_size(d0, line or " ", f)[1] + line_extra
+            return h + 12
         if b["type"] == "hr":
-            return 14
+            return 18
         f = font_body
         prefix = ""
         if b["type"] == "li":
-            prefix = "• "
+            prefix = "- "
         elif b["type"] == "quote":
-            prefix = "│ "
+            prefix = "| "
         text = prefix + b["text"]
         for line in _wrap_text(d0, text, f, content_w):
-            h += _text_size(d0, line or " ", f)[1] + 2
-        return h + 6
+            h += _text_size(d0, line or " ", f)[1] + line_extra
+        return h + 10
 
     y = pad
-    y += _text_size(d0, title, font_title)[1] + 6
+    y += _text_size(d0, title, font_title)[1] + 8
     if subtitle:
         for _ in _wrap_text(d0, subtitle, font_sub, content_w):
-            y += _text_size(d0, "测", font_sub)[1] + 2
-        y += 6
-    y += 8  # bar
+            y += _text_size(d0, "测", font_sub)[1] + line_extra
+        y += 8
+    y += 12  # bar
     for b in blocks:
         y += measure_block(b)
     if footer:
-        y += 16
+        y += 20
         for _ in _wrap_text(d0, footer, font_foot, content_w):
-            y += _text_size(d0, "测", font_foot)[1] + 2
+            y += _text_size(d0, "测", font_foot)[1] + line_extra
     if style.show_brand:
-        y += 10 + _text_size(d0, "hapi", font_foot)[1]
+        y += 14 + _text_size(d0, "hapi", font_foot)[1]
     y += pad
-    # 限高，避免爆炸
-    height = min(max(y, 120), 4000)
+    height = min(max(y, 160), 4500)
 
     bg = _hex_to_rgb(style.bg)
     fg = _hex_to_rgb(style.fg)
     accent = _hex_to_rgb(style.accent)
     muted = _hex_to_rgb(style.muted)
+    # 副文再向正文靠一点，避免「发灰看不清」
+    sub_fg = _mix_rgb(muted, fg, 0.35)
     border = _hex_to_rgb(style.border)
     code_bg = _hex_to_rgb(style.code_bg)
 
@@ -1675,75 +1679,88 @@ def _draw_message_png(data: dict[str, Any], style: CardStyle) -> tuple[bytes, in
 
     y = pad
     draw.text((pad, y), title, font=font_title, fill=fg)
-    y += _text_size(draw, title, font_title)[1] + 6
+    y += _text_size(draw, title, font_title)[1] + 8
     if subtitle:
         for line in _wrap_text(draw, subtitle, font_sub, content_w):
-            draw.text((pad, y), line, font=font_sub, fill=muted)
-            y += _text_size(draw, line or " ", font_sub)[1] + 2
-        y += 6
-    draw.rectangle((pad, y, pad + min(120, content_w // 3), y + 3), fill=accent)
-    y += 10
+            draw.text((pad, y), line, font=font_sub, fill=sub_fg)
+            y += _text_size(draw, line or " ", font_sub)[1] + line_extra
+        y += 8
+    draw.rectangle((pad, y, pad + min(160, content_w // 3), y + 4), fill=accent)
+    y += 14
 
     for b in blocks:
-        if y > height - pad - 20:
-            draw.text((pad, y), "…", font=font_body, fill=muted)
+        if y > height - pad - 28:
+            draw.text((pad, y), "...", font=font_body, fill=sub_fg)
             break
         if b["type"] == "code":
-            lines = _wrap_text(draw, b["text"], font_code, content_w - 20) or [""]
-            block_h = sum(_text_size(draw, ln or " ", font_code)[1] + 2 for ln in lines) + 16
+            lines = _wrap_text(draw, b["text"], font_code, content_w - 24) or [""]
+            block_h = (
+                sum(_text_size(draw, ln or " ", font_code)[1] + line_extra for ln in lines)
+                + 20
+            )
             _draw_rounded_rect(
                 draw,
                 (pad, y, width - pad, y + block_h),
-                radius=6,
+                radius=8,
                 fill=code_bg,
                 outline=border,
                 width=1,
             )
-            yy = y + 8
+            yy = y + 10
             for line in lines:
-                draw.text((pad + 10, yy), line, font=font_code, fill=fg)
-                yy += _text_size(draw, line or " ", font_code)[1] + 2
-            y += block_h + 8
+                draw.text((pad + 12, yy), line, font=font_code, fill=fg)
+                yy += _text_size(draw, line or " ", font_code)[1] + line_extra
+            y += block_h + 12
             continue
         if b["type"] == "hr":
-            draw.line((pad, y + 6, width - pad, y + 6), fill=border, width=1)
-            y += 14
+            draw.line((pad, y + 8, width - pad, y + 8), fill=border, width=1)
+            y += 18
             continue
         if b["type"] in ("h1", "h2", "h3"):
             f = font_h1 if b["type"] == "h1" else font_h2
             for line in _wrap_text(draw, b["text"], f, content_w):
                 draw.text((pad, y), line, font=f, fill=fg)
-                y += _text_size(draw, line or " ", f)[1] + 2
-            y += 6
+                y += _text_size(draw, line or " ", f)[1] + line_extra
+            y += 10
             continue
         prefix = ""
         xoff = 0
         color = fg
         if b["type"] == "li":
-            prefix = "• "
+            prefix = "- "
         elif b["type"] == "quote":
-            prefix = "│ "
-            color = muted
-            draw.rectangle((pad, y, pad + 3, y + 16), fill=accent)
-            xoff = 8
+            prefix = ""
+            color = sub_fg
+            # 左侧强调条，高度按内容估
+            q_lines = _wrap_text(draw, b["text"], font_body, content_w - 16) or [""]
+            q_h = sum(
+                _text_size(draw, ln or " ", font_body)[1] + line_extra for ln in q_lines
+            )
+            draw.rectangle((pad, y, pad + 4, y + max(q_h, 18)), fill=accent)
+            xoff = 14
+            for line in q_lines:
+                draw.text((pad + xoff, y), line, font=font_body, fill=color)
+                y += _text_size(draw, line or " ", font_body)[1] + line_extra
+            y += 8
+            continue
         text = prefix + b["text"]
         for line in _wrap_text(draw, text, font_body, content_w - xoff):
             draw.text((pad + xoff, y), line, font=font_body, fill=color)
-            y += _text_size(draw, line or " ", font_body)[1] + 2
-        y += 4
+            y += _text_size(draw, line or " ", font_body)[1] + line_extra
+        y += 8
 
     if footer and y < height - pad:
-        draw.line((pad, y + 4, width - pad, y + 4), fill=border, width=1)
-        y += 12
+        draw.line((pad, y + 6, width - pad, y + 6), fill=border, width=1)
+        y += 14
         for line in _wrap_text(draw, footer, font_foot, content_w):
             draw.text((pad, y), line, font=font_foot, fill=accent)
-            y += _text_size(draw, line or " ", font_foot)[1] + 2
+            y += _text_size(draw, line or " ", font_foot)[1] + line_extra
 
     if style.show_brand:
         brand = "hapi connector"
         bw, bh = _text_size(draw, brand, font_foot)
         draw.text(
-            (width - pad - bw, height - pad - bh), brand, font=font_foot, fill=muted
+            (width - pad - bw, height - pad - bh), brand, font=font_foot, fill=sub_fg
         )
 
     buf = io.BytesIO()

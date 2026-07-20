@@ -225,6 +225,38 @@ def build_pending_payload(
     }
 
 
+def _strip_emoji(text: str) -> str:
+    """卡片用：去掉 emoji / 杂符号，避免 Pillow 缺字形出方块或发灰。"""
+    import re
+
+    if not text:
+        return ""
+    # 常见 emoji / 杂项符号区（保留中英文、数字、标点、换行）
+    text = re.sub(
+        "["
+        "\U0001F300-\U0001FAFF"  # 杂项符号与象形
+        "\U00002700-\U000027BF"  # Dingbats
+        "\U00002600-\U000026FF"  # 杂项符号
+        "\U0000FE00-\U0000FE0F"  # 变体选择符
+        "\U0000200D"             # ZWJ
+        "\U000020E3"             # 键帽
+        "]+",
+        "",
+        text,
+    )
+    # 文本列表里常见的装饰前缀（再保险）
+    for ch in ("🏷️", "💬", "📂", "🤖", "📋", "🛠️", "💭", "🟢", "⚪", "⚠️", "💡", "📁"):
+        text = text.replace(ch, "")
+    # 行内多余空白
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    # 装饰分隔符残留「 |  · 」等压扁
+    text = re.sub(r"[ \t]*·[ \t]*·[ \t]*", " · ", text)
+    text = re.sub(r"[ \t]*\|[ \t]*\|[ \t]*", " | ", text)
+    return text.strip()
+
+
 def build_message_payload(
     *,
     label: str,
@@ -232,11 +264,14 @@ def build_message_payload(
     title: str = "Agent 消息",
     footer: str = "",
 ) -> dict[str, Any]:
+    # 卡片路径：无 emoji；副标题压成单行便于排版
+    sub = _strip_emoji(label or "")
+    sub = " · ".join(p.strip() for p in sub.splitlines() if p.strip())
     return {
-        "title": title,
-        "subtitle": label or "",
-        "body": body or "",
-        "footer": footer or "",
+        "title": _strip_emoji(title) or "Agent 消息",
+        "subtitle": sub,
+        "body": _strip_emoji(body or ""),
+        "footer": _strip_emoji(footer or ""),
     }
 
 
