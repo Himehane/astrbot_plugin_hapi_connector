@@ -135,7 +135,7 @@
     "type": "string",
     "default": "off",
     "options": ["off", "detect", "plain"],
-    "hint": "off=公式当普通文字；detect=含公式时公式用 matplotlib 排版并嵌进消息卡（需安装）；plain=含公式时只发文字"
+    "hint": "off=公式当普通文字；detect=公式用 matplotlib 渲染（需安装）；plain=含公式时只发文字"
   },
   "render_kinds": {
     "description": "允许出图的消息类型",

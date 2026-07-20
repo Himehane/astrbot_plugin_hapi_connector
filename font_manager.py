@@ -442,8 +442,8 @@ def installable_items() -> list[dict[str, Any]]:
         {
             "id": "dep_matplotlib",
             "group": "dep",
-            "label": "matplotlib（公式排版）",
-            "desc": "pip install matplotlib — 消息卡里的公式用它排版（可选）",
+            "label": "matplotlib（公式）",
+            "desc": "pip install matplotlib — 公式用它渲染（可选）",
             "target": "pip:matplotlib",
             "installed": mpl_ok,
             "detail": f"v{mpl_ver}" if mpl_ok else None,
