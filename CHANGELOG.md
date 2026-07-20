@@ -1,5 +1,11 @@
 # 更新日志
 
+## v3.1.2 — WebUI 改 endpoint/token 后自动重连 SSE
+
+1. **配置保存自动重连**：WebUI 修改 `hapi_endpoint` / `access_token` / 代理 / CF Access / JWT 等连接类项并保存后，立即按新配置重建 `AsyncHapiClient` 并重启 SSE，不再继续挂在旧连接上  
+2. **失败可重试**：配置已落盘；若自动重连失败，返回 `reconnect_required` + 错误信息，概览「重连」仍可用  
+3. **前端提示**：设置页保存成功且已自动重连时不再弹「请手动重连」；仅失败时提示  
+
 ## v3.1.1 — 推送呈现修正：自定义 CSS / 对话卡 / 可移植中文字体
 
 1. **自定义 CSS**：`card_custom_css` 完整可编辑；Playwright 完整生效，Pillow 识别 `--card-*` 变量（低延迟快路径）  

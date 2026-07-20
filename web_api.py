@@ -1221,6 +1221,8 @@ async def save_plugin_config(plugin, patch: dict) -> dict:
     """校验 → 写 AstrBotConfig → save_config(_async) 落盘 → 热更新。
 
     落盘失败则整单失败，不半热更新。
+    连接类配置（endpoint / token / 代理 / CF / JWT 等）变更后会自动
+    调用 reconnect_hapi，避免 SSE 继续挂在旧地址/旧凭证上。
     """
     cleaned = validate_config_patch(patch)
     if not cleaned:
@@ -1228,6 +1230,7 @@ async def save_plugin_config(plugin, patch: dict) -> dict:
             "saved": False,
             "changed": [],
             "reconnect_required": False,
+            "reconnected": False,
             "config": public_config(plugin),
             "message": "没有变更",
         }
@@ -1244,14 +1247,57 @@ async def save_plugin_config(plugin, patch: dict) -> dict:
         # 落盘已成功；热更新失败只记日志，仍返回成功并提示可能需重载
         logger.exception("apply_runtime_config failed after save")
 
-    reconnect_required = bool(RECONNECT_KEYS & set(cleaned))
+    # 仅当 RECONNECT_KEYS 的实际值发生变化时才重建 client / SSE
+    reconnect_keys_changed = sorted(
+        k for k in cleaned
+        if k in RECONNECT_KEYS and prev.get(k) != cleaned[k]
+    )
+    reconnected = False
+    reconnect_error: str | None = None
+    connection = None
+    if reconnect_keys_changed:
+        try:
+            reconnect_result = await reconnect_hapi(plugin)
+            reconnected = True
+            connection = reconnect_result.get("connection")
+            logger.info(
+                "config save auto-reconnect ok, changed=%s",
+                reconnect_keys_changed,
+            )
+        except Exception as e:
+            # 配置已落盘；自动重连失败不回滚，交给前端/用户点「重连」
+            logger.exception(
+                "config save auto-reconnect failed, changed=%s",
+                reconnect_keys_changed,
+            )
+            reconnect_error = f"{type(e).__name__}: {e}"
+            try:
+                connection = connection_view(plugin)
+            except Exception:
+                connection = None
+
+    if reconnected:
+        message = "已保存，并按新配置重建连接与 SSE"
+    elif reconnect_keys_changed and reconnect_error:
+        message = (
+            f"已保存，但自动重连失败: {reconnect_error}"
+            "（可点概览「重连」重试）"
+        )
+    else:
+        message = "已保存"
+
     return {
         "saved": True,
         "changed": sorted(cleaned.keys()),
-        "reconnect_required": reconnect_required,
+        # 仍需手动重连时为 True（自动重连失败）
+        "reconnect_required": bool(reconnect_keys_changed) and not reconnected,
+        "reconnected": reconnected,
+        "reconnect_error": reconnect_error,
+        "reconnect_keys": reconnect_keys_changed,
+        "connection": connection,
         "config": public_config(plugin),
         "previous": {k: _mask_if_sensitive(k, prev[k]) for k in cleaned},
-        "message": "已保存" + ("（部分项需重连 HAPI 后生效）" if reconnect_required else ""),
+        "message": message,
     }
 
 

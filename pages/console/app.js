@@ -4117,8 +4117,13 @@ async function saveSettings() {
     if (liveMode && api) {
       const res = await api.saveConfig(patch);
       toast(res.message || "已保存");
-      if (res.reconnect_required) {
-        showAlert("已保存。连接类配置需重连后完全生效 — 可点概览「按配置重连 HAPI」。");
+      if (res.reconnect_error || (res.reconnect_required && !res.reconnected)) {
+        showAlert(
+          res.message ||
+            "已保存，但自动重连未成功 — 可点概览「按配置重连 HAPI」重试。"
+        );
+      } else if (res.reconnected) {
+        // 连接类配置已自动重建 client / SSE，无需再提示手动重连
       }
     } else {
       store.saveConfig(patch);
