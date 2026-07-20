@@ -76,6 +76,8 @@ hapi codex    # Open Codex
 - **文件双向传输**: 支持利用astrbot进行小文件的下载、上传，方便查看日志或传递配置
 - **兼容QQ、微信的官方bot**: 无法主动推送消息时将消息fallback伪装为被动回复，兼容QQ官方bot、微信clawbot
 - **智能审批机制**: 支持戳一戳快速批准、忙时自动托管、超时提醒，灵活应对不同场景
+- **Web 管理面板**: 在 AstrBot 插件详情页可视化查看连接与 session、改推送/绑定/权限、保存插件配置（与官方设置页同源）
+- **推送呈现（可选）**: list / 待审批等结构信息可渲成卡片图；默认纯文本；Pillow 为可选依赖，未安装自动回退
 
 
 ## 💡 实际应用场景
@@ -121,7 +123,13 @@ hapi codex    # Open Codex
 | `output_level` | SSE 推送级别：`silence` / `simple` / `summary` / `detail` | simple |
 | `summary_msg_count` | summary 级别显示的 agent 消息条数 | 5 |
 | `quick_prefix` | 快捷发送前缀字符 | `>` |
-| `poke_approve` | 戳一戳自动全部审批（仅 QQ NapCat） | 开启 |
+| `poke_approve` | 启用戳一戳快捷操作（仅 QQ NapCat 等） | 开启 |
+| `poke_action` | 戳一戳映射：`approve` / `pending` / `list` / `status` / `stop` / `output_cycle` / `none`（不含 deny，防误触） | approve |
+| `render_mode` | 推送呈现：`text` / `auto` / `card`（结构信息是否出卡片） | text |
+| `render_kinds` | 允许出卡类型（逗号分隔），如 `session_list,pending,status,permission` | 见 schema |
+| `card_style_preset` 等 | 卡片预设与颜色/宽度；建议在 WebUI「交互优化」预览后保存 | terminal_light |
+
+> 卡片为**可选能力**：`pip install -r requirements-render.txt`（Pillow）。未安装时配置可保存，运行时自动纯文本。
 
 ### 自动审批
 
@@ -132,6 +140,29 @@ hapi codex    # Open Codex
 | `auto_approve_enabled` | 忙时托管审批：在指定时间范围内自动批准所有权限请求 | 关闭 |
 | `auto_approve_start` | 忙时托管审批开始时间（HH:MM，24小时制） | `23:00` |
 | `auto_approve_end` | 忙时托管审批结束时间（HH:MM，24小时制，支持跨午夜） | `07:00` |
+
+---
+
+## 🖥️ Web 管理面板
+
+安装并启用插件后，打开 **AstrBot WebUI → 插件 → hapi connector → 管理面板**（i18n 标题：管理面板 / Console）。
+
+| 页面 | 能做什么 |
+|------|----------|
+| **概览** | HAPI / SSE 是否连通或休眠、待审与未投递数量、常用开关、唤醒 SSE、按当前配置重连 |
+| **会话管理** | 按聊天窗口查看 session；改权限模式、绑定/解绑通知窗口；归档 / 恢复 / 中止 / 删除（支持批量） |
+| **HAPI 网页** | 用已配置的 `hapi_endpoint` / `access_token` 生成官方 HAPI Web 启动链，**面板内 iframe 嵌入**（或新窗口 / 复制链接） |
+| **交互优化** | 戳一戳、快捷前缀；**推送呈现**（渲染模式、卡片样式、DOM 预览 / 实卡预览） |
+| **命令帮助** | 与聊天 `/hapi help` 同源的指令说明（可搜索） |
+| **设置** | 全部 `_conf_schema.json` 配置项；`access_token` / CF secret **永不回显**，留空表示不修改 |
+
+说明：
+
+- 面板面向 **Dashboard 已登录用户**，不替代聊天侧管理员门禁与完整聊天流。
+- 改连接类配置（endpoint / token / 代理 / CF / JWT）保存后会提示需要 **按配置重连** 或重载插件。
+- 默认推送窗口 / Agent 推送窗口：仅当插件侧已知用户恰为 1 个时可在 Web 修改；多用户请用聊天 `/hapi bind`。
+- **HAPI 网页**依赖官方 Web 对 `?token=` / `?hub=` 的支持；`endpoint` 须是**你浏览器能访问**的地址（本机 127.0.0.1 仅本机浏览器可用）。自动登录会生成含 token 的一次性链接，请勿外传。
+- 首版不做：插件内自建完整聊天 UI、create 向导、文件浏览器、Web 端审批（完整对话请用「HAPI 网页」或官方客户端）。
 
 ---
 
@@ -201,11 +232,12 @@ hapi codex    # Open Codex
 | `/hapi remote` | 切换当前会话到 remote 远程托管模式 |
 | `/hapi archive` | 归档当前会话 |
 | `/hapi resume [序号\|ID前缀]` | 恢复被 archive 的 inactive session |
+| `/hapi reopen [序号\|ID前缀]` | Reopen inactive session（与 resume 不同，走 Hub reopen API） |
 | `/hapi rename` | 重命名当前会话 |
 | `/hapi delete` | 删除当前会话 |
 | `/hapi clean [路径前缀]` | 批量清理 inactive session |
 
-> Codex 创建补充：默认会继承 Codex 默认设置中的思考深度；只有你在创建时显式选择 `none/minimal/low/medium/high/xhigh` 时，插件才会覆盖默认值。
+> Codex / OpenCode 创建补充：默认会继承服务端思考深度；只有你在创建时显式选择 `none/minimal/low/medium/high/xhigh/max`（或透传上游动态值）时，插件才会覆盖默认值。
 
 #### ✅ 权限审批
 
@@ -234,7 +266,10 @@ hapi codex    # Open Codex
 | 指令 | 说明 |
 |------|------|
 | `/hapi perm [模式]` | 查看/切换权限模式（不带参数则交互选择） |
-| `/hapi model [模式]` | 查看/切换模型（仅 Claude，不带参数则交互选择） |
+| `/hapi plan` | 切换 Plan 模式（toggle；Claude/Cursor 等走 permissionMode，Codex 走 collaborationMode） |
+| `/hapi model [模式]` | 查看/切换模型（Claude 含 sonnet/opus/fable 等预设；其它 flavor 可自由输入） |
+| `/hapi effort [值]` | 查看/切换推理强度（Claude/Pi 走 `/effort`；Codex/OpenCode 走 reasoning effort） |
+| `/hapi fast [on\|off]` | 查看/切换 Codex Fast mode（service tier: fast/standard） |
 | `/hapi output [级别]` | 查看/切换 SSE 推送级别（别名 `out`） |
 | `/hapi help [主题]` | 显示帮助信息，主题可选：会话 / 对话 / 审批 / 通知 / 文件 / 配置 |
 
@@ -253,12 +288,16 @@ hapi codex    # Open Codex
 
 ## 🤖 支持的 AI 代理
 
-| 代理 | 可用权限模式 |
-|------|-------------|
-| Claude Code | `default` / `acceptEdits` / `bypassPermissions` / `plan` |
-| Codex | `default` / `read-only` / `safe-yolo` / `yolo` |
-| Gemini | `default` / `read-only` / `safe-yolo` / `yolo` |
-| OpenCode | `default` / `yolo` |
+| 代理 | 可用权限模式 | 其它遥控能力 |
+|------|-------------|-------------|
+| Claude Code | `default` / `acceptEdits` / `auto` / `bypassPermissions` / `plan` | model、effort（low…max） |
+| Codex | `default` / `read-only` / `safe-yolo` / `yolo` | plan(collaboration)、reasoning effort、**fast** |
+| Cursor | `default` / `plan` / `ask` / `debug` / `autoReview` / `yolo` | model、plan |
+| Grok Build | `default` / `auto` / `plan` / `bypassPermissions` | model、effort |
+| Kimi | `default` / `read-only` / `safe-yolo` / `yolo` | model |
+| OpenCode | `default` / `plan` / `yolo` | model、reasoning effort、plan |
+| Pi | （无运行时权限切换） | model、thinking levels（off…max） |
+| Gemini | `default` / `read-only` / `safe-yolo` / `yolo` | 仅兼容旧 session，不可新建 |
 
 ---
 ---

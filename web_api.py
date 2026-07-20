@@ -30,12 +30,26 @@ CONFIG_KEYS = (
     "summary_msg_count",
     "quick_prefix",
     "poke_approve",
+    "poke_action",
     "remind_pending",
     "remind_interval",
     "auto_approve_enabled",
     "auto_approve_start",
     "auto_approve_end",
     "default_notification_window",
+    # 推送呈现（卡片可选依赖 Pillow）
+    "render_mode",
+    "formula_mode",
+    "render_kinds",
+    "card_style_preset",
+    "card_width",
+    "card_accent",
+    "card_bg",
+    "card_fg",
+    "card_font_scale",
+    "card_density",
+    "card_show_brand",
+    "card_mono",
 )
 
 SENSITIVE_KEYS = frozenset({"access_token", "cf_access_client_secret"})
@@ -53,11 +67,17 @@ RECONNECT_KEYS = frozenset({
 })
 
 OUTPUT_LEVELS = ("silence", "simple", "summary", "detail")
+RENDER_MODES = ("text", "auto", "card")
+FORMULA_MODES = ("off", "detect", "always")
+CARD_PRESETS = ("terminal_light", "terminal_dark", "clean", "compact")
+CARD_DENSITY = ("comfortable", "compact")
 
 BOOL_KEYS = frozenset({
     "poke_approve",
     "remind_pending",
     "auto_approve_enabled",
+    "card_show_brand",
+    "card_mono",
 })
 
 INT_KEYS = frozenset({
@@ -66,6 +86,8 @@ INT_KEYS = frozenset({
     "refresh_before_expiry",
     "summary_msg_count",
     "remind_interval",
+    "card_width",
+    "card_font_scale",
 })
 
 
@@ -91,6 +113,9 @@ def register_pages(plugin) -> None:
         (f"{prefix}/sessions/<sid>", api.session_detail, ["GET"], "WebUI session detail"),
         (f"{prefix}/routes/primary", api.routes_primary, ["POST"], "WebUI set primary route"),
         (f"{prefix}/routes/flavor", api.routes_flavor, ["POST"], "WebUI set flavor route"),
+        (f"{prefix}/hub/launch", api.hub_launch, ["GET"], "WebUI HAPI Web launch URL"),
+        (f"{prefix}/render/meta", api.render_meta, ["GET"], "WebUI render meta"),
+        (f"{prefix}/render/preview", api.render_preview, ["POST"], "WebUI card preview"),
     ]
     for route, handler, methods, desc in routes:
         ctx.register_web_api(route, handler, methods, desc)
@@ -107,14 +132,114 @@ class WebApi:
 
     async def meta(self):
         from astrbot.api.web import json_response
+        from . import card_render
+
+        from .poke_actions import poke_actions_meta
 
         profiles = flavor_profiles.export_profiles_meta()
         return json_response({
             "plugin_name": PLUGIN_NAME,
             "plugin_version": _plugin_version(self.plugin),
             "output_levels": list(OUTPUT_LEVELS),
+            "render": card_render.render_meta(),
+            "poke_actions": poke_actions_meta(),
             **profiles,
         })
+
+    async def render_meta(self):
+        from astrbot.api.web import json_response
+        from . import card_render
+
+        return json_response(card_render.render_meta())
+
+    async def render_preview(self):
+        """按当前或请求内样式生成结构卡 PNG（base64）。Pillow 可选。"""
+        import base64
+        from astrbot.api.web import error_response, json_response, request
+        from . import card_render
+
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是对象", status_code=400)
+
+        kind = str(payload.get("kind") or "session_list").strip()
+        if kind not in card_render.CARD_KINDS:
+            return error_response(
+                f"kind 必须是 {'/'.join(card_render.CARD_KINDS)}", status_code=400
+            )
+
+        # 样式：请求 style 覆盖 + 否则读插件 config
+        cfg_view = dict(public_config(self.plugin))
+        style_patch = payload.get("style")
+        if isinstance(style_patch, dict):
+            # 允许前端用与 conf 相同的扁平键
+            for k, v in style_patch.items():
+                if k in CONFIG_KEYS or k in (
+                    "card_style_preset",
+                    "card_width",
+                    "card_accent",
+                    "card_bg",
+                    "card_fg",
+                    "card_font_scale",
+                    "card_density",
+                    "card_show_brand",
+                    "card_mono",
+                    "preset",
+                    "width",
+                    "accent",
+                    "bg",
+                    "fg",
+                    "font_scale",
+                    "density",
+                    "show_brand",
+                    "mono",
+                ):
+                    # 映射短键
+                    alias = {
+                        "preset": "card_style_preset",
+                        "width": "card_width",
+                        "accent": "card_accent",
+                        "bg": "card_bg",
+                        "fg": "card_fg",
+                        "font_scale": "card_font_scale",
+                        "density": "card_density",
+                        "show_brand": "card_show_brand",
+                        "mono": "card_mono",
+                    }
+                    cfg_view[alias.get(k, k)] = v
+
+        formula_mode = str(
+            payload.get("formula_mode")
+            or cfg_view.get("formula_mode")
+            or "off"
+        ).strip()
+        style = card_render.style_from_config(cfg_view)
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            data = card_render.sample_payload(kind)
+
+        result = card_render.render_card(
+            kind, data, style, formula_mode=formula_mode
+        )
+        body: dict[str, Any] = {
+            "ok": result.ok,
+            "kind": result.kind,
+            "engine": result.engine,
+            "ms": round(result.ms, 1),
+            "error": result.error,
+            "fallback_text": result.fallback_text,
+            "engine_status": card_render.engine_status(),
+            "style": card_render.style_to_public(style),
+        }
+        if result.ok and result.png:
+            body.update({
+                "mime": result.mime,
+                "width": result.width,
+                "height": result.height,
+                "bytes": result.bytes_len,
+                "png_base64": base64.b64encode(result.png).decode("ascii"),
+            })
+        return json_response(body)
 
     async def overview(self):
         from astrbot.api.web import json_response, request
@@ -370,6 +495,99 @@ class WebApi:
             return error_response(f"重连失败: {e}", status_code=500)
         return json_response(result)
 
+    async def hub_launch(self):
+        """生成 HAPI 官方 Web 的启动 URL（可选带 ?token= 自动登录）。
+
+        HAPI Web（useAuthSource）支持 query：
+        - token: access token（会写入 localStorage 并从地址栏剥离）
+        - hub: 可选 Hub 源（同源部署时一般不需要）
+        """
+        from astrbot.api.web import error_response, json_response, request
+        from urllib.parse import urlencode, urljoin
+
+        endpoint = str(self.plugin.config.get("hapi_endpoint") or "").strip()
+        token = str(self.plugin.config.get("access_token") or "").strip()
+        autologin = _query_truthy(request, "autologin") if request.query.get("autologin") is not None else True
+        # path: 仅允许站内相对路径，默认打开会话列表根
+        raw_path = str(request.query.get("path") or "/").strip() or "/"
+        if not raw_path.startswith("/"):
+            raw_path = "/" + raw_path
+        if ".." in raw_path or "\\" in raw_path or raw_path.startswith("//"):
+            return error_response("非法 path", status_code=400)
+
+        if not endpoint:
+            return error_response(
+                "未配置 hapi_endpoint。请先在设置中填写 HAPI 地址。",
+                status_code=400,
+            )
+
+        base = endpoint.rstrip("/")
+        try:
+            parsed = urlparse(base if "://" in base else f"http://{base}")
+        except Exception:
+            return error_response("hapi_endpoint 无法解析为合法 URL", status_code=400)
+
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return error_response("hapi_endpoint 须为 http(s)://host[:port]", status_code=400)
+
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        if raw_path == "/":
+            page = origin + "/"
+        else:
+            # urljoin 保证 path 拼在 origin 下
+            page = urljoin(origin + "/", raw_path.lstrip("/"))
+
+        warnings: list[str] = []
+        host = (parsed.hostname or "").lower()
+        loopback = host in ("127.0.0.1", "localhost", "::1") or host.startswith("127.")
+        if loopback:
+            warnings.append(
+                "当前地址是本机回环（127.0.0.1/localhost）。"
+                "iframe 由你的浏览器加载：仅当浏览器所在机器也能访问该地址时才能打开。"
+                "若 AstrBot 在服务器、HAPI 在另一台电脑，请把 endpoint 改成浏览器可达的局域网/域名。"
+            )
+        if not token:
+            warnings.append("未配置 access_token：只能打开登录页，无法自动登录。")
+            autologin = False
+        cf_id = str(self.plugin.config.get("cf_access_client_id") or "").strip()
+        if cf_id:
+            warnings.append(
+                "已配置 Cloudflare Access Service Token（仅插件服务端调用有效）。"
+                "浏览器嵌入官方 HAPI Web 时不会自动带上 CF 头；"
+                "若 Hub 在 Access 后，需浏览器侧已通过 Access，或改用可直达的内网地址。"
+            )
+        if autologin:
+            warnings.append(
+                "自动登录会把 access_token 放进一次性启动链接（?token=）。"
+                "HAPI 页面加载后会写入其自身 localStorage 并尽量从地址栏去掉 token；"
+                "请勿把完整启动链接发给他人或贴到公开场合。"
+            )
+
+        query: dict[str, str] = {}
+        if autologin and token:
+            query["token"] = token
+        # 跨源嵌入时显式 hub，避免 HAPI Web 误用 iframe 父页 origin
+        if origin:
+            query["hub"] = origin
+
+        launch_url = page
+        if query:
+            sep = "&" if "?" in page else "?"
+            launch_url = f"{page}{sep}{urlencode(query)}"
+
+        return json_response({
+            "ok": True,
+            "url": launch_url,
+            "url_display": page,  # 不带 token，供界面展示
+            "origin": origin,
+            "path": raw_path,
+            "autologin": bool(autologin and token),
+            "token_configured": bool(token),
+            "loopback": loopback,
+            "warnings": warnings,
+            "note": "官方 HAPI Web 支持 ?token= / ?hub=；嵌入依赖 Hub 未禁止 iframe（未设 X-Frame-Options 时通常可用）。",
+        })
+
 
 # ──── session ops helpers ────
 
@@ -624,6 +842,8 @@ class ConfigValidationError(ValueError):
 
 def public_config(plugin) -> dict[str, Any]:
     """脱敏后的配置视图（给前端）。"""
+    from . import card_render
+
     cfg = plugin.config
     token = str(cfg.get("access_token") or "")
     ns = None
@@ -631,11 +851,26 @@ def public_config(plugin) -> dict[str, Any]:
         ns = token.split(":", 1)[1].strip() or None
 
     cf_id = str(cfg.get("cf_access_client_id") or "").strip()
+    defaults = card_render.config_defaults()
     out: dict[str, Any] = {}
     for key in CONFIG_KEYS:
         if key in SENSITIVE_KEYS:
             continue
-        out[key] = cfg.get(key)
+        val = cfg.get(key)
+        if val is None and key in defaults:
+            val = defaults[key]
+        out[key] = val
+
+    # 前端方便：kinds 同时给数组
+    out["render_kinds_list"] = card_render.parse_kinds(out.get("render_kinds"))
+    out["render_engine"] = card_render.engine_status()
+    out["card_style"] = card_render.style_to_public(
+        card_render.style_from_config(out)
+    )
+    from .poke_actions import normalize_poke_action, poke_actions_meta
+
+    out["poke_action"] = normalize_poke_action(out.get("poke_action"))
+    out["poke_actions"] = poke_actions_meta()
 
     out["access_token_configured"] = bool(token.strip())
     out["access_token_namespace"] = ns
@@ -710,10 +945,13 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
     for raw_key, raw_val in patch.items():
         key = str(raw_key)
         if key not in CONFIG_KEYS:
-            # 忽略前端附带的 *_configured 等只读字段
+            # 忽略前端附带的 *_configured / 派生只读字段
             if key.endswith("_configured") or key in (
                 "access_token_namespace",
                 "cf_access_enabled",
+                "render_kinds_list",
+                "render_engine",
+                "card_style",
             ):
                 continue
             raise ConfigValidationError(f"未知配置项: {key}")
@@ -757,6 +995,77 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
             cleaned[key] = s
             continue
 
+        if key == "poke_action":
+            from .poke_actions import POKE_ACTIONS, normalize_poke_action
+
+            val = normalize_poke_action(raw_val)
+            if val not in POKE_ACTIONS:
+                raise ConfigValidationError(
+                    f"poke_action 必须是 {'/'.join(POKE_ACTIONS)}"
+                )
+            cleaned[key] = val
+            continue
+
+        if key == "render_mode":
+            val = str(raw_val or "").strip().lower()
+            if val not in RENDER_MODES:
+                raise ConfigValidationError(
+                    f"render_mode 必须是 {'/'.join(RENDER_MODES)}"
+                )
+            cleaned[key] = val
+            continue
+
+        if key == "formula_mode":
+            val = str(raw_val or "").strip().lower()
+            if val not in FORMULA_MODES:
+                raise ConfigValidationError(
+                    f"formula_mode 必须是 {'/'.join(FORMULA_MODES)}"
+                )
+            cleaned[key] = val
+            continue
+
+        if key == "render_kinds":
+            from . import card_render
+
+            kinds = card_render.parse_kinds(raw_val)
+            cleaned[key] = card_render.kinds_to_storage(kinds)
+            continue
+
+        if key == "card_style_preset":
+            val = str(raw_val or "").strip()
+            if val not in CARD_PRESETS:
+                raise ConfigValidationError(
+                    f"card_style_preset 必须是 {'/'.join(CARD_PRESETS)}"
+                )
+            cleaned[key] = val
+            continue
+
+        if key == "card_density":
+            val = str(raw_val or "").strip()
+            if val not in CARD_DENSITY:
+                raise ConfigValidationError(
+                    f"card_density 必须是 {'/'.join(CARD_DENSITY)}"
+                )
+            cleaned[key] = val
+            continue
+
+        if key in ("card_accent", "card_bg", "card_fg"):
+            s = str(raw_val or "").strip()
+            if not s:
+                raise ConfigValidationError(f"{key} 不能为空")
+            if not s.startswith("#"):
+                s = "#" + s
+            if len(s) not in (4, 7):
+                raise ConfigValidationError(f"{key} 须为 #RGB 或 #RRGGBB")
+            try:
+                from .card_render import _hex_to_rgb
+
+                _hex_to_rgb(s)
+            except Exception as e:
+                raise ConfigValidationError(f"{key} 不是合法颜色") from e
+            cleaned[key] = s
+            continue
+
         # 字符串类
         cleaned[key] = "" if raw_val is None else str(raw_val)
 
@@ -769,6 +1078,14 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
             raise ConfigValidationError("summary_msg_count 范围 1–50")
     if "remind_interval" in cleaned and cleaned["remind_interval"] < 30:
         raise ConfigValidationError("remind_interval 至少 30 秒")
+    if "card_width" in cleaned:
+        n = cleaned["card_width"]
+        if n < 400 or n > 1200:
+            raise ConfigValidationError("card_width 范围 400–1200")
+    if "card_font_scale" in cleaned:
+        n = cleaned["card_font_scale"]
+        if n < 75 or n > 150:
+            raise ConfigValidationError("card_font_scale 范围 75–150（百分数）")
 
     return cleaned
 
@@ -786,6 +1103,10 @@ def apply_runtime_config(plugin, patch: dict) -> None:
         plugin._quick_prefix = patch["quick_prefix"]
     if "poke_approve" in patch:
         plugin._poke_approve = patch["poke_approve"]
+    if "poke_action" in patch:
+        from .poke_actions import normalize_poke_action
+
+        plugin._poke_action = normalize_poke_action(patch["poke_action"])
     if "remind_pending" in patch:
         sse._remind_enabled = patch["remind_pending"]
     if "remind_interval" in patch:
@@ -845,11 +1166,48 @@ def _mask_if_sensitive(key: str, val: Any) -> Any:
 
 
 def _plugin_version(plugin) -> str:
-    # metadata / register 第四参；fallback 读 metadata 不强制
-    ver = getattr(plugin, "version", None) or plugin.config.get("_version")
-    if ver:
-        return str(ver)
-    return "2.2.0"
+    """版本号：instance 属性 → metadata.yaml → 内置默认。"""
+    for attr in ("version", "VERSION"):
+        ver = getattr(plugin, attr, None)
+        if ver:
+            return str(ver).lstrip("v")
+    cfg_ver = plugin.config.get("_version") if getattr(plugin, "config", None) is not None else None
+    if cfg_ver:
+        return str(cfg_ver).lstrip("v")
+    try:
+        from pathlib import Path
+
+        text = Path(__file__).with_name("metadata.yaml").read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if line.strip().startswith("version:"):
+                return line.split(":", 1)[1].strip().strip("\"'").lstrip("v")
+    except Exception:
+        pass
+    return "3.0.0"
+
+
+def _session_permission_mode(session: dict) -> str:
+    """HAPI Session 上 permissionMode 在顶层；metadata 仅作兜底。"""
+    meta = session.get("metadata") or {}
+    return str(
+        session.get("permissionMode")
+        or session.get("permission_mode")
+        or meta.get("permissionMode")
+        or meta.get("permission_mode")
+        or "default"
+    )
+
+
+def _session_model_label(session: dict) -> str:
+    """模型字段：顶层 model / modelMode 优先，与 formatters 对齐。"""
+    meta = session.get("metadata") or {}
+    return str(
+        session.get("modelMode")
+        or session.get("model")
+        or meta.get("model")
+        or meta.get("modelMode")
+        or "default"
+    )
 
 
 # ──── snapshot / routing ────
@@ -931,8 +1289,8 @@ def build_sessions_snapshot(plugin) -> dict:
             "active": bool(s.get("active")),
             "thinking": bool(s.get("thinking")),
             "pending": pending_n,
-            "permissionMode": meta.get("permissionMode") or meta.get("permission_mode") or "default",
-            "modelMode": meta.get("model") or meta.get("modelMode") or "default",
+            "permissionMode": _session_permission_mode(s),
+            "modelMode": _session_model_label(s),
             "bound_umo": bound,
             "effective_umo": eff_umo,
             "layer": layer,

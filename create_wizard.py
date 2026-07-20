@@ -2,7 +2,6 @@
 
 from .flavor_profiles import (
     CODEX_REASONING_EFFORT_OPTIONS,
-    CODEX_REASONING_EFFORT_VALUES,
     creatable_agents,
     flavor_label,
     is_creatable,
@@ -113,7 +112,7 @@ class CreateWizard:
         lines = [f"代理: {agent} ({label})", "", "步骤 5/6 — 选择思考深度:"]
         for i, (_, opt_label) in enumerate(CODEX_REASONING_EFFORT_OPTIONS, 1):
             lines.append(f"  [{i}] {opt_label}")
-        lines.append("回复序号选择，或直接输入 none/minimal/low/medium/high/xhigh")
+        lines.append("回复序号选择，或直接输入 none/minimal/low/medium/high/xhigh/max（也可透传上游动态值）")
         lines.append("注意：旧版本 HAPI 可能不支持 modelReasoningEffort，选择可能无效")
         return WizardResult("\n".join(lines))
 
@@ -247,16 +246,18 @@ class CreateWizard:
         return self._step5_prompt()
 
     def _step41(self, raw: str) -> WizardResult:
-        """步骤 4.1: 选择思考深度（Codex reasoning effort）"""
+        """步骤 4.1: 选择思考深度（Codex/OpenCode reasoning effort）"""
         s = self.state
         if raw.isdigit() and 1 <= int(raw) <= len(CODEX_REASONING_EFFORT_OPTIONS):
             s["model_reasoning_effort"] = CODEX_REASONING_EFFORT_OPTIONS[int(raw) - 1][0]
         else:
             normalized = raw.strip().lower()
-            if normalized in CODEX_REASONING_EFFORT_VALUES:
-                s["model_reasoning_effort"] = normalized
-            else:
-                return WizardResult("请输入有效序号，或直接输入 none/minimal/low/medium/high/xhigh")
+            # 列表外值允许透传（上游动态 reasoning effort）
+            if not normalized:
+                return WizardResult(
+                    "请输入有效序号，或直接输入 none/minimal/low/medium/high/xhigh/max"
+                )
+            s["model_reasoning_effort"] = normalized
 
         s["step"] = 5
         return self._step5_prompt()

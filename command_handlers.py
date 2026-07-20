@@ -69,6 +69,7 @@ class CommandHandlers:
             "model": (self.cmd_model, True),
             "effort": (self.cmd_effort, True),
             "plan": (self.cmd_plan, True),
+            "fast": (self.cmd_fast, True),
             "remote": (self.cmd_remote, False),
             "output": (self.cmd_output, True),
             "out": (self.cmd_output, True),
@@ -83,6 +84,7 @@ class CommandHandlers:
             "stop": (self.cmd_abort, True),
             "archive": (self.cmd_archive, False),
             "resume": (self.cmd_resume, True),
+            "reopen": (self.cmd_reopen, True),
             "rename": (self.cmd_rename, False),
             "delete": (self.cmd_delete, False),
             "clean": (self.cmd_clean, True),
@@ -162,7 +164,18 @@ class CommandHandlers:
         if machine_hint:
             text += "\n\n" + machine_hint
 
-        yield event.plain_result(text)
+        # 可选结构卡（Pillow）；失败/未安装/render_mode=text 时回退纯文本
+        from . import output_present
+
+        payload = output_present.build_session_list_payload(
+            visible_sessions,
+            current_sid,
+            header=f"当前窗口 · {len(visible_sessions)} 个",
+        )
+        async for result in output_present.present(
+            self.plugin, event, "session_list", payload, text
+        ):
+            yield result
 
     # ── sw ──
 
@@ -458,6 +471,7 @@ class CommandHandlers:
     async def cmd_effort(self, event: AstrMessageEvent, effort: str = ""):
         """查看/切换推理强度: /hapi effort [值]"""
         from .flavor_profiles import (
+            effort_allows_freeform,
             effort_none_aliases,
             effort_none_label,
             effort_options_for,
@@ -481,6 +495,7 @@ class CommandHandlers:
             return
 
         use_reasoning = supports_reasoning_effort(flavor)
+        freeform = effort_allows_freeform(flavor)
         options = effort_options_for(flavor)
         valid_values = effort_values_for(flavor)
         none_aliases = effort_none_aliases(flavor)
@@ -494,7 +509,12 @@ class CommandHandlers:
         if effort:
             val = effort.lower()
             target = None if val in none_aliases else val
-            if target is not None and valid_values and target not in valid_values:
+            if (
+                target is not None
+                and valid_values
+                and target not in valid_values
+                and not freeform
+            ):
                 yield event.plain_result(
                     f"❌ 无效值: {effort}\n可用: {none_label}, {', '.join(valid_values)}"
                 )
@@ -518,6 +538,8 @@ class CommandHandlers:
             lines = [f"({flavor_label(flavor)}) 当前推理强度，回复序号或名称切换："]
             if p.notes:
                 lines.append(p.notes)
+            if freeform:
+                lines.append("（上游支持动态选项，列表外的值也可直接输入）")
             for i, (val, label) in enumerate(options, 1):
                 mark = " ◀" if (val or none_label) == current else ""
                 lines.append(f"  {i}. {label}{mark}")
@@ -533,7 +555,7 @@ class CommandHandlers:
                     target = options[int(reply) - 1][0]
                 elif reply in none_aliases:
                     target = None
-                elif not valid_values or reply in valid_values:
+                elif freeform or not valid_values or reply in valid_values:
                     target = reply
                 else:
                     await ev.send(
@@ -604,6 +626,93 @@ class CommandHandlers:
             yield event.plain_result(f"{label}\n此窗口 Plan 模式{action}")
         else:
             yield event.plain_result(msg)
+
+    # ── fast (Codex service tier) ──
+
+    async def cmd_fast(self, event: AstrMessageEvent, mode: str = ""):
+        """查看/切换 Codex Fast mode: /hapi fast [on|off|fast|standard]"""
+        from .flavor_profiles import (
+            flavor_label,
+            normalize_service_tier,
+            service_tier_options,
+            supports_service_tier,
+        )
+        await self.state_mgr.set_user_state(event)
+        sid = self.state_mgr.effective_sid(event)
+        if not sid:
+            yield event.plain_result("请先用 /hapi sw <序号> 选择一个 session")
+            return
+
+        flavor = self.state_mgr.effective_flavor(event) or "claude"
+        if not supports_service_tier(flavor):
+            yield event.plain_result(
+                f"Fast mode（service tier）当前仅映射到 Codex session，"
+                f"当前为 {flavor_label(flavor)}"
+            )
+            return
+
+        options = service_tier_options()
+
+        async def _apply(tier: str):
+            ok, msg = await session_ops.set_service_tier(self.client, sid, tier)
+            if ok:
+                for s in self.sessions_cache:
+                    if s.get("id") == sid:
+                        s["serviceTier"] = tier
+                        break
+            return ok, msg
+
+        if mode:
+            tier = normalize_service_tier(mode)
+            if tier is None:
+                yield event.plain_result(
+                    f"❌ 无效值: {mode}\n可用: on/off、fast/standard"
+                )
+                return
+            ok, msg = await _apply(tier)
+            yield event.plain_result(msg)
+            return
+
+        try:
+            detail = await session_ops.fetch_session_detail(self.client, sid)
+            current = detail.get("serviceTier") or "standard"
+        except Exception:
+            yield event.plain_result("获取 Fast mode 状态失败")
+            return
+
+        lines = [
+            f"({flavor_label(flavor)}) Codex Fast mode，回复序号或 on/off 切换：",
+            f"当前: {current}",
+        ]
+        for i, (val, label) in enumerate(options, 1):
+            mark = " ◀" if val == current else ""
+            lines.append(f"  {i}. {label}{mark}")
+        yield event.plain_result("\n".join(lines))
+
+        @session_waiter(timeout=30, record_history_chains=False)
+        async def fast_waiter(controller: SessionController, ev: AstrMessageEvent):
+            reply = ev.message_str.strip().lower()
+            if not reply:
+                controller.keep(timeout=30, reset_timeout=True)
+                return
+            if reply.isdigit() and 1 <= int(reply) <= len(options):
+                tier = options[int(reply) - 1][0]
+            else:
+                tier = normalize_service_tier(reply)
+            if tier is None:
+                await ev.send(ev.plain_result("无效值，可用: on/off、fast/standard"))
+                controller.stop()
+                return
+            ok, msg = await _apply(tier)
+            await ev.send(ev.plain_result(msg))
+            controller.stop()
+
+        try:
+            await fast_waiter(event)
+        except TimeoutError:
+            yield event.plain_result("操作超时，已取消")
+        finally:
+            event.stop_event()
 
     # ── remote ──
 
@@ -692,7 +801,13 @@ class CommandHandlers:
         visible_sids.add(event.unified_msg_origin)  # 包含当前窗口 ID（LLM 工具请求）
         pending = self.plugin.pending_mgr.get_pending_for_window(event, visible_sids)
         text = formatters.format_pending_requests(pending, self.sessions_cache)
-        yield event.plain_result(text)
+        from . import output_present
+
+        payload = output_present.build_pending_payload(pending, self.sessions_cache)
+        async for result in output_present.present(
+            self.plugin, event, "pending", payload, text
+        ):
+            yield result
 
     # ── approve ──
 
@@ -1116,6 +1231,81 @@ class CommandHandlers:
                 msg += f"已切换到恢复后的会话 [{flavor}] {resumed_sid[:8]}..."
             elif not msg:
                 msg = f"会话 [{sid[:8]}] 已可用"
+        yield event.plain_result(msg)
+
+    # ── reopen ──
+
+    async def cmd_reopen(self, event: AstrMessageEvent, target: str = ""):
+        """Reopen inactive session: /hapi reopen [序号|ID前缀]
+
+        与 resume 不同：走 Hub POST /sessions/:id/reopen（0.20.1+），
+        适用于 resume 不可用或部分 Cursor/ACP 场景。
+        """
+        await self.state_mgr.set_user_state(event)
+        await self.plugin._refresh_sessions()
+
+        if not target:
+            sid = self.state_mgr.effective_sid(event)
+            if not sid:
+                yield event.plain_result(
+                    "请先用 /hapi sw <序号> 选择一个 session，或使用 /hapi reopen <序号>"
+                )
+                return
+        else:
+            sid = None
+            if target.isdigit():
+                idx = int(target)
+                if 1 <= idx <= len(self.sessions_cache):
+                    sid = self.sessions_cache[idx - 1]["id"]
+            if sid is None:
+                matches = [
+                    s for s in self.sessions_cache
+                    if s.get("id", "").startswith(target)
+                ]
+                if len(matches) == 1:
+                    sid = matches[0]["id"]
+                elif len(matches) > 1:
+                    labels = [f"  {s['id'][:8]}..." for s in matches]
+                    yield event.plain_result(
+                        f"匹配到 {len(matches)} 个 session，请更精确:\n"
+                        + "\n".join(labels)
+                    )
+                    return
+            if sid is None:
+                yield event.plain_result("未找到匹配的 session")
+                return
+
+        target_session = next(
+            (s for s in self.sessions_cache if s.get("id") == sid), None
+        )
+        if target_session:
+            state = _session_resume_state(target_session)
+            if state != "inactive":
+                yield event.plain_result(
+                    f"Session [{sid[:8]}] 当前状态为 {state}，"
+                    "reopen 通常用于 inactive session"
+                )
+                return
+
+        ok, msg, reopened_sid = await session_ops.reopen_session(self.client, sid)
+        if ok:
+            await self.plugin._refresh_sessions()
+            final_sid = reopened_sid or sid
+            reopened = next(
+                (s for s in self.sessions_cache if s.get("id") == final_sid), None
+            )
+            flavor = (
+                (reopened or {}).get("metadata", {}).get("flavor")
+                or self.state_mgr.effective_flavor(event)
+                or "claude"
+            )
+            await self.state_mgr.capture_window(
+                final_sid, event.unified_msg_origin, flavor
+            )
+            if final_sid != sid:
+                msg += f"\n已切换到 reopen 后的会话 [{flavor}] {final_sid[:8]}..."
+            else:
+                msg += f"\n已绑定当前窗口 [{flavor}] {final_sid[:8]}..."
         yield event.plain_result(msg)
 
     # ── rename ──

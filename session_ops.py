@@ -101,7 +101,7 @@ async def set_effort(client: AsyncHapiClient, sid: str, effort: str | None) -> t
 
 
 async def set_codex_reasoning_effort(client: AsyncHapiClient, sid: str, effort: str | None) -> tuple[bool, str]:
-    """设置 modelReasoningEffort（Codex 等）"""
+    """设置 modelReasoningEffort（Codex / OpenCode 等）"""
     resp = await client.post(f"/api/sessions/{sid}/model-reasoning-effort", json={"modelReasoningEffort": effort})
     if resp.ok:
         resp.release()
@@ -111,6 +111,18 @@ async def set_codex_reasoning_effort(client: AsyncHapiClient, sid: str, effort: 
         body = await resp.text()
         resp.release()
         return False, f"切换失败: {resp.status} {body[:200]}"
+
+
+async def set_service_tier(client: AsyncHapiClient, sid: str, tier: str) -> tuple[bool, str]:
+    """设置 Codex Fast mode（service tier: fast | standard）"""
+    resp = await client.post(f"/api/sessions/{sid}/service-tier", json={"serviceTier": tier})
+    if resp.ok:
+        resp.release()
+        label = "Fast 已开启" if tier == "fast" else "Fast 已关闭（standard）"
+        return True, label
+    body = await resp.text()
+    resp.release()
+    return False, f"切换失败: {resp.status} {body[:200]}"
 
 
 async def set_collaboration_mode(client: AsyncHapiClient, sid: str, mode: str) -> tuple[bool, str]:
@@ -207,6 +219,27 @@ async def resume_session(client: AsyncHapiClient, sid: str) -> tuple[bool, str, 
         return False, _format_resume_error(resp.status, body), None
 
 
+async def reopen_session(client: AsyncHapiClient, sid: str) -> tuple[bool, str, str | None]:
+    """Reopen inactive session（Hub reopen，语义与 resume 不同）。
+
+    返回 (成功, 描述, session_id 或 None)。
+    """
+    resp = await client.post(f"/api/sessions/{sid}/reopen", json={})
+    if resp.ok:
+        data = await resp.json()
+        resp.release()
+        reopened_sid = (
+            data.get("sessionId")
+            or (data.get("session") or {}).get("id")
+            or sid
+        )
+        return True, f"已 reopen [{reopened_sid[:8]}]", reopened_sid
+
+    body = await resp.text()
+    resp.release()
+    return False, _format_reopen_error(resp.status, body), None
+
+
 def _format_resume_error(status: int, body: str) -> str:
     """Format HAPI resume errors with context for known upstream failure modes."""
     code = ""
@@ -225,12 +258,31 @@ def _format_resume_error(status: int, body: str) -> str:
             "（例如 claudeSessionId / codexSessionId）。\n"
             "这通常表示原生会话 ID 没来得及写入 HAPI，或写入前 CLI/runner 已断开；"
             "HAPI 前端此时一般也无法无损恢复。\n"
-            "若想继续这段工作，你需要在原机器上找到 Claude/Codex/Gemini/OpenCode 所对应的原生 session id，"
-            "用对应原生 CLI 恢复；找不到的话只能在同目录新建会话，并手动补充摘要或关键上下文。"
+            "可尝试 /hapi reopen（部分场景与 resume 语义不同）；"
+            "或在原机器上用原生 CLI 按 session id 恢复。"
+            "找不到的话只能在同目录新建会话，并手动补充摘要或关键上下文。"
         )
 
     detail = error or body[:200]
     return f"恢复失败: {status} {detail}"
+
+
+def _format_reopen_error(status: int, body: str) -> str:
+    """Format HAPI reopen errors."""
+    code = ""
+    error = ""
+    try:
+        data = json.loads(body)
+        if isinstance(data, dict):
+            code = str(data.get("code") or "")
+            error = str(data.get("error") or data.get("message") or "")
+    except json.JSONDecodeError:
+        pass
+
+    if code or error:
+        detail = f"{code} {error}".strip() if code else error
+        return f"reopen 失败: {status} {detail}"
+    return f"reopen 失败: {status} {body[:200]}"
 
 
 async def rename_session(client: AsyncHapiClient, sid: str, new_name: str) -> tuple[bool, str]:

@@ -38,7 +38,8 @@ const UMO = {
 const PAGE_META = {
   overview: { title: "概览", desc: "连接状态与常用设置" },
   sessions: { title: "会话管理", desc: "Session 管理、通知投递与推送窗口设置" },
-  interact: { title: "交互优化", desc: "聊天侧快捷操作与审批体验（专用配置位）" },
+  hub: { title: "HAPI 网页", desc: "用已配置的 endpoint / token 打开官方 HAPI Web（可内嵌）" },
+  interact: { title: "交互优化", desc: "快捷操作、审批体验与推送呈现（样式 / 预览）" },
   help: { title: "命令帮助", desc: "按功能分类的 /hapi 指令说明" },
   settings: { title: "设置", desc: "对应插件 _conf_schema.json 全部配置项" },
 };
@@ -144,6 +145,17 @@ const SETTINGS = [
         type: "text",
         help: "多数用聊天 /hapi bind 设默认推送窗口。这里是配置里的窗口 ID；不确定请留空。",
       },
+      {
+        key: "render_mode",
+        label: "推送呈现模式",
+        type: "enum_cards",
+        help: "结构信息是否出卡片。详细样式与预览请到「交互优化」页。需可选依赖 Pillow。",
+        options: [
+          { value: "text", title: "纯文本", desc: "全部文字推送，速度最快（默认）。" },
+          { value: "auto", title: "结构出卡", desc: "list/pending 等出卡片，Agent 对话仍文本。" },
+          { value: "card", title: "尽量出卡", desc: "更多结构类型出卡；未装 Pillow 时回退文本。" },
+        ],
+      },
     ],
   },
   {
@@ -232,7 +244,7 @@ const HELP_COMMANDS = [
   { topic: "approve", usage: "/hapi allow [序号]", summary: "批准全部或单个非 question 请求", example: "/hapi allow 2", home: false },
   { topic: "approve", usage: "/hapi answer [序号]", summary: "回答 question 请求", example: "/hapi answer 1", home: true },
   { topic: "approve", usage: "/hapi deny [序号]", summary: "拒绝请求", example: "/hapi deny 3", home: true },
-  { topic: "approve", usage: "戳一戳机器人", summary: "批准全部权限请求（仅 QQ NapCat）", example: null, home: false },
+  { topic: "approve", usage: "戳一戳机器人", summary: "执行 WebUI 配置的快捷动作（默认批准待审；可改为 list/stop 等，仅 QQ NapCat）", example: null, home: false },
   { topic: "push", usage: "/hapi bind [<flavor>]", summary: "设置当前聊天为默认推送窗口；带 flavor（如 claude/codex）时只对对应 agent 生效", example: "/hapi bind claude", home: true },
   { topic: "push", usage: "/hapi bind status", summary: "查看默认推送窗口、flavor 推送窗口和 session 绑定状态", example: null, home: true },
   { topic: "push", usage: "/hapi routes", summary: "查看当前生效的会话推送路由", example: null, home: false },
@@ -402,12 +414,47 @@ function createStore() {
     summary_msg_count: 5,
     quick_prefix: ">",
     poke_approve: true,
+    poke_action: "approve",
+    poke_actions: [
+      { id: "approve", label: "批准待审", desc: "批准当前窗口可见的非 question 权限请求", emoji: "✅" },
+      { id: "pending", label: "查看待审", desc: "列出当前窗口待审批请求", emoji: "📋" },
+      { id: "list", label: "会话列表", desc: "列出当前窗口可见的 session", emoji: "☰" },
+      { id: "status", label: "当前状态", desc: "查看当前绑定 session 状态", emoji: "◎" },
+      { id: "stop", label: "中止当前", desc: "中止（abort）当前窗口生效中的 session", emoji: "⏹" },
+      { id: "output_cycle", label: "切换推送级别", desc: "在 silence→simple→summary→detail 间循环", emoji: "📢" },
+      { id: "none", label: "仅确认（无业务）", desc: "提示已收到戳一戳，不执行业务", emoji: "👋" },
+    ],
     remind_pending: true,
     remind_interval: 180,
     auto_approve_enabled: false,
     auto_approve_start: "23:00",
     auto_approve_end: "07:00",
     default_notification_window: "",
+    render_mode: "text",
+    formula_mode: "off",
+    render_kinds: "session_list,pending,status,permission",
+    render_kinds_list: ["session_list", "pending", "status", "permission"],
+    card_style_preset: "terminal_light",
+    card_width: 720,
+    card_accent: "#1a7f4b",
+    card_bg: "#faf8f2",
+    card_fg: "#1c1914",
+    card_font_scale: 100,
+    card_density: "comfortable",
+    card_show_brand: true,
+    card_mono: true,
+    render_engine: { pillow: false, install_hint: "pip install Pillow" },
+    card_style: {
+      preset: "terminal_light",
+      width: 720,
+      bg: "#faf8f2",
+      fg: "#1c1914",
+      accent: "#1a7f4b",
+      density: "comfortable",
+      show_brand: true,
+      mono: true,
+      font_scale: 1,
+    },
   };
   const conn = { sse_status: "connected", conn_fail_count: 0, conn_error: null };
 
@@ -562,6 +609,12 @@ const state = {
   helpTopic: "session",
   helpQuery: "",
   data: null,
+  hub: {
+    autologin: true,
+    launch: null, // last hub/launch payload
+    loadedUrl: null, // iframe currently showing (with token if autologin)
+    error: null,
+  },
 };
 
 function ruleText() {
@@ -642,6 +695,7 @@ function go(page) {
   closeSidebar();
   if (page === "overview") renderOverview();
   else if (page === "sessions") renderSessions();
+  else if (page === "hub") renderHub();
   else if (page === "interact") renderInteract();
   else if (page === "help") renderHelp();
   else if (page === "settings") renderSettings();
@@ -718,7 +772,7 @@ function renderOverview() {
             : ""
         }
         <div class="qs-field qs-bool">
-          <span class="qs-label">戳一戳审批</span>
+          <span class="qs-label">戳一戳快捷</span>
           <label class="switch">
             <input id="qs-poke" type="checkbox" ${cfg.poke_approve ? "checked" : ""} />
             <span class="switch-track" aria-hidden="true"></span>
@@ -1223,26 +1277,224 @@ function renderSessions() {
 
 /* ---------- interact ---------- */
 
+const RENDER_KIND_LABELS = {
+  session_list: "Session 列表",
+  pending: "待审批列表",
+  status: "状态",
+  permission: "权限请求卡",
+  routes: "推送路由",
+};
+
+const RENDER_PRESETS = [
+  { id: "terminal_light", label: "终端浅色" },
+  { id: "terminal_dark", label: "终端深色" },
+  { id: "clean", label: "简洁" },
+  { id: "compact", label: "紧凑（手机）" },
+];
+
+const PRESET_STYLE = {
+  terminal_light: { bg: "#faf8f2", fg: "#1c1914", accent: "#1a7f4b", width: 720 },
+  terminal_dark: { bg: "#1c1914", fg: "#f0ebe0", accent: "#3ecf8e", width: 720 },
+  clean: { bg: "#ffffff", fg: "#111827", accent: "#2563eb", width: 720 },
+  compact: { bg: "#faf8f2", fg: "#1c1914", accent: "#1a7f4b", width: 560 },
+};
+
+function interactRenderState(cfg) {
+  const kinds = Array.isArray(cfg.render_kinds_list)
+    ? cfg.render_kinds_list
+    : String(cfg.render_kinds || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+  return {
+    render_mode: cfg.render_mode || "text",
+    formula_mode: cfg.formula_mode || "off",
+    kinds,
+    card_style_preset: cfg.card_style_preset || "terminal_light",
+    card_width: Number(cfg.card_width) || 720,
+    card_accent: cfg.card_accent || "#1a7f4b",
+    card_bg: cfg.card_bg || "#faf8f2",
+    card_fg: cfg.card_fg || "#1c1914",
+    card_font_scale: Number(cfg.card_font_scale) || 100,
+    card_density: cfg.card_density || "comfortable",
+    card_show_brand: cfg.card_show_brand !== false,
+    card_mono: cfg.card_mono !== false,
+  };
+}
+
+function sampleDomRows(kind) {
+  if (kind === "pending") {
+    return [
+      { i: 1, a: "claude · auth-mw", b: "Bash · npm test" },
+      { i: 2, a: "claude · auth-mw", b: "Edit · src/auth.ts" },
+    ];
+  }
+  if (kind === "permission") {
+    return [
+      { i: 0, a: "工具", b: "Bash" },
+      { i: 0, a: "命令", b: "pytest -q tests/test_auth.py" },
+    ];
+  }
+  if (kind === "status") {
+    return [
+      { i: 0, a: "状态", b: "active · thinking" },
+      { i: 0, a: "模型", b: "opus · effort high" },
+      { i: 0, a: "路径", b: "/home/dev/proj-auth" },
+    ];
+  }
+  if (kind === "routes") {
+    return [
+      { i: 1, a: "会话绑定", b: "群 A · 20001" },
+      { i: 2, a: "Agent 窗口", b: "claude → 私聊" },
+      { i: 3, a: "默认窗口", b: "私聊 · 10001" },
+    ];
+  }
+  return [
+    { i: 1, a: "claude", b: "重构鉴权中间件 · thinking" },
+    { i: 2, a: "claude", b: "补 session 列表单测 · idle" },
+    { i: 3, a: "codex", b: "API 文档生成 · active" },
+  ];
+}
+
+function sampleTitle(kind) {
+  return (
+    {
+      session_list: "Session 列表",
+      pending: "待审批",
+      status: "Session 状态",
+      permission: "权限请求",
+      routes: "推送路由",
+    }[kind] || kind
+  );
+}
+
+function sampleSub(kind) {
+  return (
+    {
+      session_list: "当前窗口可见 · 3",
+      pending: "当前窗口 2 项 · 全局 3 项",
+      status: "claude · a1b2c3d4",
+      permission: "序号 1 · claude · auth-mw",
+      routes: "通知投递优先级",
+    }[kind] || ""
+  );
+}
+
+function sampleFooter(kind) {
+  return (
+    {
+      session_list: "/hapi sw <n>  切换    > 消息  快捷发送",
+      pending: "/hapi a  全部批准    /hapi pending  列表",
+      status: "output=simple · render=auto",
+      permission: "/hapi allow 1   /hapi deny 1",
+      routes: "/hapi bind  ·  /hapi routes",
+    }[kind] || ""
+  );
+}
+
+function paintDomCardPreview() {
+  const root = $("#ix-dom-preview");
+  if (!root) return;
+  const kind = $("#ix-sample")?.value || "session_list";
+  const bg = $("#ix-bg")?.value || "#faf8f2";
+  const fg = $("#ix-fg")?.value || "#1c1914";
+  const accent = $("#ix-accent")?.value || "#1a7f4b";
+  const width = Number($("#ix-width")?.value) || 720;
+  const scale = (Number($("#ix-scale")?.value) || 100) / 100;
+  const density = $("#ix-density")?.value || "comfortable";
+  const brand = $("#ix-brand")?.checked;
+  const mono = $("#ix-mono")?.checked;
+  const pad = density === "compact" ? 12 : 18;
+  const rows = sampleDomRows(kind)
+    .map((r) => {
+      const head = r.i ? `[${r.i}] ${r.a}` : r.a;
+      return `<div class="rpc-row"><div class="rpc-head">${esc(head)}</div><div class="rpc-detail">${esc(r.b)}</div></div>`;
+    })
+    .join("");
+  root.innerHTML = `
+    <div class="render-preview-card" style="
+      --rpc-bg:${attr(bg)};
+      --rpc-fg:${attr(fg)};
+      --rpc-accent:${attr(accent)};
+      --rpc-muted:${attr(fg)}99;
+      max-width:${Math.min(width, 640)}px;
+      padding:${pad}px;
+      font-family:${mono ? "var(--font)" : "var(--font-ui)"};
+      font-size:${(13 * scale).toFixed(1)}px;
+    ">
+      <div class="rpc-title">${esc(sampleTitle(kind))}</div>
+      <div class="rpc-sub">${esc(sampleSub(kind))}</div>
+      <div class="rpc-bar"></div>
+      ${rows}
+      <div class="rpc-foot">${esc(sampleFooter(kind))}</div>
+      ${brand ? `<div class="rpc-brand">hapi connector</div>` : ""}
+    </div>`;
+}
+
+function collectRenderPatchFromForm() {
+  const kindBoxes = [...document.querySelectorAll("[data-rkind]")];
+  const kinds = kindBoxes.filter((el) => el.checked).map((el) => el.value);
+  return {
+    render_mode: $("#ix-rmode")?.value || "text",
+    formula_mode: $("#ix-fmode")?.value || "off",
+    render_kinds: kinds.join(",") || "session_list,pending",
+    card_style_preset: $("#ix-preset")?.value || "terminal_light",
+    card_width: Number($("#ix-width")?.value) || 720,
+    card_accent: $("#ix-accent")?.value || "#1a7f4b",
+    card_bg: $("#ix-bg")?.value || "#faf8f2",
+    card_fg: $("#ix-fg")?.value || "#1c1914",
+    card_font_scale: Number($("#ix-scale")?.value) || 100,
+    card_density: $("#ix-density")?.value || "comfortable",
+    card_show_brand: Boolean($("#ix-brand")?.checked),
+    card_mono: Boolean($("#ix-mono")?.checked),
+  };
+}
+
+function applyPresetToForm(presetId) {
+  const p = PRESET_STYLE[presetId] || PRESET_STYLE.terminal_light;
+  if ($("#ix-width")) $("#ix-width").value = p.width;
+  if ($("#ix-accent")) $("#ix-accent").value = p.accent;
+  if ($("#ix-bg")) $("#ix-bg").value = p.bg;
+  if ($("#ix-fg")) $("#ix-fg").value = p.fg;
+  if ($("#ix-width-val")) $("#ix-width-val").textContent = String(p.width);
+  if (presetId === "compact" && $("#ix-density")) $("#ix-density").value = "compact";
+  if (presetId === "clean" && $("#ix-mono")) $("#ix-mono").checked = false;
+  if (presetId !== "clean" && $("#ix-mono") && presetId !== "compact") $("#ix-mono").checked = true;
+  if (presetId === "compact" && $("#ix-brand")) $("#ix-brand").checked = false;
+  if (presetId !== "compact" && $("#ix-brand")) $("#ix-brand").checked = true;
+}
+
 function renderInteract() {
   if (!state.data) return;
   renderTopConn();
   renderAlert();
   const cfg = state.data.config;
+  const rs = interactRenderState(cfg);
+  const engine = cfg.render_engine || {};
+  const pillowOk = Boolean(engine.pillow);
+  const kindChecks = Object.keys(RENDER_KIND_LABELS)
+    .map((k) => {
+      const on = rs.kinds.includes(k);
+      return `<label class="chk"><input type="checkbox" data-rkind value="${k}" ${on ? "checked" : ""}/> ${esc(
+        RENDER_KIND_LABELS[k],
+      )}</label>`;
+    })
+    .join("");
 
   $("#view-interact").innerHTML = `
     <div class="card">
       <div class="card-head">
         <div>
-          <h2>交互优化</h2>
-          <p class="sub">聊天侧快捷操作与审批体验。此处先集中现有项；后续扩展位预留在下方。</p>
+          <h2>快捷操作</h2>
+          <p class="sub">聊天侧前缀与可配置的戳一戳快捷动作。</p>
         </div>
       </div>
 
       <div class="field">
         <div class="field-label-row">
-          <div class="field-label">戳一戳一键审批</div>
+          <div class="field-label">启用戳一戳快捷操作</div>
         </div>
-        <p class="field-help">仅 QQ NapCat 等支持戳一戳的适配器。戳机器人 ≈ 批准当前待审权限。</p>
+        <p class="field-help">仅 QQ NapCat 等支持戳一戳的适配器。关闭后戳机器人不会触发任何 hapi 动作。</p>
         <label class="switch">
           <input id="ix-poke" type="checkbox" ${cfg.poke_approve ? "checked" : ""} />
           <span class="switch-track" aria-hidden="true"></span>
@@ -1250,11 +1502,31 @@ function renderInteract() {
         </label>
       </div>
 
+      <div class="field" id="ix-poke-action-wrap" ${cfg.poke_approve ? "" : "hidden"}>
+        <div class="field-label-row">
+          <div class="field-label">戳一戳映射动作</div>
+        </div>
+        <p class="field-help">一戳执行的安全快捷指令。默认「批准待审」兼容旧行为；可改为 list / stop / 切换推送级别等。</p>
+        <div class="poke-action-grid" id="ix-poke-actions">
+          ${(cfg.poke_actions || [])
+            .map((a) => {
+              const on = (cfg.poke_action || "approve") === a.id;
+              return `<label class="poke-action-card ${on ? "is-on" : ""}">
+                <input type="radio" name="ix-poke-action" value="${attr(a.id)}" ${on ? "checked" : ""} />
+                <span class="pa-emoji" aria-hidden="true">${esc(a.emoji || "·")}</span>
+                <span class="pa-label">${esc(a.label || a.id)}</span>
+                <span class="pa-desc">${esc(a.desc || "")}</span>
+              </label>`;
+            })
+            .join("")}
+        </div>
+      </div>
+
       <div class="field">
         <div class="field-label-row">
           <div class="field-label">快捷发送前缀</div>
         </div>
-        <p class="field-help">默认 &gt; 时，「&gt; 继续修 bug」进当前会话；「&gt;2 内容」进列表第 2 个。改前缀后请用新前缀。</p>
+        <p class="field-help">默认 &gt; 时，「&gt; 继续修 bug」进当前会话；「&gt;2 内容」进列表第 2 个。</p>
         <input id="ix-prefix" class="ctrl" type="text" value="${attr(cfg.quick_prefix)}" style="max-width:220px" />
       </div>
     </div>
@@ -1262,15 +1534,123 @@ function renderInteract() {
     <div class="card">
       <div class="card-head">
         <div>
-          <h2>扩展位（占位）</h2>
-          <p class="sub">预留给后续交互体验优化项（如默认确认文案、列表展示密度等）。当前无配置。</p>
+          <h2>推送呈现</h2>
+          <p class="sub">控制 list / 审批等<strong>结构化</strong>消息是否出卡片。Agent 对话流默认仍为纯文本以保证速度。卡片依赖可选 Pillow。</p>
+        </div>
+        <span class="tag ${pillowOk ? "tag-ok" : "tag-muted"}">${pillowOk ? "Pillow 可用" : "未装 Pillow · 回退文本"}</span>
+      </div>
+
+      ${
+        pillowOk
+          ? ""
+          : `<div class="alert-inline">实卡预览与聊天出图需要可选依赖：
+            <code>pip install Pillow</code> 或
+            <code>pip install -r requirements-render.txt</code>
+            。未安装时配置仍可保存，运行时自动纯文本。</div>`
+      }
+
+      <div class="render-layout">
+        <div class="render-form">
+          <div class="field">
+            <div class="field-label">渲染模式</div>
+            <p class="field-help">text=全文本；auto=结构卡+对话文本（推荐）；card=更多结构类型出卡。</p>
+            <select id="ix-rmode" class="ctrl">
+              <option value="text" ${rs.render_mode === "text" ? "selected" : ""}>text · 纯文本（最快）</option>
+              <option value="auto" ${rs.render_mode === "auto" ? "selected" : ""}>auto · 结构出卡</option>
+              <option value="card" ${rs.render_mode === "card" ? "selected" : ""}>card · 尽量出卡</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <div class="field-label">出卡类型</div>
+            <div class="chk-grid">${kindChecks}</div>
+          </div>
+
+          <div class="field">
+            <div class="field-label">公式策略（预留）</div>
+            <p class="field-help">首版不接数学引擎；开启后复杂公式仍保留源码文本。</p>
+            <select id="ix-fmode" class="ctrl">
+              <option value="off" ${rs.formula_mode === "off" ? "selected" : ""}>off · 关闭</option>
+              <option value="detect" ${rs.formula_mode === "detect" ? "selected" : ""}>detect · 检测到 $ 时（预留）</option>
+              <option value="always" ${rs.formula_mode === "always" ? "selected" : ""}>always · 总是（预留）</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <div class="field-label">样式预设</div>
+            <select id="ix-preset" class="ctrl">
+              ${RENDER_PRESETS.map(
+                (p) =>
+                  `<option value="${p.id}" ${rs.card_style_preset === p.id ? "selected" : ""}>${esc(p.label)}</option>`,
+              ).join("")}
+            </select>
+          </div>
+
+          <div class="field-row2">
+            <div class="field">
+              <div class="field-label">宽度 <span id="ix-width-val">${rs.card_width}</span>px</div>
+              <input id="ix-width" type="range" min="400" max="1200" step="10" value="${rs.card_width}" />
+            </div>
+            <div class="field">
+              <div class="field-label">字号 <span id="ix-scale-val">${rs.card_font_scale}</span>%</div>
+              <input id="ix-scale" type="range" min="75" max="150" step="5" value="${rs.card_font_scale}" />
+            </div>
+          </div>
+
+          <div class="field-row3">
+            <label class="field">强调色
+              <input id="ix-accent" type="color" value="${attr(rs.card_accent)}" />
+            </label>
+            <label class="field">背景
+              <input id="ix-bg" type="color" value="${attr(rs.card_bg)}" />
+            </label>
+            <label class="field">文字
+              <input id="ix-fg" type="color" value="${attr(rs.card_fg)}" />
+            </label>
+          </div>
+
+          <div class="field-row2">
+            <div class="field">
+              <div class="field-label">密度</div>
+              <select id="ix-density" class="ctrl">
+                <option value="comfortable" ${rs.card_density === "comfortable" ? "selected" : ""}>comfortable</option>
+                <option value="compact" ${rs.card_density === "compact" ? "selected" : ""}>compact</option>
+              </select>
+            </div>
+            <div class="field" style="display:flex;flex-direction:column;gap:8px;justify-content:flex-end">
+              <label class="chk"><input id="ix-mono" type="checkbox" ${rs.card_mono ? "checked" : ""}/> 等宽字体</label>
+              <label class="chk"><input id="ix-brand" type="checkbox" ${rs.card_show_brand ? "checked" : ""}/> 品牌角标</label>
+            </div>
+          </div>
+
+          <div class="render-actions">
+            <button type="button" class="btn" id="ix-reset-style">恢复默认样式</button>
+            <button type="button" class="btn btn-primary" id="ix-save-render">保存并应用</button>
+          </div>
+        </div>
+
+        <div class="render-preview-pane">
+          <div class="field-label-row" style="margin-bottom:8px">
+            <div class="field-label">预览</div>
+            <select id="ix-sample" class="ctrl" style="max-width:160px">
+              ${Object.keys(RENDER_KIND_LABELS)
+                .map((k) => `<option value="${k}">${esc(RENDER_KIND_LABELS[k])}</option>`)
+                .join("")}
+            </select>
+          </div>
+          <p class="field-help">左侧为即时 DOM 预览（调色用）。点「生成实卡」走服务端 Pillow，与聊天发出效果一致。</p>
+          <div id="ix-dom-preview" class="render-dom-host"></div>
+          <div class="render-actions" style="margin-top:12px">
+            <button type="button" class="btn btn-primary" id="ix-gen-card" ${pillowOk || !liveMode ? "" : ""}>生成实卡预览</button>
+          </div>
+          <div id="ix-real-meta" class="field-help" style="margin-top:8px"></div>
+          <div id="ix-real-preview" class="render-real-host"></div>
         </div>
       </div>
-      <div class="empty" style="border-style:dashed">暂无更多交互配置 · 后续版本在此扩展</div>
     </div>
   `;
 
-  const apply = async (patch) => {
+  const applyQuick = async (patch) => {
     try {
       if (liveMode && api) await api.saveConfig(patch);
       else store.saveConfig(patch);
@@ -1285,9 +1665,119 @@ function renderInteract() {
     const on = $("#ix-poke").checked;
     const txt = $("#ix-poke").closest(".switch")?.querySelector(".switch-text");
     if (txt) txt.textContent = on ? "开启" : "关闭";
-    apply({ poke_approve: on });
+    const wrap = $("#ix-poke-action-wrap");
+    if (wrap) wrap.hidden = !on;
+    applyQuick({ poke_approve: on });
   };
-  $("#ix-prefix").onchange = () => apply({ quick_prefix: $("#ix-prefix").value });
+  $$("#ix-poke-actions input[name='ix-poke-action']").forEach((inp) => {
+    inp.onchange = () => {
+      $$("#ix-poke-actions .poke-action-card").forEach((c) => c.classList.remove("is-on"));
+      inp.closest(".poke-action-card")?.classList.add("is-on");
+      applyQuick({ poke_action: inp.value });
+    };
+  });
+  $("#ix-prefix").onchange = () => applyQuick({ quick_prefix: $("#ix-prefix").value });
+
+  const bindPaint = () => {
+    paintDomCardPreview();
+  };
+  ["ix-width", "ix-scale", "ix-accent", "ix-bg", "ix-fg", "ix-density", "ix-mono", "ix-brand", "ix-sample"].forEach(
+    (id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener("input", () => {
+        if (id === "ix-width" && $("#ix-width-val")) $("#ix-width-val").textContent = el.value;
+        if (id === "ix-scale" && $("#ix-scale-val")) $("#ix-scale-val").textContent = el.value;
+        bindPaint();
+      });
+      el.addEventListener("change", bindPaint);
+    },
+  );
+  $("#ix-preset") &&
+    ($("#ix-preset").onchange = () => {
+      applyPresetToForm($("#ix-preset").value);
+      bindPaint();
+    });
+
+  $("#ix-reset-style") &&
+    ($("#ix-reset-style").onclick = () => {
+      if ($("#ix-preset")) $("#ix-preset").value = "terminal_light";
+      applyPresetToForm("terminal_light");
+      if ($("#ix-scale")) {
+        $("#ix-scale").value = 100;
+        if ($("#ix-scale-val")) $("#ix-scale-val").textContent = "100";
+      }
+      if ($("#ix-density")) $("#ix-density").value = "comfortable";
+      if ($("#ix-mono")) $("#ix-mono").checked = true;
+      if ($("#ix-brand")) $("#ix-brand").checked = true;
+      bindPaint();
+    });
+
+  $("#ix-save-render") &&
+    ($("#ix-save-render").onclick = async () => {
+      const patch = collectRenderPatchFromForm();
+      try {
+        if (liveMode && api) {
+          const res = await api.saveConfig(patch);
+          toast(res?.message || "已保存");
+        } else {
+          store.saveConfig({
+            ...patch,
+            render_kinds_list: patch.render_kinds.split(","),
+            render_engine: engine,
+          });
+          toast("已保存（本地 mock）");
+        }
+        if (state.draft) Object.assign(state.draft, patch);
+        await refresh({ silent: true });
+      } catch (e) {
+        toast("保存失败: " + (e.message || e));
+      }
+    });
+
+  $("#ix-gen-card") &&
+    ($("#ix-gen-card").onclick = async () => {
+      const kind = $("#ix-sample")?.value || "session_list";
+      const style = collectRenderPatchFromForm();
+      const meta = $("#ix-real-meta");
+      const host = $("#ix-real-preview");
+      if (meta) meta.textContent = "生成中…";
+      if (host) host.innerHTML = "";
+      try {
+        let res;
+        if (liveMode && api) {
+          res = await api.renderPreview({ kind, style, formula_mode: style.formula_mode });
+        } else {
+          // mock：无服务端时只提示用 DOM 预览
+          res = {
+            ok: false,
+            error: "本地预览模式无 Pillow 后端；请在 AstrBot 插件面板内生成实卡，或安装依赖后重试。",
+            ms: 0,
+            engine: "none",
+            fallback_text: sampleTitle(kind) + "\n" + sampleSub(kind),
+          };
+        }
+        if (res?.ok && res.png_base64) {
+          if (meta) {
+            meta.textContent = `实卡 · ${res.engine} · ${res.ms}ms · ${res.bytes || "?"}B · ${res.width}×${res.height}`;
+          }
+          if (host) {
+            host.innerHTML = `<img class="render-real-img" alt="card preview" src="data:${res.mime || "image/png"};base64,${res.png_base64}" />`;
+          }
+        } else {
+          if (meta) {
+            meta.textContent = `未能生成实卡（${res?.engine || "none"} · ${res?.ms ?? "?"}ms）：${res?.error || "unknown"}`;
+          }
+          if (host && res?.fallback_text) {
+            host.innerHTML = `<pre class="render-fallback">${esc(res.fallback_text)}</pre>`;
+          }
+        }
+      } catch (e) {
+        if (meta) meta.textContent = "预览失败: " + (e.message || e);
+      }
+    });
+
+  paintDomCardPreview();
 }
 
 /* ---------- help ---------- */
@@ -1803,6 +2293,175 @@ function openDetail(id) {
   });
 }
 
+/* ---------- HAPI Web embed (official hub SPA) ---------- */
+
+async function fetchHubLaunch() {
+  if (liveMode && api) {
+    return api.hubLaunch({ autologin: state.hub.autologin });
+  }
+  // mock / 本地预览
+  const cfg = state.data?.config || {};
+  const endpoint = String(cfg.hapi_endpoint || "http://127.0.0.1:3006").replace(/\/$/, "");
+  const tokenConfigured = Boolean(cfg.access_token_configured);
+  const origin = endpoint;
+  const page = origin + "/";
+  const autologin = state.hub.autologin && tokenConfigured;
+  const mockToken = "demo-token:default";
+  let url = page + "?hub=" + encodeURIComponent(origin);
+  if (autologin) url += "&token=" + encodeURIComponent(mockToken);
+  return {
+    ok: true,
+    url,
+    url_display: page,
+    origin,
+    path: "/",
+    autologin,
+    token_configured: tokenConfigured,
+    loopback: /127\.0\.0\.1|localhost/i.test(endpoint),
+    warnings: [
+      "本地预览（无 bridge）：使用 mock 启动链。",
+      ...(tokenConfigured
+        ? ["自动登录会把 token 写入启动 URL（官方 HAPI 会尽快剥离）。"]
+        : ["未配置 token：只能打开登录页。"]),
+    ],
+    note: "HAPI Web 支持 ?token= / ?hub=",
+  };
+}
+
+function mountHubIframe(url) {
+  const wrap = $("#hub-frame-wrap");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const iframe = document.createElement("iframe");
+  iframe.className = "hub-iframe";
+  iframe.title = "HAPI Web";
+  iframe.src = url;
+  // 允许剪贴板等；跨域无法读内部 DOM，属预期
+  iframe.setAttribute("allow", "clipboard-read; clipboard-write");
+  iframe.setAttribute("referrerpolicy", "no-referrer");
+  wrap.appendChild(iframe);
+  state.hub.loadedUrl = url;
+}
+
+function renderHubToolbar(launch) {
+  const bar = $("#hub-toolbar");
+  if (!bar) return;
+  const L = launch || {};
+  const warnHtml = (L.warnings || [])
+    .map((w) => `<div class="hub-warn">⚠ ${esc(w)}</div>`)
+    .join("");
+  bar.innerHTML = `
+    <div class="hub-toolbar-row">
+      <div class="hub-meta">
+        <div class="hub-origin mono">${esc(L.url_display || L.origin || "—")}</div>
+        <div class="hub-status">
+          ${L.autologin ? '<span class="tag tag-ok">自动登录</span>' : '<span class="tag tag-muted">仅打开页面</span>'}
+          ${L.token_configured ? "" : '<span class="tag tag-warn">无 token</span>'}
+          ${L.loopback ? '<span class="tag tag-warn">本机地址</span>' : ""}
+        </div>
+      </div>
+      <div class="hub-actions">
+        <label class="hub-check">
+          <input type="checkbox" id="hub-autologin" ${state.hub.autologin ? "checked" : ""} />
+          带 token 自动登录
+        </label>
+        <button type="button" class="btn" id="hub-reload">重新加载</button>
+        <button type="button" class="btn" id="hub-open">新窗口打开</button>
+        <button type="button" class="btn" id="hub-copy">复制链接（含登录）</button>
+        <button type="button" class="btn" id="hub-copy-safe">复制地址（无 token）</button>
+      </div>
+    </div>
+    ${warnHtml}
+    <p class="hub-note">${esc(L.note || "由插件配置的 hapi_endpoint / access_token 生成启动链；与本面板的管控功能互补。")}</p>
+  `;
+
+  $("#hub-autologin")?.addEventListener("change", async (e) => {
+    state.hub.autologin = Boolean(e.target.checked);
+    await loadHub(true);
+  });
+  $("#hub-reload")?.addEventListener("click", () => loadHub(true));
+  $("#hub-open")?.addEventListener("click", () => {
+    const u = state.hub.loadedUrl || L.url;
+    if (!u) return toast("尚无启动链接");
+    const w = window.open(u, "_blank", "noopener,noreferrer");
+    if (!w) {
+      toast("无法打开新窗口（可能被拦截或插件页 sandbox 限制）；请「复制链接」后在浏览器粘贴");
+    }
+  });
+  $("#hub-copy")?.addEventListener("click", async () => {
+    const u = state.hub.loadedUrl || L.url;
+    if (!u) return toast("尚无启动链接");
+    try {
+      await navigator.clipboard.writeText(u);
+      toast("已复制（含 token 时请勿外传）");
+    } catch {
+      toast("复制失败，请手动从新窗口地址栏获取");
+    }
+  });
+  $("#hub-copy-safe")?.addEventListener("click", async () => {
+    const u = L.url_display || L.origin;
+    if (!u) return toast("尚无地址");
+    try {
+      await navigator.clipboard.writeText(u);
+      toast("已复制无 token 地址");
+    } catch {
+      toast("复制失败");
+    }
+  });
+}
+
+async function loadHub(force = false) {
+  const ph = $("#hub-placeholder");
+  if (ph) ph.textContent = "正在生成启动链接…";
+  try {
+    const launch = await fetchHubLaunch();
+    state.hub.launch = launch;
+    state.hub.error = null;
+    renderHubToolbar(launch);
+    if (!launch.url) {
+      const wrap = $("#hub-frame-wrap");
+      if (wrap) wrap.innerHTML = `<div class="hub-placeholder empty">无法生成启动链接</div>`;
+      return;
+    }
+    // 同 URL 且已加载时不强制刷新，避免轮询打断用户操作
+    if (!force && state.hub.loadedUrl === launch.url && $("#hub-frame-wrap iframe")) {
+      return;
+    }
+    mountHubIframe(launch.url);
+  } catch (e) {
+    state.hub.error = e.message || String(e);
+    state.hub.launch = null;
+    renderHubToolbar({
+      url_display: state.data?.config?.hapi_endpoint || "—",
+      warnings: [state.hub.error],
+      autologin: false,
+      token_configured: Boolean(state.data?.config?.access_token_configured),
+    });
+    const wrap = $("#hub-frame-wrap");
+    if (wrap) {
+      wrap.innerHTML = `<div class="hub-placeholder empty">加载失败：${esc(state.hub.error)}
+        <div style="margin-top:10px"><button type="button" class="btn" id="hub-retry">重试</button></div>
+      </div>`;
+      $("#hub-retry")?.addEventListener("click", () => loadHub(true));
+    }
+  }
+}
+
+function renderHub() {
+  // 工具栏先占位，再异步拉 launch
+  if (!state.hub.launch && !state.hub.error) {
+    renderHubToolbar({
+      url_display: state.data?.config?.hapi_endpoint || "—",
+      warnings: ["正在准备…"],
+      autologin: state.hub.autologin,
+      token_configured: Boolean(state.data?.config?.access_token_configured),
+    });
+  } else if (state.hub.launch) {
+    renderHubToolbar(state.hub.launch);
+  }
+  loadHub(false);
+}
+
 /* ---------- boot ---------- */
 
 /* ---------- live / mock data layer ---------- */
@@ -1852,7 +2511,11 @@ async function refresh(opts = {}) {
   // 自动轮询时：设置页有未保存草稿则不重绘表单，避免打断输入
   if (state.page === "overview") renderOverview();
   else if (state.page === "sessions") renderSessions();
-  else if (state.page === "interact") renderInteract();
+  else if (state.page === "hub") {
+    // 轮询时只刷新工具栏元信息，不重载 iframe（避免打断操作 / 反复带 token 加载）
+    if (!opts.silent) renderHub();
+    else if (state.hub.launch) renderHubToolbar(state.hub.launch);
+  } else if (state.page === "interact") renderInteract();
   else if (state.page === "help") renderHelp();
   else if (state.page === "settings") {
     if (!opts.silent || !state.draft) renderSettings();
@@ -1998,22 +2661,36 @@ async function boot() {
       api = createApi(bridge);
       liveMode = true;
       wireLiveMutations();
-      // theme
-      if (ctx?.isDark) {
-        document.documentElement.setAttribute("data-theme", "dark");
+
+      // theme / locale：初始 + onContext 跟随 Dashboard
+      const applyCtx = (c) => {
+        const dark = Boolean(c?.isDark);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+        try {
+          document.documentElement.lang = bridge.getLocale?.() || c?.locale || "zh-CN";
+        } catch (_) {
+          /* ignore */
+        }
+      };
+      applyCtx(ctx);
+      if (typeof bridge.onContext === "function") {
+        const offCtx = bridge.onContext(applyCtx);
+        if (typeof offCtx === "function") {
+          window.addEventListener("beforeunload", offCtx);
+        }
       }
-      // load help from server (non-blocking structure for now keeps local HELP_*)
+
+      // load help from server (fallback: bundled HELP_*)
       try {
         const help = await api.help();
         if (help?.topics?.length && help?.commands?.length) {
-          // replace module-level constants via state
           state._helpTopics = help.topics;
           state._helpCommands = help.commands;
         }
       } catch (e) {
         console.warn("help load failed, using bundled", e);
       }
-      // meta: permission modes
+      // meta: permission modes from flavor_profiles
       try {
         const meta = await api.meta();
         if (meta?.permission_modes) {

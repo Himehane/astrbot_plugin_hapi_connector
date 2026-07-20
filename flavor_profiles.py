@@ -28,8 +28,16 @@ KNOWN_FLAVORS: tuple[str, ...] = (
     "pi",
 )
 
-# Claude 模型预设（与 HAPI web 侧预设对齐的常用项；也可直接传任意模型字符串）
-CLAUDE_MODEL_MODES = ["default", "sonnet", "sonnet[1m]", "opus", "opus[1m]"]
+# Claude 模型预设（对齐 shared/src/models.ts；也可直接传任意模型字符串）
+CLAUDE_MODEL_MODES = [
+    "default",
+    "sonnet",
+    "sonnet[1m]",
+    "opus",
+    "opus[1m]",
+    "fable",
+    "fable[1m]",
+]
 
 # Gemini 模型预设（旧 session 兼容；上游已不可新建）
 GEMINI_MODEL_MODES = [
@@ -40,28 +48,45 @@ GEMINI_MODEL_MODES = [
     "gemini-3.1-pro-preview",
 ]
 
-# Claude effort；None 表示 auto
+# Claude effort；对齐 shared/src/effort.ts（None 表示 auto / 省略 --effort）
 CLAUDE_EFFORT_OPTIONS: list[tuple[str | None, str]] = [
     (None, "auto（默认）"),
+    ("low", "low"),
     ("medium", "medium"),
     ("high", "high"),
+    ("xhigh", "xhigh"),
     ("max", "max"),
 ]
 CLAUDE_EFFORT_VALUES = [v for v, _ in CLAUDE_EFFORT_OPTIONS if v]
 
-# Codex reasoning effort；None 表示继承默认
+# Codex / OpenCode modelReasoningEffort；None 表示继承默认
+# 上游支持动态 options，本地列表作兜底；列表外值仍可透传
 CODEX_REASONING_EFFORT_OPTIONS: list[tuple[str | None, str]] = [
-    (None, "继承 Codex 默认设置（推荐）"),
+    (None, "继承默认设置（推荐）"),
     ("none", "none"),
     ("minimal", "minimal"),
     ("low", "low"),
     ("medium", "medium"),
     ("high", "high"),
     ("xhigh", "xhigh"),
+    ("max", "max"),
 ]
 CODEX_REASONING_EFFORT_VALUES = [v for v, _ in CODEX_REASONING_EFFORT_OPTIONS if v]
 
-# Grok / Pi 等通用 effort（上游动态，这里给常用固定项）
+# Pi thinking levels；对齐 shared/src/piThinkingLevel.ts
+PI_EFFORT_OPTIONS: list[tuple[str | None, str]] = [
+    (None, "auto（默认）"),
+    ("off", "off"),
+    ("minimal", "minimal"),
+    ("low", "low"),
+    ("medium", "medium"),
+    ("high", "high"),
+    ("xhigh", "xhigh"),
+    ("max", "max"),
+]
+PI_EFFORT_VALUES = [v for v, _ in PI_EFFORT_OPTIONS if v]
+
+# Grok 等通用 effort（上游可有动态 options，这里给常用固定项）
 GENERIC_EFFORT_OPTIONS: list[tuple[str | None, str]] = [
     (None, "auto（默认）"),
     ("low", "low"),
@@ -69,6 +94,13 @@ GENERIC_EFFORT_OPTIONS: list[tuple[str | None, str]] = [
     ("high", "high"),
 ]
 GENERIC_EFFORT_VALUES = [v for v, _ in GENERIC_EFFORT_OPTIONS if v]
+
+# Codex Fast mode（service tier）
+SERVICE_TIER_OPTIONS: list[tuple[str, str]] = [
+    ("standard", "standard（关闭 Fast）"),
+    ("fast", "fast（开启 Fast）"),
+]
+SERVICE_TIER_VALUES = [v for v, _ in SERVICE_TIER_OPTIONS]
 
 
 @dataclass(frozen=True)
@@ -83,9 +115,11 @@ class FlavorProfile:
     supports_model: bool = False
     # 本地可选模型列表；空元组表示支持切换但无静态列表（允许自由输入）
     model_modes: tuple[str, ...] = ()
-    # effort 走 /effort；reasoning_effort 走 /model-reasoning-effort（Codex）
+    # effort 走 /effort；reasoning_effort 走 /model-reasoning-effort（Codex/OpenCode）
     supports_effort: bool = False
     supports_reasoning_effort: bool = False
+    # Codex Fast mode：POST /service-tier {serviceTier: fast|standard}
+    supports_service_tier: bool = False
     # plan 实现方式
     plan_via_permission: bool = False
     plan_via_collaboration: bool = False
@@ -118,6 +152,7 @@ _FLAVOR_PROFILES: dict[str, FlavorProfile] = {
         supports_model=True,
         model_modes=(),  # 动态模型，本地不静态枚举
         supports_reasoning_effort=True,
+        supports_service_tier=True,
         plan_via_collaboration=True,
         tags=frozenset({"codex_family"}),
     ),
@@ -169,6 +204,8 @@ _FLAVOR_PROFILES: dict[str, FlavorProfile] = {
         permission_modes=("default", "plan", "yolo"),
         supports_model=True,
         model_modes=(),
+        # Hub: model-reasoning-effort 适用于 Codex 与 OpenCode
+        supports_reasoning_effort=True,
         plan_via_permission=True,
         tags=frozenset({"codex_family"}),
     ),
@@ -181,7 +218,7 @@ _FLAVOR_PROFILES: dict[str, FlavorProfile] = {
         supports_model=True,
         model_modes=(),
         supports_effort=True,
-        notes="Pi 不支持运行时权限模式切换",
+        notes="Pi 不支持运行时权限模式切换；effort 对齐 Pi thinking levels",
     ),
 }
 
@@ -293,12 +330,18 @@ def supports_plan(flavor: str | None) -> bool:
     return profile_for(flavor).supports_plan
 
 
+def supports_service_tier(flavor: str | None) -> bool:
+    return profile_for(flavor).supports_service_tier
+
+
 def effort_options_for(flavor: str | None) -> list[tuple[str | None, str]]:
     p = profile_for(flavor)
     if p.supports_reasoning_effort:
         return list(CODEX_REASONING_EFFORT_OPTIONS)
     if p.key == "claude":
         return list(CLAUDE_EFFORT_OPTIONS)
+    if p.key == "pi":
+        return list(PI_EFFORT_OPTIONS)
     if p.supports_effort:
         return list(GENERIC_EFFORT_OPTIONS)
     return []
@@ -306,6 +349,11 @@ def effort_options_for(flavor: str | None) -> list[tuple[str | None, str]]:
 
 def effort_values_for(flavor: str | None) -> list[str]:
     return [v for v, _ in effort_options_for(flavor) if v]
+
+
+def effort_allows_freeform(flavor: str | None) -> bool:
+    """reasoning effort 上游可能动态扩展，列表外值允许透传。"""
+    return supports_reasoning_effort(flavor)
 
 
 def effort_none_aliases(flavor: str | None) -> tuple[str, ...]:
@@ -320,6 +368,24 @@ def effort_none_label(flavor: str | None) -> str:
     if p.supports_reasoning_effort:
         return "继承默认"
     return "auto"
+
+
+def service_tier_options() -> list[tuple[str, str]]:
+    return list(SERVICE_TIER_OPTIONS)
+
+
+def normalize_service_tier(value: str | None) -> str | None:
+    """将 on/off/fast/standard 等别名规范为 fast|standard。"""
+    if value is None:
+        return None
+    raw = value.strip().lower()
+    if not raw:
+        return None
+    if raw in ("fast", "on", "true", "1", "yes", "开启", "开"):
+        return "fast"
+    if raw in ("standard", "off", "false", "0", "no", "关闭", "关", "normal", "default"):
+        return "standard"
+    return None
 
 
 def format_creatable_agents_help() -> str:
@@ -377,6 +443,7 @@ def export_profiles_meta() -> dict:
             "model_modes": list(p.model_modes),
             "supports_effort": p.supports_effort,
             "supports_reasoning_effort": p.supports_reasoning_effort,
+            "supports_service_tier": p.supports_service_tier,
             "supports_plan": p.supports_plan,
             "notes": p.notes,
         })

@@ -424,6 +424,8 @@ def format_session_status(s: dict) -> str:
     collab = s.get("collaborationMode", "default")
     summary = get_session_title(s)
 
+    effort = s.get("effort") or s.get("modelReasoningEffort")
+    service_tier = s.get("serviceTier")
     lines = [
         f"Session:  {sid[:8]}...",
         f"标题:     {summary}",
@@ -434,6 +436,10 @@ def format_session_status(s: dict) -> str:
         f"权限模式: {perm}",
         f"模型:     {model}",
     ]
+    if effort:
+        lines.append(f"推理强度: {effort}")
+    if service_tier:
+        lines.append(f"Service:  {service_tier}")
     # Codex 等使用 collaborationMode 表达 plan 时展示；其他 flavor 有值也展示
     if collab and collab != "default":
         lines.append(f"协作模式: {collab}")
@@ -782,6 +788,9 @@ KNOWN_HAPI_SUBCOMMANDS = {
     "to",
     "perm",
     "model",
+    "effort",
+    "plan",
+    "fast",
     "remote",
     "output", "out",
     "pending",
@@ -793,6 +802,7 @@ KNOWN_HAPI_SUBCOMMANDS = {
     "abort", "stop",
     "archive",
     "resume",
+    "reopen",
     "rename",
     "delete",
     "clean",
@@ -888,6 +898,13 @@ HELP_COMMANDS = [
         "usage": "/hapi resume [序号|ID前缀]",
         "summary": "恢复被 archive 的 inactive session",
         "example": "/hapi resume 1",
+        "home": True,
+    },
+    {
+        "topic": "session",
+        "usage": "/hapi reopen [序号|ID前缀]",
+        "summary": "Reopen inactive session（与 resume 不同，走 Hub reopen API）",
+        "example": "/hapi reopen 1",
         "home": True,
     },
     {
@@ -1033,15 +1050,22 @@ HELP_COMMANDS = [
     {
         "topic": "config",
         "usage": "/hapi model [模式]",
-        "summary": "查看或切换当前使用的模型（Claude / Gemini）",
+        "summary": "查看或切换当前使用的模型（Claude 含 fable 等预设；其它 flavor 可自由输入）",
         "example": None,
         "home": True,
     },
     {
         "topic": "config",
         "usage": "/hapi effort [值]",
-        "summary": "查看或切换推理强度。Claude：auto/medium/high/max；Codex：none/minimal/low/medium/high/xhigh",
+        "summary": "查看或切换推理强度。Claude：auto/low/medium/high/xhigh/max；Codex/OpenCode：inherit/none/…/max；Pi：off/minimal/…/max",
         "example": "/hapi effort high",
+        "home": True,
+    },
+    {
+        "topic": "config",
+        "usage": "/hapi fast [on|off]",
+        "summary": "查看或切换 Codex Fast mode（service tier: fast/standard）",
+        "example": "/hapi fast on",
         "home": True,
     },
     {

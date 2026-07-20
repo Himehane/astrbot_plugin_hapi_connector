@@ -1,0 +1,6 @@
+# 可选：推送卡片出图（WebUI 实卡预览 / 未来聊天侧 auto 出卡）
+# 不安装时插件仍可正常运行，渲染回退纯文本。
+#
+#   pip install -r requirements-render.txt
+#
+Pillow>=10.0,<12

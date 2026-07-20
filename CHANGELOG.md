@@ -1,12 +1,45 @@
 # 更新日志
 
-## v2.2.0 — Agent flavor 自适应兼容
+## v3.1.0 — 推送呈现（可选卡片）+ 戳一戳可映射
 
-1. **新增 `flavor_profiles.py` 能力表**：对齐 HAPI `claude/codex/cursor/gemini/grok/kimi/opencode/pi`
-2. **创建路径**：向导与 FC 工具支持 Cursor / Grok / Kimi / OpenCode / Pi；Gemini 仅兼容旧 session、不可新建
-3. **权限/模型/推理/Plan**：按 profile 能力开关，不再写死 claude/codex/gemini 白名单
-4. **`/hapi bind <flavor>`**：任意合法 flavor 均可绑定默认通知窗口（含未来新类型）
-5. **`spawn_session`** 补充可选 `model` / `effort` / `permissionMode` 参数，对齐 HAPI Spawn API
+1. **推送呈现**：配置 `render_mode`（text/auto/card）、出卡类型、卡片样式 token；默认 `text` 保持原速度  
+2. **可选依赖**：`requirements-render.txt`（Pillow）。未安装时插件正常运行，出图自动回退纯文本  
+3. **WebUI「交互优化」**：样式预设 / 颜色 / 宽度 / 字号、DOM 即时预览、「生成实卡」走 `POST render/preview`  
+4. **聊天侧**：`/hapi list`、`/hapi pending` 在 auto/card 且类型启用时尝试发结构卡图片（失败回退原文）  
+5. **公式**：`formula_mode` 仅预留，首版不接数学引擎  
+6. **戳一戳快捷操作**：`poke_action` 可映射 approve/pending/list/status/stop/output_cycle/none（**不含 deny**，防误触）；`poke_approve` 为总开关；WebUI 卡片式选择  
+
+## v3.0.0 — Web 管理面板（AstrBot Plugin Pages）
+
+大版本：在 AstrBot 插件详情页提供 **管理面板**（`pages/console` + `web_api.py`），补「批量看、批量改、改配置」短板；**不替代** `/hapi` 聊天遥控。
+
+1. **概览**：SSE 连接状态、活跃/思考/待审/未投递指标、常用开关、唤醒休眠 SSE、按配置重连 HAPI  
+2. **会话管理**：按聊天窗口分栏、权限模式切换、session 绑定/解绑、resume/archive/delete/abort（含批量）、推送路由展示与单用户可写  
+3. **HAPI 网页**：`GET hub/launch` 按已保存 `hapi_endpoint` / `access_token` 生成官方 HAPI Web 启动链（`?token=` 自动登录 + `?hub=`）；面板内 iframe 嵌入，支持新窗口 / 复制链接  
+4. **交互 / 设置**：戳一戳、快捷前缀；`_conf_schema.json` 全量配置（敏感字段不回显，落盘 `save_config_async` 与官方设置页同源）  
+5. **命令帮助**：服务端 `formatters.export_help_data()` 单一来源  
+6. **规范**：`window.AstrBotPluginPage` bridge、`astrbot.api.web`、亮暗 `data-theme`、可见性感知轮询（不强制 wake SSE）  
+7. **入口**：WebUI → 插件 → hapi connector → 管理面板；i18n `pages.console.title/description`
+
+> 聊天指令与 HAPI 0.21–0.23 对齐见下方 v2.3.0；本大版本的主能力是管理面板。
+
+## v2.3.0 — 同步 HAPI 0.21–0.23 遥控器能力
+
+对齐上游 HAPI Hub API（约 0.21.0 ~ 0.23.0），补齐聊天侧遥控缺口：
+
+1. **新增 `/hapi fast [on|off]`**：Codex Fast mode（`POST /api/sessions/:id/service-tier`，`fast` / `standard`）
+2. **新增 `/hapi reopen [序号|ID前缀]`**：`POST /api/sessions/:id/reopen`（与 resume 语义不同；resume 失败时可尝试）
+3. **OpenCode 支持 reasoning effort**：与 Codex 同走 `/model-reasoning-effort`；列表外值可透传（上游动态 options）
+4. **Effort / 模型枚举对齐上游**：
+   - Claude effort：`low` / `medium` / `high` / `xhigh` / `max`（+ auto）
+   - Pi thinking：`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`
+   - Codex/OpenCode reasoning：补 `max`，允许动态透传
+   - Claude 模型预设：补 `fable` / `fable[1m]`
+5. **status / help / README** 同步展示 service tier、effort 与新指令
+
+## v2.2.0 — Agent 类型兼容拓展
+
+对齐 HAPI 最新版本，远程控制管理支持 `claude/codex/cursor/gemini/grok/kimi/opencode/pi`
 
 ## v2.1.4
 

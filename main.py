@@ -38,7 +38,7 @@ except Exception:
 
 @register("astrbot_plugin_hapi_connector", "LiJinHao999",
           "连接 HAPI，随时随地用 Claude / Codex / Cursor / Grok / Kimi / OpenCode / Pi vibe coding",
-          "2.2.0")
+          "3.1.0")
 class HapiConnectorPlugin(Star):
 
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -101,8 +101,11 @@ class HapiConnectorPlugin(Star):
         # 快捷前缀
         self._quick_prefix = self.config.get("quick_prefix", ">")
 
-        # 戳一戳审批开关
+        # 戳一戳：总开关 + 映射动作（默认 approve 兼容旧行为）
         self._poke_approve = self.config.get("poke_approve", True)
+        from .poke_actions import normalize_poke_action
+
+        self._poke_action = normalize_poke_action(self.config.get("poke_action", "approve"))
 
         # summary 模式消息条数
         self._summary_msg_count = self.config.get("summary_msg_count", 5)
@@ -439,7 +442,7 @@ class HapiConnectorPlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL, priority=10)
     async def poke_approve_handler(self, event: AstrMessageEvent):
-        """戳一戳机器人 → 自动批准所有待审批请求 (仅 QQ NapCat)"""
+        """戳一戳机器人 → 执行用户配置的快捷动作（默认批准待审，仅 QQ NapCat 等）"""
         if not self._poke_approve:
             return
 
@@ -450,28 +453,10 @@ class HapiConnectorPlugin(Star):
             return
 
         await self.state_mgr.set_user_state(event)
-        visible_sids = {s.get("id") for s in self.state_mgr.visible_sessions_for_window(event, self.sessions_cache) if s.get("id")}
-        # 同时包含当前窗口 ID（用于 LLM 工具审批）
-        visible_sids.add(event.unified_msg_origin)
-        items = self.pending_mgr.flatten_pending(event, visible_sids)
-        if not items:
-            return  # 无待审批，静默
+        from .poke_actions import run_poke_action
 
-        regular = [(sid, rid, req) for sid, rid, req in items
-                   if not formatters.is_question_request(req)]
-        questions = [(sid, rid, req) for sid, rid, req in items
-                     if formatters.is_question_request(req)]
-
-        if regular:
-            result = await self.pending_mgr.approve_items(regular, self.client)
-            if result:
-                yield event.plain_result(f"[戳一戳审批] {result}")
-
-        if questions:
-            yield event.plain_result(f"[戳一戳审批] 还有 {len(questions)} 个问题需要回答:")
-            from astrbot.core.utils.session_waiter import session_waiter, SessionController
-            await self.pending_mgr.answer_questions_interactive(
-                event, questions, self.client, session_waiter, SessionController)
+        async for result in run_poke_action(self, event, self._poke_action):
+            yield result
 
         event.stop_event()
 

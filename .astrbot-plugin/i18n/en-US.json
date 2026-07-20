@@ -2,7 +2,7 @@
   "pages": {
     "console": {
       "title": "Console",
-      "description": "HAPI connection status, session routing, and plugin settings"
+      "description": "HAPI connection status, session routing, official Web embed, and plugin settings"
     }
   }
 }

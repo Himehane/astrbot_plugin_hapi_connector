@@ -368,7 +368,7 @@ quick_prefix (快捷前缀): {quick_prefix}
             machine_id(string): 机器 ID（可选，管理多机器时必填）
             session_type(string): session 类型（simple/worktree，默认 simple）
             yolo(boolean): 是否自动批准所有权限（默认 false）
-            model_reasoning_effort(string): 支持 reasoning effort 的代理（如 Codex）可选；留空表示继承默认，可选 none/minimal/low/medium/high/xhigh
+            model_reasoning_effort(string): 支持 reasoning effort 的代理（Codex/OpenCode 等）可选；留空表示继承默认，常用 none/minimal/low/medium/high/xhigh/max，也支持上游动态值透传
         '''
         # 获取机器列表
         try:
@@ -415,13 +415,10 @@ quick_prefix (快捷前缀): {quick_prefix}
 
         normalized_effort = (model_reasoning_effort or "").strip().lower()
         if supports_reasoning_effort(agent):
-            from .flavor_profiles import CODEX_REASONING_EFFORT_VALUES
             inherit_aliases = {"", "inherit", "default", "auto"}
             if normalized_effort in inherit_aliases:
                 normalized_effort = ""
-            elif normalized_effort not in CODEX_REASONING_EFFORT_VALUES:
-                yield "model_reasoning_effort 只能是留空(继承默认配置)或 none/minimal/low/medium/high/xhigh"
-                return
+            # 允许列表外透传（上游动态 reasoning effort）
         elif normalized_effort:
             yield f"当前 agent ({agent}) 不支持 model_reasoning_effort；请留空"
             return
