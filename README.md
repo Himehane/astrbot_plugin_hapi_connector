@@ -77,7 +77,7 @@ hapi codex    # Open Codex
 - **兼容QQ、微信的官方bot**: 无法主动推送消息时将消息fallback伪装为被动回复，兼容QQ官方bot、微信clawbot
 - **智能审批机制**: 支持戳一戳快速批准、忙时自动托管、超时提醒，灵活应对不同场景
 - **Web 管理面板**: 在 AstrBot 插件详情页可视化查看连接与 session、改推送/绑定/权限、保存插件配置（与官方设置页同源）
-- **推送呈现（可选）**: list / 待审批等结构信息可渲成卡片图；默认纯文本；Pillow 为可选依赖，未安装自动回退
+- **推送呈现（可选）**: 结构卡与 **Agent 对话** 同一套卡片管线；支持自定义 CSS；Pillow=低延迟快路径，Playwright=完整 CSS；中文字体用 card_font_path / assets/fonts / 系统 CJK（不自动下载），未装引擎或无字体时回退文本
 
 
 ## 💡 实际应用场景
@@ -125,11 +125,13 @@ hapi codex    # Open Codex
 | `quick_prefix` | 快捷发送前缀字符 | `>` |
 | `poke_approve` | 启用戳一戳快捷操作（仅 QQ NapCat 等） | 开启 |
 | `poke_action` | 戳一戳映射：`approve` / `pending` / `list` / `status` / `stop` / `output_cycle` / `none`（不含 deny，防误触） | approve |
-| `render_mode` | 推送呈现：`text` / `auto` / `card`（结构信息是否出卡片） | text |
-| `render_kinds` | 允许出卡类型（逗号分隔），如 `session_list,pending,status,permission` | 见 schema |
-| `card_style_preset` 等 | 卡片预设与颜色/宽度；建议在 WebUI「交互优化」预览后保存 | terminal_light |
+| `render_mode` | 推送呈现：`text` / `card`（勾选类型是否出卡，含对话） | text |
+| `render_kinds` | 出卡类型（逗号分隔）：`session_list,pending,status,permission,routes,message` | 见 schema |
+| `card_style_preset` / 配色 | 预设与 token；也可完全用自定义 CSS 覆盖 | terminal_light |
+| `card_custom_css` | 完整可编辑 CSS（Playwright 完整生效；Pillow 识别 `--card-*`） | 空=默认 |
+| `card_font_path` | 字体文件路径；留空用 `assets/fonts` 或系统已装 CJK | 空 |
 
-> 卡片为**可选能力**：`pip install -r requirements-render.txt`（Pillow）。未安装时配置可保存，运行时自动纯文本。
+> 卡片为**可选能力**：`pip install -r requirements-render.txt`（Pillow 快路径）。完整 CSS：`pip install playwright && playwright install chromium`。中文字体不自动下载——需要时放进 `assets/fonts/` 或填 `card_font_path`；系统已装 Noto/雅黑等时也可直接用。
 
 ### 自动审批
 
@@ -152,7 +154,7 @@ hapi codex    # Open Codex
 | **概览** | HAPI / SSE 是否连通或休眠、待审与未投递数量、常用开关、唤醒 SSE、按当前配置重连 |
 | **会话管理** | 按聊天窗口查看 session；改权限模式、绑定/解绑通知窗口；归档 / 恢复 / 中止 / 删除（支持批量） |
 | **HAPI 网页** | 用已配置的 `hapi_endpoint` / `access_token` 生成官方 HAPI Web 启动链，**面板内 iframe 嵌入**（或新窗口 / 复制链接） |
-| **交互优化** | 戳一戳、快捷前缀；**推送呈现**（渲染模式、卡片样式、DOM 预览 / 实卡预览） |
+| **交互优化** | 戳一戳、快捷前缀；**推送呈现**（出卡类型含对话、自定义 CSS、字体、DOM / 实卡预览） |
 | **命令帮助** | 与聊天 `/hapi help` 同源的指令说明（可搜索） |
 | **设置** | 全部 `_conf_schema.json` 配置项；`access_token` / CF secret **永不回显**，留空表示不修改 |
 
@@ -162,7 +164,7 @@ hapi codex    # Open Codex
 - 改连接类配置（endpoint / token / 代理 / CF / JWT）保存后会提示需要 **按配置重连** 或重载插件。
 - 默认推送窗口 / Agent 推送窗口：仅当插件侧已知用户恰为 1 个时可在 Web 修改；多用户请用聊天 `/hapi bind`。
 - **HAPI 网页**依赖官方 Web 对 `?token=` / `?hub=` 的支持；`endpoint` 须是**你浏览器能访问**的地址（本机 127.0.0.1 仅本机浏览器可用）。自动登录会生成含 token 的一次性链接，请勿外传。
-- 首版不做：插件内自建完整聊天 UI、create 向导、文件浏览器、Web 端审批（完整对话请用「HAPI 网页」或官方客户端）。
+- 完整对话请用 HAPI 官方客户端；本面板不做内嵌完整聊天 / create 向导 / 文件浏览器 / Web 审批。
 
 ---
 

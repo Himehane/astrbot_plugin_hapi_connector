@@ -186,10 +186,14 @@ class WebApi:
             return error_response(f"render/meta 失败: {type(e).__name__}: {e}", status_code=500)
 
     async def render_install(self):
-        """按勾选项安装字体到插件目录，和/或 pip 依赖（非自动，需显式 POST）。"""
+        """WebUI 手动安装：字体下载到 assets/fonts/，依赖 pip install Pillow。
+
+        参考 self_learning 的「点按钮再装」：必须显式 POST，不自动执行。
+        body: { "ids": ["font_noto_sc","dep_pillow"], "force": false }
+        """
         import asyncio
         from astrbot.api.web import error_response, json_response, request
-        from . import font_manager
+        from . import card_render, font_manager
 
         payload = await request.json(default={})
         if not isinstance(payload, dict):
@@ -198,28 +202,36 @@ class WebApi:
         ids = payload.get("ids") or payload.get("items") or []
         if isinstance(ids, str):
             ids = [x.strip() for x in ids.replace("，", ",").split(",") if x.strip()]
-        if not isinstance(ids, list):
-            return error_response("ids 必须是数组", status_code=400)
+        if not isinstance(ids, list) or not ids:
+            return error_response("请勾选要安装的项（ids 数组）", status_code=400)
 
         force = bool(payload.get("force"))
+        id_list = [str(x).strip() for x in ids if str(x).strip()]
 
         def _run():
-            return font_manager.install_selected(
-                [str(x) for x in ids], force_font=force
-            )
+            return font_manager.install_selected(id_list, force_font=force)
 
         try:
             result = await asyncio.to_thread(_run)
         except Exception as e:
             logger.exception("render install failed")
-            return error_response(f"安装失败: {e}", status_code=500)
+            return error_response(f"安装失败: {type(e).__name__}: {e}", status_code=500)
 
-        # 刷新引擎状态给前端
-        from . import card_render
+        try:
+            result["engine"] = card_render.engine_status(
+                user_font_path=str(
+                    _cfg_get(getattr(self.plugin, "config", None), "card_font_path", "")
+                    or ""
+                )
+                or None
+            )
+        except Exception as e:
+            logger.warning("engine_status after install: %s", e)
+            result["engine"] = {"pillow": False}
 
-        result["engine"] = card_render.engine_status(
-            user_font_path=str(_cfg_get(getattr(self.plugin, "config", None), "card_font_path", "") or "") or None
-        )
+        # 兼容前端：success / output 字段
+        result.setdefault("success", bool(result.get("ok")))
+        result.setdefault("output", "\n".join(result.get("log") or []))
         return json_response(result)
 
     async def render_preview(self):
@@ -1498,7 +1510,7 @@ async def soft_refresh_sessions(plugin, *, force: bool = False) -> bool:
 
 
 def build_sessions_snapshot(plugin) -> dict:
-    """与 demo store.snap() 对齐的全局快照。只读内存，不触发网络。
+    """全局快照。只读内存，不触发网络。
 
     数据来源：插件进程内 sessions_cache / SSE / 绑定表 / plugin.config。
     """
@@ -1672,7 +1684,7 @@ def _endpoint_host(endpoint: str) -> str:
 def aggregate_route_defaults(plugin) -> dict:
     """聚合 known users 的 primary / flavor 路由。
 
-    writable: 仅当 known_users 恰有 1 个时可写（首版策略）。
+    writable: known_users 非空时可写。
     """
     states = getattr(plugin.state_mgr, "_user_states_cache", {}) or {}
     known = list(states.keys())

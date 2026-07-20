@@ -7,7 +7,7 @@
  * 页面：概览 / 会话 / 交互 / 命令帮助 / 设置
  */
 
-import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.2";
+import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.3";
 
 /* ---------- constants ---------- */
 
@@ -1311,8 +1311,7 @@ function renderSessions() {
 /* ---------- interact ---------- */
 
 function normalizeRenderMode(m) {
-  const v = String(m || "text").toLowerCase();
-  return v === "card" || v === "auto" ? "card" : "text";
+  return String(m || "text").toLowerCase() === "card" ? "card" : "text";
 }
 
 function syncCardPanelVisibility(mode) {
@@ -1879,7 +1878,7 @@ function renderInteract() {
         let res = null;
         if (liveMode && api) {
           res = await api.saveConfig(patch);
-          toast((res?.message || "已保存") + "（已写入插件配置）");
+          toast((res?.message || "已保存") + "");
         } else {
           store.saveConfig({
             ...patch,

@@ -55,7 +55,7 @@ except ImportError:  # pragma: no cover — 未部署时 WebUI 其它接口仍�
     font_manager = _FontManagerStub()  # type: ignore
 
 
-RENDER_MODES = ("text", "card")  # auto 兼容读入时映射为 card
+RENDER_MODES = ("text", "card")
 FORMULA_MODES = ("off", "detect", "always")
 CARD_KINDS = (
     "session_list",
@@ -136,6 +136,19 @@ body {
 }
 
 .row { margin-bottom: 12px; }
+.row-section {
+  margin: 14px 0 6px;
+  font-weight: 700;
+  color: var(--card-accent);
+  font-size: 0.95em;
+}
+.row-section .row-detail {
+  display: inline;
+  padding-left: 6px;
+  font-weight: 500;
+  color: var(--card-muted);
+  font-size: 0.9em;
+}
 .row-head { font-weight: 600; }
 .row-detail {
   color: var(--card-muted);
@@ -558,7 +571,7 @@ def sample_payload(kind: str) -> dict[str, Any]:
                 {"index": 0, "label": "权限", "detail": "default"},
                 {"index": 0, "label": "路径", "detail": "/home/dev/proj-auth"},
             ],
-            "footer": "output=simple · render=auto",
+            "footer": "output=simple · render=card",
         }
     if kind == "routes":
         return {
@@ -591,13 +604,33 @@ def sample_payload(kind: str) -> dict[str, Any]:
         }
     return {
         "title": "Session 列表",
-        "subtitle": "当前窗口可见 · 3",
+        "subtitle": "当前窗口 · 3 个",
         "rows": [
-            {"index": 1, "label": "claude", "detail": "重构鉴权中间件 · thinking"},
-            {"index": 2, "label": "claude", "detail": "补 session 列表单测 · idle"},
-            {"index": 3, "label": "codex", "detail": "API 文档生成 · active"},
+            {"type": "section", "label": "· /home/dev/proj-auth", "detail": "2 个"},
+            {
+                "type": "session",
+                "index": 1,
+                "sid_short": "a1b2c3d4",
+                "label": "重构鉴权中间件",
+                "detail": "思考中 | claude:opus | <<当前",
+            },
+            {
+                "type": "session",
+                "index": 2,
+                "sid_short": "e5f6g7h8",
+                "label": "补 session 列表单测",
+                "detail": "已关闭 | claude:sonnet",
+            },
+            {"type": "section", "label": "· /home/dev/docs", "detail": "1 个"},
+            {
+                "type": "session",
+                "index": 3,
+                "sid_short": "i9j0k1l2",
+                "label": "API 文档生成",
+                "detail": "运行中 | codex:default",
+            },
         ],
-        "footer": "/hapi sw <n>  切换    > 消息  快捷发送",
+        "footer": "/hapi sw <序号或ID前缀>  切换    > 消息  快捷发送",
     }
 
 
@@ -615,11 +648,24 @@ def payload_to_fallback_text(kind: str, data: dict[str, Any]) -> str:
 
     lines = [str(data.get("title") or kind), str(data.get("subtitle") or "")]
     for row in data.get("rows") or []:
+        rtype = str(row.get("type") or "row")
+        label = str(row.get("label") or "")
+        detail = str(row.get("detail") or "")
+        if rtype == "section":
+            lines.append("")
+            lines.append(f"{label}" + (f" ({detail})" if detail else ""))
+            continue
         idx = row.get("index") or 0
-        label = row.get("label") or ""
-        detail = row.get("detail") or ""
-        prefix = f"[{idx}] " if idx else "  "
-        lines.append(f"{prefix}{label}  {detail}".rstrip())
+        sid = str(row.get("sid_short") or "")
+        if idx and sid:
+            head = f"[{idx} | {sid}] {label}"
+        elif idx:
+            head = f"[{idx}] {label}"
+        else:
+            head = label
+        lines.append(head)
+        if detail:
+            lines.append(detail)
     footer = data.get("footer")
     if footer:
         lines.append("")
@@ -628,9 +674,9 @@ def payload_to_fallback_text(kind: str, data: dict[str, Any]) -> str:
 
 
 def normalize_render_mode(raw) -> str:
-    """仅 text / card；历史 auto 视为 card。"""
+    """仅 text / card。"""
     mode = str(raw or "text").strip().lower()
-    if mode in ("card", "auto"):  # auto 兼容旧配置
+    if mode == "card":
         return "card"
     return "text"
 
@@ -656,7 +702,7 @@ def render_card(
     *,
     formula_mode: str = "off",
 ) -> RenderResult:
-    """首版固定 Pillow 出卡（低延迟）。无 Pillow / 无字体时 ok=False，调用方回退文本。"""
+    """Pillow 出卡。无 Pillow / 无字体时 ok=False，调用方回退文本。"""
     t0 = time.perf_counter()
     kind = kind if kind in CARD_KINDS else "session_list"
     data = data or sample_payload(kind)
@@ -747,7 +793,7 @@ def render_meta() -> dict[str, Any]:
         "formula_subset": {
             "supported": [],
             "planned": ["$inline$", "$$block$$"],
-            "note": "formula_mode 预留；复杂公式回退源码文本。",
+            "note": "formula_mode 未接引擎时公式按源码文本显示。",
         },
     }
 
@@ -869,10 +915,23 @@ def build_card_html(
         foot = html.escape(str(data.get("footer") or ""))
         rows_html = []
         for row in data.get("rows") or []:
-            idx = row.get("index") or 0
+            rtype = str(row.get("type") or "row")
             label = html.escape(str(row.get("label") or ""))
             detail = html.escape(str(row.get("detail") or ""))
-            head = f"[{idx}] {label}" if idx else label
+            if rtype == "section":
+                sec = label + (f" ({detail})" if detail else "")
+                rows_html.append(
+                    f'<div class="row row-section"><span class="row-head">{sec}</span></div>'
+                )
+                continue
+            idx = row.get("index") or 0
+            sid = html.escape(str(row.get("sid_short") or ""))
+            if idx and sid:
+                head = f"[{idx} | {sid}] {label}"
+            elif idx:
+                head = f"[{idx}] {label}"
+            else:
+                head = label
             rows_html.append(
                 f'<div class="row"><div class="row-head">{head}</div>'
                 + (f'<div class="row-detail">{detail}</div>' if detail else "")
@@ -1118,17 +1177,34 @@ def _draw_struct_png(
             y += _text_size(d0, "测", font_sub)[1] + 2
         y += 8
     y += 2 + line_gap
-    for row in rows:
+    def _row_head(row: dict) -> str:
+        rtype = str(row.get("type") or "row")
         label = str(row.get("label") or "")
         detail = str(row.get("detail") or "")
+        if rtype == "section":
+            # 与文本列表一致：📁 path (n)
+            if detail:
+                return f"{label} ({detail})" if not detail.startswith("(") else f"{label} {detail}"
+            return label
         idx = row.get("index") or 0
-        head = f"[{idx}] {label}" if idx else label
-        for _ in _wrap_text(d0, head, font_body, content_w):
-            y += _text_size(d0, "测", font_body)[1] + 2
-        if detail:
+        sid = str(row.get("sid_short") or "")
+        if idx and sid:
+            return f"[{idx} | {sid}] {label}"
+        if idx:
+            return f"[{idx}] {label}"
+        return label
+
+    for row in rows:
+        rtype = str(row.get("type") or "row")
+        head = _row_head(row)
+        detail = str(row.get("detail") or "")
+        f_head = font_body if rtype != "section" else font_sub
+        for _ in _wrap_text(d0, head, f_head, content_w):
+            y += _text_size(d0, "测", f_head)[1] + 2
+        if detail and rtype != "section":
             for _ in _wrap_text(d0, detail, font_sub, content_w - 12):
                 y += _text_size(d0, "测", font_sub)[1] + 2
-        y += row_gap
+        y += row_gap if rtype != "section" else (row_gap // 2)
     if footer:
         y += 4
         for _ in _wrap_text(d0, footer, font_foot, content_w):
@@ -1167,10 +1243,15 @@ def _draw_struct_png(
     y += 3 + line_gap
 
     for row in rows:
-        label = str(row.get("label") or "")
+        rtype = str(row.get("type") or "row")
+        head = _row_head(row)
         detail = str(row.get("detail") or "")
-        idx = row.get("index") or 0
-        head = f"[{idx}] {label}" if idx else label
+        if rtype == "section":
+            for line in _wrap_text(draw, head, font_sub, content_w):
+                draw.text((pad, y), line, font=font_sub, fill=accent)
+                y += _text_size(draw, line or " ", font_sub)[1] + 2
+            y += row_gap // 2
+            continue
         for line in _wrap_text(draw, head, font_body, content_w):
             draw.text((pad, y), line, font=font_body, fill=fg)
             y += _text_size(draw, line or " ", font_body)[1] + 2

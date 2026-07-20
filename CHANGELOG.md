@@ -1,12 +1,20 @@
 # 更新日志
 
+## v3.1.1 — 推送呈现修正：自定义 CSS / 对话卡 / 可移植中文字体
+
+1. **自定义 CSS**：`card_custom_css` 完整可编辑；Playwright 完整生效，Pillow 识别 `--card-*` 变量（低延迟快路径）  
+2. **对话也出卡**：`render_kinds` 增加 `message`；SSE simple/detail/summary 的 Agent 消息与结构卡同一管线  
+3. **中文字体（轻量）**：`card_font_path` → `assets/fonts` → 系统已装 CJK；**不自动下载**；都没有则回退纯文本  
+4. **可选安装（多选勾选）**：WebUI 勾选「中文字体」和/或「Pillow」，点安装；字体进 `assets/fonts/`，Pillow 走 pip——**不含 Chromium**  
+5. **引擎**：Pillow 出卡（低延迟）；WebUI：CSS 编辑器、字体路径、对话出卡、实卡预览  
+
 ## v3.1.0 — 推送呈现（可选卡片）+ 戳一戳可映射
 
-1. **推送呈现**：配置 `render_mode`（text/auto/card）、出卡类型、卡片样式 token；默认 `text` 保持原速度  
+1. **推送呈现**：配置 `render_mode`（text/card）、出卡类型、卡片样式；默认 `text`  
 2. **可选依赖**：`requirements-render.txt`（Pillow）。未安装时插件正常运行，出图自动回退纯文本  
 3. **WebUI「交互优化」**：样式预设 / 颜色 / 宽度 / 字号、DOM 即时预览、「生成实卡」走 `POST render/preview`  
-4. **聊天侧**：`/hapi list`、`/hapi pending` 在 auto/card 且类型启用时尝试发结构卡图片（失败回退原文）  
-5. **公式**：`formula_mode` 仅预留，首版不接数学引擎  
+4. **聊天侧**：`/hapi list`、`/hapi pending` 及 SSE Agent 消息在 card 且类型启用时尝试发结构卡（失败回退原文）  
+5. **公式**：`formula_mode` 配置项存在，当前未接数学引擎  
 6. **戳一戳快捷操作**：`poke_action` 可映射 approve/pending/list/status/stop/output_cycle/none（**不含 deny**，防误触）；`poke_approve` 为总开关；WebUI 卡片式选择  
 
 ## v3.0.0 — Web 管理面板（AstrBot Plugin Pages）
