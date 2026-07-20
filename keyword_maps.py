@@ -195,28 +195,68 @@ def find_mapped_command(
 
 # ── /hapi alias 展示（纯数据 → 文案，不依赖 command_handlers / main） ──
 
-MATCH_RULES_TEXT = """匹配规则：
-· 无参命令：聊天整句 = 关键词 → 执行 /hapi <命令>
-· 可带参、无固定消息：整句 = 关键词，或「关键词 + 空格 + 参数」
-· 有固定发送消息（仅 to 等）：整句 = 关键词 → /hapi to <固定消息>
-· 仅当前窗口存在运行中/思考中会话时生效（与 LLM 工具动态注册类似）
-· 仅管理员；不接管普通聊天（无映射则原样放行）"""
+
+# 路由别名 → 帮助表里的主命令 id（只为展示功能说明，不改执行）
+_ALIAS_TO_CANONICAL = {
+    "stop": "abort",
+    "ls": "list",
+    "s": "status",
+    "messages": "msg",
+    "out": "output",
+    "a": "approve",
+    "dl": "download",
+    "file": "files",
+}
 
 
-def _target_line(cmd: str, fixed_args: str, takes_arg: bool) -> str:
+def _cmd_help_meta(cmd: str) -> dict[str, str]:
+    """从 HELP_COMMANDS / 目录取命令功能与参数说明（不硬编码业务文案）。"""
+    cat = export_command_catalog()
+    look = _ALIAS_TO_CANONICAL.get(cmd, cmd)
+    for c in cat.get("commands") or []:
+        if str(c.get("id") or "") == look:
+            usage = str(c.get("usage") or f"/hapi {cmd}")
+            summary = str(c.get("summary") or "")
+            # 展示仍用实际映射的子命令名（stop 而不是 abort usage 里的 abort）
+            if look != cmd and usage.startswith("/hapi "):
+                rest = usage[len("/hapi ") :]
+                parts = rest.split(None, 1)
+                usage = f"/hapi {cmd}" + (f" {parts[1]}" if len(parts) > 1 else "")
+            return {"usage": usage, "summary": summary}
+    return {"usage": f"/hapi {cmd}", "summary": ""}
+
+
+def _target_line(cmd: str, fixed_args: str) -> str:
     if fixed_args:
         return f"/hapi {cmd} {fixed_args}"
-    if takes_arg:
-        return f"/hapi {cmd} [参数]"
     return f"/hapi {cmd}"
 
 
-def _match_hint(cmd: str, fixed_args: str, takes_arg: bool) -> str:
+def _what_it_does(cmd: str, fixed_args: str, takes_arg: bool) -> str:
+    """人话：这条映射实际干什么 + 可选参数。"""
+    meta = _cmd_help_meta(cmd)
+    summary = (meta.get("summary") or "").strip()
+    usage = (meta.get("usage") or f"/hapi {cmd}").strip()
+
+    # 去掉 usage 里的 /hapi 前缀，只留「命令 + 参数位」给用户看
+    usage_short = usage
+    if usage_short.startswith("/hapi "):
+        usage_short = usage_short[len("/hapi ") :]
+
     if fixed_args:
-        return "整句（固定消息）"
+        # 固定消息：说明会发出去什么
+        base = summary or f"执行 /hapi {cmd}"
+        return f"{base}；固定发送：{fixed_args}"
     if takes_arg:
-        return "整句，或 关键词 + 参数"
-    return "整句"
+        # 可带参：功能 + 参数位从帮助 usage 来
+        # 例：sw <序号|ID前缀> → 切换 session，可跟序号或 ID 前缀
+        base = summary or f"执行 /hapi {cmd}"
+        # 从 usage 抠参数部分（第一个空格后）
+        parts = usage_short.split(None, 1)
+        if len(parts) > 1:
+            return f"{base}；可选参数 {parts[1]}"
+        return f"{base}；可跟参数"
+    return summary or f"执行 /hapi {cmd}"
 
 
 def format_maps_list(
@@ -224,7 +264,7 @@ def format_maps_list(
     *,
     filter_text: str = "",
 ) -> str:
-    """生成 /hapi alias 输出。filter_text 可选：按关键词或命令 id 子串过滤。"""
+    """生成 /hapi alias 输出。filter_text 可选：按关键词或命令 id 过滤。"""
     items = normalize_maps(maps)
     takes = _takes_arg_map()
     q = str(filter_text or "").strip().lower()
@@ -235,18 +275,15 @@ def format_maps_list(
         fixed = str(item.get("args") or "").strip()
         kws = [str(k) for k in (item.get("keywords") or []) if k]
         if q:
-            # 过滤：优先完整字段相等；否则仅当查询长度≥2 时在整字段上做前缀/子串
-            # 注意：不能把 "to" 当子串去匹配 "stop"（"to" in "stop" 为真）
+
             def _field_hit(field: str) -> bool:
                 f = str(field or "").lower()
                 if not f:
                     return False
                 if f == q:
                     return True
-                # 短查询（1 字）只做相等，避免误伤
                 if len(q) < 2:
                     return False
-                # 中文或较长查询：允许包含；英文命令 id 用前缀，避免 to⊂stop
                 if any("一" <= ch <= "鿿" for ch in q):
                     return q in f
                 return f.startswith(q) or f == q
@@ -256,7 +293,6 @@ def format_maps_list(
                 or _field_hit(fixed)
                 or any(_field_hit(k) for k in kws)
             )
-            # 固定消息里允许较长英文子串（如 clear）
             if not hit and fixed and len(q) >= 3 and q in fixed.lower():
                 hit = True
             if not hit:
@@ -274,24 +310,21 @@ def format_maps_list(
         "指令关键词映射",
         f"共 {len(rows)} 条" + (f"（过滤「{filter_text.strip()}」）" if q else ""),
         "",
-        MATCH_RULES_TEXT.strip(),
-        "",
     ]
 
     if not rows:
         lines.append("（无映射）")
-        lines.append("在 WebUI「交互优化 → 指令关键词映射」添加，或恢复配置默认。")
+        lines.append("请前往 WebUI 面板或配置中修改。")
         return "\n".join(lines)
 
     for i, row in enumerate(rows, 1):
         kw_txt = "、".join(row["keywords"])
-        target = _target_line(row["command"], row["args"], row["takes_arg"])
-        hint = _match_hint(row["command"], row["args"], row["takes_arg"])
+        target = _target_line(row["command"], row["args"])
+        what = _what_it_does(row["command"], row["args"], row["takes_arg"])
         lines.append(f"{i}. {kw_txt}")
         lines.append(f"   → {target}")
-        lines.append(f"   匹配：{hint}")
+        lines.append(f"   {what}")
         lines.append("")
 
-    lines.append("配置：WebUI 交互优化 · 指令关键词映射")
-    lines.append("命令：/hapi alias [过滤词]")
+    lines.append("请前往 WebUI 面板或配置中修改。")
     return "\n".join(lines).rstrip() + "\n"
