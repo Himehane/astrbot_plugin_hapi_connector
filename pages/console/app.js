@@ -866,7 +866,7 @@ function renderOverview() {
         store.saveConfig(patch);
       }
       if (state.draft) Object.assign(state.draft, patch);
-      await refresh();
+      await refresh({ silent: true, repaint: true });
     } catch (e) {
       toast("保存失败: " + (e.message || e));
     }
@@ -1297,6 +1297,19 @@ function normalizeRenderMode(m) {
   return v === "card" || v === "auto" ? "card" : "text";
 }
 
+function syncCardPanelVisibility(mode) {
+  mode = normalizeRenderMode(mode);
+  const panel = $("#ix-card-panel");
+  const preview = $("#ix-preview-pane");
+  if (panel) panel.hidden = mode !== "card";
+  if (preview) preview.hidden = mode !== "card";
+  // enum-card 高亮
+  $$('#ix-rmode-cards input[name="ix-rmode"]').forEach((inp) => {
+    const card = inp.closest(".enum-card");
+    if (card) card.classList.toggle("is-on", normalizeRenderMode(inp.value) === mode);
+  });
+}
+
 const RENDER_KIND_LABELS = {
   session_list: "Session 列表",
   pending: "待审批列表",
@@ -1717,10 +1730,16 @@ function renderInteract() {
 
   const applyQuick = async (patch) => {
     try {
-      if (liveMode && api) await api.saveConfig(patch);
-      else store.saveConfig(patch);
+      if (liveMode && api) {
+        const res = await api.saveConfig(patch);
+        if (res?.config && state.data) state.data.config = { ...state.data.config, ...res.config };
+      } else {
+        store.saveConfig(patch);
+      }
+      if (state.data?.config) Object.assign(state.data.config, patch);
       if (state.draft) Object.assign(state.draft, patch);
-      await refresh();
+      // 不整页重绘，避免选择框跳回
+      await refresh({ silent: true });
     } catch (e) {
       toast("保存失败: " + (e.message || e));
     }
@@ -1742,6 +1761,15 @@ function renderInteract() {
     };
   });
   $("#ix-prefix").onchange = () => applyQuick({ quick_prefix: $("#ix-prefix").value });
+
+  // 渲染模式：本地立即显隐，不必先保存
+  $$('#ix-rmode-cards input[name="ix-rmode"]').forEach((inp) => {
+    inp.onchange = () => {
+      const mode = normalizeRenderMode(inp.value);
+      syncCardPanelVisibility(mode);
+    };
+  });
+  syncCardPanelVisibility(rs.render_mode);
 
   const bindPaint = () => {
     paintDomCardPreview();
@@ -1794,8 +1822,7 @@ function renderInteract() {
         if (log) log.textContent = lines.join("\n");
         toast(res?.ok ? "安装完成" : "安装有失败，见日志");
         // 刷新引擎状态
-        await refresh({ silent: true });
-        if (state.page === "interact") renderInteract();
+        await refresh({ silent: true, repaint: true });
       } catch (e) {
         if (log) log.textContent = "安装失败: " + (e.message || e);
         toast("安装失败: " + (e.message || e));
@@ -1808,8 +1835,9 @@ function renderInteract() {
     ($("#ix-save-render").onclick = async () => {
       const patch = collectRenderPatchFromForm();
       try {
+        let res = null;
         if (liveMode && api) {
-          const res = await api.saveConfig(patch);
+          res = await api.saveConfig(patch);
           toast(res?.message || "已保存");
         } else {
           store.saveConfig({
@@ -1819,8 +1847,11 @@ function renderInteract() {
           });
           toast("已保存（本地 mock）");
         }
+        if (res?.config && state.data) state.data.config = { ...state.data.config, ...res.config };
+        else if (state.data?.config) Object.assign(state.data.config, patch);
         if (state.draft) Object.assign(state.draft, patch);
         await refresh({ silent: true });
+        syncCardPanelVisibility(patch.render_mode);
       } catch (e) {
         toast("保存失败: " + (e.message || e));
       }
@@ -2498,7 +2529,10 @@ async function fetchSnapshot(opts = {}) {
   return snap;
 }
 
-/** @param {{fresh?: boolean, silent?: boolean}} opts */
+/** @param {{fresh?: boolean, silent?: boolean, repaint?: boolean}} opts
+ * silent: 轮询/后台刷新——只更新数据与顶栏，不重绘表单（避免下拉/输入被打回）
+ * repaint: 强制按当前页重绘（保存后需要时）
+ */
 async function refresh(opts = {}) {
   try {
     state.data = await fetchSnapshot(opts);
@@ -2511,18 +2545,17 @@ async function refresh(opts = {}) {
   for (const id of [...state.selected]) if (!live.has(id)) state.selected.delete(id);
   renderTopConn();
   renderAlert();
-  // 自动轮询时：设置页有未保存草稿则不重绘表单，避免打断输入
+
+  // 静默刷新：不碰当前页表单（会话下拉、交互配置、设置草稿）
+  if (opts.silent && !opts.repaint) {
+    return;
+  }
+
   if (state.page === "overview") renderOverview();
   else if (state.page === "sessions") renderSessions();
   else if (state.page === "interact") renderInteract();
   else if (state.page === "help") renderHelp();
-  else if (state.page === "settings") {
-    if (!opts.silent || !state.draft) renderSettings();
-    else {
-      renderTopConn();
-      renderAlert();
-    }
-  }
+  else if (state.page === "settings") renderSettings();
 }
 
 /* ---------- visibility-aware auto refresh (never wakes SSE) ---------- */
