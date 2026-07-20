@@ -609,6 +609,11 @@ class WebApi:
             sep = "&" if "?" in page else "?"
             launch_url = f"{page}{sep}{urlencode(query)}"
 
+        warnings.append(
+            "推荐用「新窗口打开」。AstrBot 管理面板与 HAPI 若 IP/端口不同，"
+            "iframe 内嵌官方 HAPI Web 会触发跨源模块 CORS，页面空白属浏览器限制，不是 token 错误。"
+        )
+
         return json_response({
             "ok": True,
             "url": launch_url,
@@ -619,7 +624,10 @@ class WebApi:
             "token_configured": bool(token),
             "loopback": loopback,
             "warnings": warnings,
-            "note": "官方 HAPI Web 支持 ?token= / ?hub=；嵌入依赖 Hub 未禁止 iframe（未设 X-Frame-Options 时通常可用）。",
+            "note": (
+                "官方 HAPI Web 支持 ?token= / ?hub=。"
+                "跨源时请新窗口打开；面板内嵌仅同源或 HAPI 允许跨源脚本时可用。"
+            ),
         })
 
 
