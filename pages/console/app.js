@@ -1309,16 +1309,28 @@ function openWindowVisibilityDialog() {
   const dlg = $("#dlg");
   dlg?.classList.add("dlg-win-vis");
   $("#dlg-body").innerHTML = `
-    <p class="field-help">勾选的窗口会出现在本页左侧列表和推送下拉框里。按 Bot 分组；默认全部显示。设置只存在本浏览器。</p>
+    <p class="field-help win-vis-help">勾选的窗口会出现在本页左侧列表和推送下拉框里。按 Bot 分组；默认全部显示。设置只存在本浏览器。列表可滚动，请往下看完。</p>
     <div class="win-vis-toolbar">
       <button type="button" class="btn btn-sm" id="vis-all">全部显示</button>
       <button type="button" class="btn btn-sm" id="vis-none">全部隐藏</button>
       <span class="spacer"></span>
       <button type="button" class="btn btn-primary btn-sm" id="vis-apply">应用</button>
     </div>
-    <div class="win-vis-list" id="win-vis-list">${body}</div>
+    <div class="win-vis-list" id="win-vis-list" tabindex="0">${body}</div>
   `;
   dlg?.showModal();
+  // 打开后把焦点/滚轮落在列表上，方便立刻滚
+  requestAnimationFrame(() => {
+    const list = $("#win-vis-list");
+    if (list) {
+      list.scrollTop = 0;
+      try {
+        list.focus({ preventScroll: true });
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  });
   // 关闭时去掉宽弹窗样式，避免影响其它 dialog
   const onClose = () => {
     dlg?.classList.remove("dlg-win-vis");

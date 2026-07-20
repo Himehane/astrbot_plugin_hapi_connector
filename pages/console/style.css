@@ -1127,43 +1127,57 @@ button {
 }
 
 /* 管理可见推送窗口弹窗 */
+.win-vis-help {
+  margin: 0;
+  flex-shrink: 0;
+}
+
 .win-vis-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin: 0 0 12px;
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .win-vis-toolbar .spacer {
   flex: 1;
+  min-width: 8px;
 }
 
+/* 唯一滚动区：分组列表，必须能完整滚到底 */
 .win-vis-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   flex: 1 1 auto;
-  min-height: 160px;
-  max-height: min(58vh, 520px);
+  min-height: 0; /* 关键 flex 子项可收缩，才能 overflow 滚动 */
+  height: auto;
+  max-height: none;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-right: 4px;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: var(--bg);
   padding: 8px;
 }
 
 .win-vis-list::-webkit-scrollbar {
-  width: 8px;
+  width: 10px;
+}
+
+.win-vis-list::-webkit-scrollbar-track {
+  background: var(--surface-2);
+  border-radius: 4px;
 }
 
 .win-vis-list::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--cursor) 35%, var(--line-strong));
-  border-radius: 4px;
+  background: color-mix(in srgb, var(--cursor) 40%, var(--line-strong));
+  border-radius: 5px;
+  border: 2px solid var(--surface-2);
 }
 
 .win-vis-group {
@@ -1171,11 +1185,12 @@ button {
   border-radius: var(--radius);
   background: var(--surface);
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .win-vis-group-head {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
@@ -1187,11 +1202,17 @@ button {
   font-weight: 700;
   font-size: 12px;
   color: var(--ink);
+  white-space: nowrap;
 }
 
 .win-vis-count {
   font-size: 11px;
   margin-right: auto;
+  white-space: nowrap;
+}
+
+.win-vis-group-head .btn {
+  flex-shrink: 0;
 }
 
 .win-vis-group-body {
@@ -1199,16 +1220,20 @@ button {
   flex-direction: column;
 }
 
+/* 行：勾选 + 标题/UMO 两行，勾选垂直居中，不裁切 */
 .win-vis-item {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 22px minmax(0, 1fr);
   grid-template-rows: auto auto;
-  column-gap: 8px;
-  row-gap: 1px;
-  padding: 8px 10px;
+  column-gap: 10px;
+  row-gap: 2px;
+  align-items: center;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--line);
   cursor: pointer;
   font-family: var(--font-ui);
+  min-height: 44px;
+  box-sizing: border-box;
 }
 
 .win-vis-item:last-child {
@@ -1219,20 +1244,26 @@ button {
   background: var(--bg-deep);
 }
 
-.win-vis-item input {
+.win-vis-item input[type="checkbox"] {
   grid-column: 1;
   grid-row: 1 / span 2;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  justify-self: center;
   align-self: center;
   accent-color: var(--cursor);
-  margin: 0;
+  flex-shrink: 0;
 }
 
 .win-vis-title {
   grid-column: 2;
+  grid-row: 1;
   font-size: 12px;
   font-weight: 600;
   color: var(--ink);
   min-width: 0;
+  line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1240,9 +1271,11 @@ button {
 
 .win-vis-umo {
   grid-column: 2;
+  grid-row: 2;
   font-size: 10px;
   color: var(--faint);
   min-width: 0;
+  line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2151,26 +2184,27 @@ select.ctrl-sm {
   overscroll-behavior: contain;
 }
 
-/* 管理可见窗口：弹窗更宽，列表独立滚动 */
+/* 管理可见窗口：更宽更高；头/说明/工具栏固定，只有列表滚 */
 .dlg.dlg-win-vis {
-  width: min(560px, calc(100vw - 24px));
-  max-height: min(90vh, 760px);
+  width: min(640px, calc(100vw - 20px));
+  height: min(86vh, 720px);
+  max-height: min(86vh, 720px);
 }
 
 .dlg.dlg-win-vis .dlg-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: none;
+  overflow: hidden; /* 列表自己滚，body 不双滚 */
+  padding-bottom: 14px;
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .dlg.dlg-win-vis .win-vis-toolbar {
   flex-shrink: 0;
   margin: 0;
-  position: sticky;
-  top: 0;
   z-index: 2;
-  padding-bottom: 4px;
   background: var(--surface);
 }
 
