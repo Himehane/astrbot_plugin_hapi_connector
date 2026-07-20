@@ -39,7 +39,7 @@ const PAGE_META = {
   overview: { title: "概览", desc: "连接状态与常用设置" },
   sessions: { title: "会话管理", desc: "Session 管理、通知投递与推送窗口设置" },
   hub: { title: "HAPI 网页", desc: "用已配置的 endpoint / token 打开官方 HAPI Web（可内嵌）" },
-  interact: { title: "交互优化", desc: "快捷操作、审批体验与推送呈现（样式 / 预览）" },
+  interact: { title: "交互优化", desc: "快捷操作、审批体验与推送呈现（CSS / 对话卡 / 预览）" },
   help: { title: "命令帮助", desc: "按功能分类的 /hapi 指令说明" },
   settings: { title: "设置", desc: "对应插件 _conf_schema.json 全部配置项" },
 };
@@ -432,8 +432,8 @@ function createStore() {
     default_notification_window: "",
     render_mode: "text",
     formula_mode: "off",
-    render_kinds: "session_list,pending,status,permission",
-    render_kinds_list: ["session_list", "pending", "status", "permission"],
+    render_kinds: "session_list,pending,status,permission,message",
+    render_kinds_list: ["session_list", "pending", "status", "permission", "message"],
     card_style_preset: "terminal_light",
     card_width: 720,
     card_accent: "#1a7f4b",
@@ -443,7 +443,10 @@ function createStore() {
     card_density: "comfortable",
     card_show_brand: true,
     card_mono: true,
-    render_engine: { pillow: false, install_hint: "pip install Pillow" },
+    card_custom_css: "",
+    card_font_path: "",
+    card_font_auto_download: true,
+    render_engine: { pillow: false, playwright: false, install_hint: "pip install Pillow" },
     card_style: {
       preset: "terminal_light",
       width: 720,
@@ -612,8 +615,10 @@ const state = {
   hub: {
     autologin: true,
     launch: null, // last hub/launch payload
-    loadedUrl: null, // iframe currently showing (with token if autologin)
+    loadedUrl: null, // last launch url (token if autologin)
     error: null,
+    /** 默认 false：跨源 iframe 嵌 HAPI SPA 常 CORS 失败，优先新窗口 */
+    preferEmbed: false,
   },
 };
 
@@ -1312,7 +1317,44 @@ const RENDER_KIND_LABELS = {
   status: "状态",
   permission: "权限请求卡",
   routes: "推送路由",
+  message: "Agent 对话",
 };
+
+const DEFAULT_CARD_CSS_FALLBACK = `/* 推送卡片默认 CSS（可整段覆盖）
+ * Playwright=完整生效；Pillow=识别 --card-* 变量（低延迟快路径）
+ */
+:root {
+  --card-bg: #faf8f2;
+  --card-fg: #1c1914;
+  --card-accent: #1a7f4b;
+  --card-muted: #6b665a;
+  --card-border: #d4cfc0;
+  --card-code-bg: #efe9d8;
+  --card-radius: 12px;
+  --card-pad: 24px;
+  --card-width: 720px;
+  --card-font-scale: 1;
+  --card-title-size: 22px;
+  --card-body-size: 14px;
+}
+.card {
+  width: var(--card-width);
+  background: var(--card-bg);
+  color: var(--card-fg);
+  border: 2px solid var(--card-border);
+  border-radius: var(--card-radius);
+  padding: var(--card-pad);
+  font-size: calc(var(--card-body-size) * var(--card-font-scale));
+  line-height: 1.55;
+}
+.card-title { font-size: calc(var(--card-title-size) * var(--card-font-scale)); font-weight: 700; margin-bottom: 6px; }
+.card-sub { color: var(--card-muted); font-size: 0.92em; margin-bottom: 12px; }
+.card-bar { width: 120px; height: 3px; background: var(--card-accent); margin-bottom: 14px; }
+.row { margin-bottom: 12px; }
+.row-detail { color: var(--card-muted); padding-left: 12px; }
+.card-foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--card-border); color: var(--card-accent); }
+.md pre, .md code { background: var(--card-code-bg); }
+`;
 
 const RENDER_PRESETS = [
   { id: "terminal_light", label: "终端浅色" },
@@ -1335,6 +1377,9 @@ function interactRenderState(cfg) {
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
+  const metaCss =
+    (state.meta && state.meta.render && state.meta.render.default_css) ||
+    DEFAULT_CARD_CSS_FALLBACK;
   return {
     render_mode: cfg.render_mode || "text",
     formula_mode: cfg.formula_mode || "off",
@@ -1348,6 +1393,10 @@ function interactRenderState(cfg) {
     card_density: cfg.card_density || "comfortable",
     card_show_brand: cfg.card_show_brand !== false,
     card_mono: cfg.card_mono !== false,
+    card_custom_css: cfg.card_custom_css || "",
+    card_font_path: cfg.card_font_path || "",
+    card_font_auto_download: cfg.card_font_auto_download !== false,
+    default_css: metaCss,
   };
 }
 
@@ -1378,6 +1427,12 @@ function sampleDomRows(kind) {
       { i: 3, a: "默认窗口", b: "私聊 · 10001" },
     ];
   }
+  if (kind === "message") {
+    return [
+      { i: 0, a: "Markdown", b: "## 修复摘要 · 代码块 · 列表" },
+      { i: 0, a: "正文", b: "已完成鉴权中间件重构，补充单测。" },
+    ];
+  }
   return [
     { i: 1, a: "claude", b: "重构鉴权中间件 · thinking" },
     { i: 2, a: "claude", b: "补 session 列表单测 · idle" },
@@ -1393,6 +1448,7 @@ function sampleTitle(kind) {
       status: "Session 状态",
       permission: "权限请求",
       routes: "推送路由",
+      message: "Agent 消息",
     }[kind] || kind
   );
 }
@@ -1405,6 +1461,7 @@ function sampleSub(kind) {
       status: "claude · a1b2c3d4",
       permission: "序号 1 · claude · auth-mw",
       routes: "通知投递优先级",
+      message: "claude · auth-mw",
     }[kind] || ""
   );
 }
@@ -1417,6 +1474,7 @@ function sampleFooter(kind) {
       status: "output=simple · render=auto",
       permission: "/hapi allow 1   /hapi deny 1",
       routes: "/hapi bind  ·  /hapi routes",
+      message: "output=simple",
     }[kind] || ""
   );
 }
@@ -1466,7 +1524,7 @@ function collectRenderPatchFromForm() {
   return {
     render_mode: $("#ix-rmode")?.value || "text",
     formula_mode: $("#ix-fmode")?.value || "off",
-    render_kinds: kinds.join(",") || "session_list,pending",
+    render_kinds: kinds.join(",") || "session_list,pending,message",
     card_style_preset: $("#ix-preset")?.value || "terminal_light",
     card_width: Number($("#ix-width")?.value) || 720,
     card_accent: $("#ix-accent")?.value || "#1a7f4b",
@@ -1476,6 +1534,9 @@ function collectRenderPatchFromForm() {
     card_density: $("#ix-density")?.value || "comfortable",
     card_show_brand: Boolean($("#ix-brand")?.checked),
     card_mono: Boolean($("#ix-mono")?.checked),
+    card_custom_css: $("#ix-css")?.value ?? "",
+    card_font_path: ($("#ix-font-path")?.value || "").trim(),
+    card_font_auto_download: Boolean($("#ix-font-dl")?.checked),
   };
 }
 
@@ -1501,6 +1562,16 @@ function renderInteract() {
   const rs = interactRenderState(cfg);
   const engine = cfg.render_engine || {};
   const pillowOk = Boolean(engine.pillow);
+  const pwOk = Boolean(engine.playwright);
+  const fonts = (engine.fonts || {});
+  const fontOk = Boolean(fonts.sans || fonts.user_font);
+  const engineTag = pwOk
+    ? "Playwright · 完整 CSS"
+    : pillowOk
+      ? "Pillow · 低延迟"
+      : "未装引擎 · 回退文本";
+  const engineTagCls = pwOk || pillowOk ? "tag-ok" : "tag-muted";
+  const cssValue = rs.card_custom_css || "";
   const kindChecks = Object.keys(RENDER_KIND_LABELS)
     .map((k) => {
       const on = rs.kinds.includes(k);
@@ -1564,40 +1635,43 @@ function renderInteract() {
       <div class="card-head">
         <div>
           <h2>推送呈现</h2>
-          <p class="sub">控制 list / 审批等<strong>结构化</strong>消息是否出卡片。Agent 对话流默认仍为纯文本以保证速度。卡片依赖可选 Pillow。</p>
+          <p class="sub">结构卡与 <strong>Agent 对话</strong> 同一套卡片管线。Pillow=低延迟快路径；Playwright=完整自定义 CSS。字体走插件 assets/缓存，可移植。</p>
         </div>
-        <span class="tag ${pillowOk ? "tag-ok" : "tag-muted"}">${pillowOk ? "Pillow 可用" : "未装 Pillow · 回退文本"}</span>
+        <span class="tag ${engineTagCls}">${engineTag}</span>
       </div>
 
       ${
-        pillowOk
-          ? ""
+        pillowOk || pwOk
+          ? fontOk
+            ? ""
+            : `<div class="alert-inline">尚未解析到中文字体。首次出卡可自动下载 Noto Sans SC 到缓存；也可把字体放到插件 <code>assets/fonts/</code> 或填写字体路径。系统字体仅作兜底，不保证有。</div>`
           : `<div class="alert-inline">实卡预览与聊天出图需要可选依赖：
-            <code>pip install Pillow</code> 或
-            <code>pip install -r requirements-render.txt</code>
-            。未安装时配置仍可保存，运行时自动纯文本。</div>`
+            <code>pip install Pillow</code>（快路径）或
+            <code>pip install playwright && playwright install chromium</code>（完整 CSS）。
+            未安装时配置仍可保存，运行时自动纯文本。</div>`
       }
 
       <div class="render-layout">
         <div class="render-form">
           <div class="field">
             <div class="field-label">渲染模式</div>
-            <p class="field-help">text=全文本；auto=结构卡+对话文本（推荐）；card=更多结构类型出卡。</p>
+            <p class="field-help">text=纯文本；auto/card=对下方勾选类型出卡（含 Agent 对话）。</p>
             <select id="ix-rmode" class="ctrl">
               <option value="text" ${rs.render_mode === "text" ? "selected" : ""}>text · 纯文本（最快）</option>
-              <option value="auto" ${rs.render_mode === "auto" ? "selected" : ""}>auto · 结构出卡</option>
+              <option value="auto" ${rs.render_mode === "auto" ? "selected" : ""}>auto · 启用类型出卡</option>
               <option value="card" ${rs.render_mode === "card" ? "selected" : ""}>card · 尽量出卡</option>
             </select>
           </div>
 
           <div class="field">
             <div class="field-label">出卡类型</div>
+            <p class="field-help">勾选 <code>Agent 对话</code> 后，SSE 推送的 agent 消息也会渲成卡片。</p>
             <div class="chk-grid">${kindChecks}</div>
           </div>
 
           <div class="field">
             <div class="field-label">公式策略（预留）</div>
-            <p class="field-help">首版不接数学引擎；开启后复杂公式仍保留源码文本。</p>
+            <p class="field-help">预留；开启后复杂公式仍保留源码文本。</p>
             <select id="ix-fmode" class="ctrl">
               <option value="off" ${rs.formula_mode === "off" ? "selected" : ""}>off · 关闭</option>
               <option value="detect" ${rs.formula_mode === "detect" ? "selected" : ""}>detect · 检测到 $ 时（预留）</option>
@@ -1606,7 +1680,7 @@ function renderInteract() {
           </div>
 
           <div class="field">
-            <div class="field-label">样式预设</div>
+            <div class="field-label">样式预设（token 起点）</div>
             <select id="ix-preset" class="ctrl">
               ${RENDER_PRESETS.map(
                 (p) =>
@@ -1618,7 +1692,7 @@ function renderInteract() {
           <div class="field-row2">
             <div class="field">
               <div class="field-label">宽度 <span id="ix-width-val">${rs.card_width}</span>px</div>
-              <input id="ix-width" type="range" min="400" max="1200" step="10" value="${rs.card_width}" />
+              <input id="ix-width" type="range" min="400" max="1400" step="10" value="${rs.card_width}" />
             </div>
             <div class="field">
               <div class="field-label">字号 <span id="ix-scale-val">${rs.card_font_scale}</span>%</div>
@@ -1652,6 +1726,22 @@ function renderInteract() {
             </div>
           </div>
 
+          <div class="field">
+            <div class="field-label-row">
+              <div class="field-label">自定义 CSS</div>
+              <button type="button" class="btn btn-ghost" id="ix-load-default-css" style="padding:2px 8px;font-size:12px">填入默认 CSS</button>
+            </div>
+            <p class="field-help">完整可编辑。Playwright 完整生效；Pillow 主要吃 <code>--card-*</code> 变量。配色滑块会注入变量覆盖，与 CSS 可叠加。</p>
+            <textarea id="ix-css" class="ctrl render-css-editor" rows="12" spellcheck="false" placeholder="留空=内置默认样式；点上方「填入默认 CSS」再改">${esc(cssValue)}</textarea>
+          </div>
+
+          <div class="field">
+            <div class="field-label">字体路径（可选）</div>
+            <p class="field-help">绝对路径或相对插件根的 .ttf/.otf/.ttc。留空：assets/fonts → 缓存自动下载 → 系统兜底。</p>
+            <input id="ix-font-path" class="ctrl" type="text" value="${attr(rs.card_font_path)}" placeholder="assets/fonts/NotoSansSC-Regular.otf" />
+            <label class="chk" style="margin-top:8px"><input id="ix-font-dl" type="checkbox" ${rs.card_font_auto_download ? "checked" : ""}/> 首次出卡自动下载中文字体到缓存</label>
+          </div>
+
           <div class="render-actions">
             <button type="button" class="btn" id="ix-reset-style">恢复默认样式</button>
             <button type="button" class="btn btn-primary" id="ix-save-render">保存并应用</button>
@@ -1667,10 +1757,10 @@ function renderInteract() {
                 .join("")}
             </select>
           </div>
-          <p class="field-help">左侧为即时 DOM 预览（调色用）。点「生成实卡」走服务端 Pillow，与聊天发出效果一致。</p>
+          <p class="field-help">DOM 预览只反映配色 token。点「生成实卡」走服务端（Pillow 快路径 / Playwright 完整 CSS），与聊天发出一致，中文应正常显示。</p>
           <div id="ix-dom-preview" class="render-dom-host"></div>
           <div class="render-actions" style="margin-top:12px">
-            <button type="button" class="btn btn-primary" id="ix-gen-card" ${pillowOk || !liveMode ? "" : ""}>生成实卡预览</button>
+            <button type="button" class="btn btn-primary" id="ix-gen-card">生成实卡预览</button>
           </div>
           <div id="ix-real-meta" class="field-help" style="margin-top:8px"></div>
           <div id="ix-real-preview" class="render-real-host"></div>
@@ -1728,6 +1818,11 @@ function renderInteract() {
       bindPaint();
     });
 
+  $("#ix-load-default-css") &&
+    ($("#ix-load-default-css").onclick = () => {
+      if ($("#ix-css")) $("#ix-css").value = rs.default_css || DEFAULT_CARD_CSS_FALLBACK;
+    });
+
   $("#ix-reset-style") &&
     ($("#ix-reset-style").onclick = () => {
       if ($("#ix-preset")) $("#ix-preset").value = "terminal_light";
@@ -1739,6 +1834,9 @@ function renderInteract() {
       if ($("#ix-density")) $("#ix-density").value = "comfortable";
       if ($("#ix-mono")) $("#ix-mono").checked = true;
       if ($("#ix-brand")) $("#ix-brand").checked = true;
+      if ($("#ix-css")) $("#ix-css").value = "";
+      if ($("#ix-font-path")) $("#ix-font-path").value = "";
+      if ($("#ix-font-dl")) $("#ix-font-dl").checked = true;
       bindPaint();
     });
 
@@ -1788,7 +1886,8 @@ function renderInteract() {
         }
         if (res?.ok && res.png_base64) {
           if (meta) {
-            meta.textContent = `实卡 · ${res.engine} · ${res.ms}ms · ${res.bytes || "?"}B · ${res.width}×${res.height}`;
+            const fontHint = res.font_path ? ` · font=${res.font_path}` : "";
+            meta.textContent = `实卡 · ${res.engine} · ${res.ms}ms · ${res.bytes || "?"}B · ${res.width}×${res.height}${fontHint}`;
           }
           if (host) {
             host.innerHTML = `<img class="render-real-img" alt="card preview" src="data:${res.mime || "image/png"};base64,${res.png_base64}" />`;
@@ -2322,7 +2421,62 @@ function openDetail(id) {
   });
 }
 
-/* ---------- HAPI Web embed (official hub SPA) ---------- */
+/* ---------- HAPI Web（官方 SPA：默认新窗口；iframe 跨源常因 CORS 失败） ---------- */
+
+/** 安全复制：插件 iframe 里 clipboard API / 权限策略常不可用 */
+async function copyTextSafe(text) {
+  const t = String(text || "");
+  if (!t) throw new Error("空内容");
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(t);
+      return;
+    }
+  } catch (_) {
+    /* fall through */
+  }
+  const ta = document.createElement("textarea");
+  ta.value = t;
+  ta.setAttribute("readonly", "");
+  ta.style.cssText = "position:fixed;left:-9999px;top:0";
+  document.body.appendChild(ta);
+  ta.select();
+  const ok = document.execCommand("copy");
+  ta.remove();
+  if (!ok) throw new Error("execCommand copy failed");
+}
+
+function openHubUrl(url) {
+  if (!url) {
+    toast("尚无启动链接");
+    return false;
+  }
+  const w = window.open(url, "_blank", "noopener,noreferrer");
+  if (!w) {
+    toast("弹窗被拦截：请允许本站弹窗，或改用「复制链接」后在浏览器粘贴打开");
+    return false;
+  }
+  return true;
+}
+
+function hubCrossOriginHint(launch) {
+  try {
+    const origin = launch?.origin || "";
+    if (!origin) return null;
+    const hubOrigin = new URL(origin).origin;
+    const pageOrigin = window.location.origin;
+    if (hubOrigin !== pageOrigin) {
+      return (
+        `HAPI（${hubOrigin}）与本管理面板（${pageOrigin}）不同源。` +
+        "浏览器同源策略下，在 AstrBot 插件页里 iframe 嵌官方 HAPI SPA 常会 CORS 拦截模块脚本（assets/*.js），页面会空白。" +
+        "请用「新窗口打开」——这是推荐且可靠的方式。"
+      );
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return null;
+}
 
 async function fetchHubLaunch() {
   if (liveMode && api) {
@@ -2353,32 +2507,86 @@ async function fetchHubLaunch() {
         ? ["自动登录会把 token 写入启动 URL（官方 HAPI 会尽快剥离）。"]
         : ["未配置 token：只能打开登录页。"]),
     ],
-    note: "HAPI Web 支持 ?token= / ?hub=",
+    note: "HAPI Web 支持 ?token= / ?hub=；跨源时请用新窗口打开。",
   };
+}
+
+function renderHubEmpty(message, launch) {
+  const wrap = $("#hub-frame-wrap");
+  if (!wrap) return;
+  const L = launch || state.hub.launch || {};
+  const url = state.hub.loadedUrl || L.url || "";
+  const safe = L.url_display || L.origin || "";
+  wrap.innerHTML = `
+    <div class="hub-placeholder empty hub-open-card">
+      <div class="hub-open-title">HAPI 官方网页</div>
+      <p class="hub-open-desc">${esc(message || "请在新窗口打开完整 HAPI Web（会话列表、终端、文件等）。")}</p>
+      <div class="hub-open-url mono">${esc(safe || "—")}</div>
+      <div class="hub-open-actions">
+        <button type="button" class="btn btn-primary" id="hub-main-open">新窗口打开</button>
+        <button type="button" class="btn" id="hub-main-copy">复制启动链接</button>
+        <button type="button" class="btn" id="hub-try-embed">尝试面板内嵌（实验）</button>
+      </div>
+      <p class="hub-open-foot">内嵌仅在 HAPI 与 AstrBot 同源、且未禁止 iframe 时可用；跨 IP/端口几乎必定失败。</p>
+    </div>`;
+  $("#hub-main-open")?.addEventListener("click", () => openHubUrl(url));
+  $("#hub-main-copy")?.addEventListener("click", async () => {
+    try {
+      await copyTextSafe(url);
+      toast("已复制启动链接（含 token 时请勿外传）");
+    } catch {
+      toast("复制失败，请用工具栏按钮或手动复制地址栏");
+    }
+  });
+  $("#hub-try-embed")?.addEventListener("click", () => {
+    if (!url) return toast("尚无启动链接");
+    state.hub.preferEmbed = true;
+    mountHubIframe(url);
+  });
 }
 
 function mountHubIframe(url) {
   const wrap = $("#hub-frame-wrap");
   if (!wrap) return;
   wrap.innerHTML = "";
+  const banner = document.createElement("div");
+  banner.className = "hub-embed-banner";
+  banner.innerHTML = `
+    <span>面板内嵌为实验功能。若下方空白或控制台 CORS 报错，请改用新窗口。</span>
+    <button type="button" class="btn btn-sm" id="hub-embed-open">新窗口打开</button>
+    <button type="button" class="btn btn-sm" id="hub-embed-exit">退出内嵌</button>`;
+  wrap.appendChild(banner);
+  $("#hub-embed-open")?.addEventListener("click", () => openHubUrl(url));
+  $("#hub-embed-exit")?.addEventListener("click", () => {
+    state.hub.preferEmbed = false;
+    state.hub.loadedUrl = url;
+    renderHubEmpty(null, state.hub.launch);
+  });
+
   const iframe = document.createElement("iframe");
   iframe.className = "hub-iframe";
-  iframe.title = "HAPI Web";
+  iframe.title = "HAPI Web（实验内嵌）";
   iframe.src = url;
-  // 允许剪贴板等；跨域无法读内部 DOM，属预期
-  iframe.setAttribute("allow", "clipboard-read; clipboard-write");
+  // 不声明 clipboard-*：AstrBot 插件 iframe 权限策略常不支持，会抛 DOMException
   iframe.setAttribute("referrerpolicy", "no-referrer");
+  iframe.setAttribute("loading", "lazy");
   wrap.appendChild(iframe);
   state.hub.loadedUrl = url;
+
+  // 无法可靠检测跨源 SPA 内部 CORS；给用户一个明显提示条即可
+  iframe.addEventListener("load", () => {
+    /* load 只表示文档响应，不表示模块加载成功 */
+  });
 }
 
 function renderHubToolbar(launch) {
   const bar = $("#hub-toolbar");
   if (!bar) return;
   const L = launch || {};
-  const warnHtml = (L.warnings || [])
-    .map((w) => `<div class="hub-warn">⚠ ${esc(w)}</div>`)
-    .join("");
+  const extra = hubCrossOriginHint(L);
+  const warns = [...(L.warnings || [])];
+  if (extra) warns.unshift(extra);
+  const warnHtml = warns.map((w) => `<div class="hub-warn">⚠ ${esc(w)}</div>`).join("");
   bar.innerHTML = `
     <div class="hub-toolbar-row">
       <div class="hub-meta">
@@ -2387,6 +2595,7 @@ function renderHubToolbar(launch) {
           ${L.autologin ? '<span class="tag tag-ok">自动登录</span>' : '<span class="tag tag-muted">仅打开页面</span>'}
           ${L.token_configured ? "" : '<span class="tag tag-warn">无 token</span>'}
           ${L.loopback ? '<span class="tag tag-warn">本机地址</span>' : ""}
+          ${extra ? '<span class="tag tag-warn">跨源 · 请用新窗口</span>' : ""}
         </div>
       </div>
       <div class="hub-actions">
@@ -2394,14 +2603,17 @@ function renderHubToolbar(launch) {
           <input type="checkbox" id="hub-autologin" ${state.hub.autologin ? "checked" : ""} />
           带 token 自动登录
         </label>
-        <button type="button" class="btn" id="hub-reload">重新加载</button>
-        <button type="button" class="btn" id="hub-open">新窗口打开</button>
+        <button type="button" class="btn btn-primary" id="hub-open">新窗口打开</button>
+        <button type="button" class="btn" id="hub-reload">刷新链接</button>
         <button type="button" class="btn" id="hub-copy">复制链接（含登录）</button>
         <button type="button" class="btn" id="hub-copy-safe">复制地址（无 token）</button>
       </div>
     </div>
     ${warnHtml}
-    <p class="hub-note">${esc(L.note || "由插件配置的 hapi_endpoint / access_token 生成启动链；与本面板的管控功能互补。")}</p>
+    <p class="hub-note">${esc(
+      L.note ||
+        "用已配置的 hapi_endpoint / access_token 生成官方 HAPI Web 启动链。跨源时请新窗口打开，勿依赖面板 iframe。",
+    )}</p>
   `;
 
   $("#hub-autologin")?.addEventListener("change", async (e) => {
@@ -2410,28 +2622,23 @@ function renderHubToolbar(launch) {
   });
   $("#hub-reload")?.addEventListener("click", () => loadHub(true));
   $("#hub-open")?.addEventListener("click", () => {
-    const u = state.hub.loadedUrl || L.url;
-    if (!u) return toast("尚无启动链接");
-    const w = window.open(u, "_blank", "noopener,noreferrer");
-    if (!w) {
-      toast("无法打开新窗口（可能被拦截或插件页 sandbox 限制）；请「复制链接」后在浏览器粘贴");
-    }
+    openHubUrl(state.hub.loadedUrl || L.url);
   });
   $("#hub-copy")?.addEventListener("click", async () => {
     const u = state.hub.loadedUrl || L.url;
     if (!u) return toast("尚无启动链接");
     try {
-      await navigator.clipboard.writeText(u);
+      await copyTextSafe(u);
       toast("已复制（含 token 时请勿外传）");
     } catch {
-      toast("复制失败，请手动从新窗口地址栏获取");
+      toast("复制失败：浏览器限制了剪贴板，请用「新窗口打开」后从地址栏复制");
     }
   });
   $("#hub-copy-safe")?.addEventListener("click", async () => {
     const u = L.url_display || L.origin;
     if (!u) return toast("尚无地址");
     try {
-      await navigator.clipboard.writeText(u);
+      await copyTextSafe(u);
       toast("已复制无 token 地址");
     } catch {
       toast("复制失败");
@@ -2446,17 +2653,21 @@ async function loadHub(force = false) {
     const launch = await fetchHubLaunch();
     state.hub.launch = launch;
     state.hub.error = null;
+    state.hub.loadedUrl = launch.url || null;
     renderHubToolbar(launch);
     if (!launch.url) {
-      const wrap = $("#hub-frame-wrap");
-      if (wrap) wrap.innerHTML = `<div class="hub-placeholder empty">无法生成启动链接</div>`;
+      renderHubEmpty("无法生成启动链接：请先在设置中填写 hapi_endpoint。", launch);
       return;
     }
-    // 同 URL 且已加载时不强制刷新，避免轮询打断用户操作
-    if (!force && state.hub.loadedUrl === launch.url && $("#hub-frame-wrap iframe")) {
-      return;
+    // 默认不内嵌：跨源 CORS 会让 HAPI SPA 空白；用户可点「尝试面板内嵌」
+    if (state.hub.preferEmbed) {
+      if (!force && $("#hub-frame-wrap iframe") && state.hub.loadedUrl === launch.url) {
+        return;
+      }
+      mountHubIframe(launch.url);
+    } else {
+      renderHubEmpty(hubCrossOriginHint(launch), launch);
     }
-    mountHubIframe(launch.url);
   } catch (e) {
     state.hub.error = e.message || String(e);
     state.hub.launch = null;
@@ -2477,7 +2688,6 @@ async function loadHub(force = false) {
 }
 
 function renderHub() {
-  // 工具栏先占位，再异步拉 launch
   if (!state.hub.launch && !state.hub.error) {
     renderHubToolbar({
       url_display: state.data?.config?.hapi_endpoint || "—",
@@ -2733,9 +2943,10 @@ async function boot() {
       } catch (e) {
         console.warn("help load failed, using bundled", e);
       }
-      // meta: permission modes from flavor_profiles
+      // meta: permission modes + render default_css 等
       try {
         const meta = await api.meta();
+        state.meta = meta || null;
         if (meta?.permission_modes) {
           Object.assign(PERM, meta.permission_modes);
         }

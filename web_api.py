@@ -52,7 +52,6 @@ CONFIG_KEYS = (
     "card_mono",
     "card_custom_css",
     "card_font_path",
-    "card_font_auto_download",
 )
 
 SENSITIVE_KEYS = frozenset({"access_token", "cf_access_client_secret"})
@@ -81,7 +80,6 @@ BOOL_KEYS = frozenset({
     "auto_approve_enabled",
     "card_show_brand",
     "card_mono",
-    "card_font_auto_download",
 })
 
 INT_KEYS = frozenset({
@@ -188,7 +186,6 @@ class WebApi:
                 "mono": "card_mono",
                 "custom_css": "card_custom_css",
                 "font_path": "card_font_path",
-                "font_auto_download": "card_font_auto_download",
             }
             for k, v in style_patch.items():
                 mapped = alias.get(k, k)
