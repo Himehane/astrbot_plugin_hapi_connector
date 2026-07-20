@@ -859,7 +859,7 @@ HELP_COMMANDS = [
     {
         "topic": "push",
         "usage": "/hapi alias [过滤词]",
-        "summary": "查看指令关键词映射（匹配规则与当前条目；可按关键词/命令过滤）",
+        "summary": "查看快捷关键词映射（匹配规则与当前条目；可按关键词/命令过滤）",
         "example": "/hapi alias to",
         "home": True,
     },
@@ -908,14 +908,14 @@ HELP_COMMANDS = [
     {
         "topic": "session",
         "usage": "/hapi resume [序号|ID前缀]",
-        "summary": "恢复被 archive 的 inactive session",
+        "summary": "恢复已停掉的会话",
         "example": "/hapi resume 1",
         "home": True,
     },
     {
         "topic": "session",
         "usage": "/hapi reopen [序号|ID前缀]",
-        "summary": "Reopen inactive session（与 resume 不同，走 Hub reopen API）",
+        "summary": "恢复已停掉的会话（resume 备用接口）",
         "example": "/hapi reopen 1",
         "home": True,
     },

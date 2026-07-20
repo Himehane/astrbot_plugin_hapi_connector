@@ -40,7 +40,7 @@
 对齐上游 HAPI Hub API（约 0.21.0 ~ 0.23.0），补齐聊天侧遥控缺口：
 
 1. **新增 `/hapi fast [on|off]`**：Codex Fast mode（`POST /api/sessions/:id/service-tier`，`fast` / `standard`）
-2. **新增 `/hapi reopen [序号|ID前缀]`**：`POST /api/sessions/:id/reopen`（与 resume 语义不同；resume 失败时可尝试）
+2. **新增 `/hapi reopen [序号|ID前缀]`**：`POST /api/sessions/:id/reopen`（resume 备用接口）
 3. **OpenCode 支持 reasoning effort**：与 Codex 同走 `/model-reasoning-effort`；列表外值可透传（上游动态 options）
 4. **Effort / 模型枚举对齐上游**：
    - Claude effort：`low` / `medium` / `high` / `xhigh` / `max`（+ auto）

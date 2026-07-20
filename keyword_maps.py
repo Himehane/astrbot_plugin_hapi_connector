@@ -1,4 +1,4 @@
-"""指令关键词映射。
+"""快捷关键词映射。
 
 数据源：
 - 命令目录 / 文案：formatters.HELP_COMMANDS（export_command_catalog）
@@ -307,7 +307,7 @@ def format_maps_list(
         )
 
     lines: list[str] = [
-        "指令关键词映射",
+        "快捷关键词映射",
         f"共 {len(rows)} 条" + (f"（过滤「{filter_text.strip()}」）" if q else ""),
         "",
     ]

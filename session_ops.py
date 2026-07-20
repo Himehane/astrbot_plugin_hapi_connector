@@ -206,7 +206,7 @@ async def archive_session(client: AsyncHapiClient, sid: str) -> tuple[bool, str]
 
 
 async def resume_session(client: AsyncHapiClient, sid: str) -> tuple[bool, str, str | None]:
-    """恢复 inactive session，返回 (成功, 描述, 恢复后的 session_id 或 None)"""
+    """恢复已停掉的会话。返回 (成功, 描述, 恢复后的 session_id 或 None)。"""
     resp = await client.post(f"/api/sessions/{sid}/resume", json={})
     if resp.ok:
         data = await resp.json()
@@ -220,10 +220,7 @@ async def resume_session(client: AsyncHapiClient, sid: str) -> tuple[bool, str, 
 
 
 async def reopen_session(client: AsyncHapiClient, sid: str) -> tuple[bool, str, str | None]:
-    """Reopen inactive session（Hub reopen，语义与 resume 不同）。
-
-    返回 (成功, 描述, session_id 或 None)。
-    """
+    """恢复已停掉的会话（resume 备用接口）。返回 (成功, 描述, session_id 或 None)。"""
     resp = await client.post(f"/api/sessions/{sid}/reopen", json={})
     if resp.ok:
         data = await resp.json()
@@ -233,7 +230,7 @@ async def reopen_session(client: AsyncHapiClient, sid: str) -> tuple[bool, str, 
             or (data.get("session") or {}).get("id")
             or sid
         )
-        return True, f"已 reopen [{reopened_sid[:8]}]", reopened_sid
+        return True, f"已恢复 [{reopened_sid[:8]}]", reopened_sid
 
     body = await resp.text()
     resp.release()
@@ -258,7 +255,7 @@ def _format_resume_error(status: int, body: str) -> str:
             "（例如 claudeSessionId / codexSessionId）。\n"
             "这通常表示原生会话 ID 没来得及写入 HAPI，或写入前 CLI/runner 已断开；"
             "HAPI 前端此时一般也无法无损恢复。\n"
-            "可尝试 /hapi reopen（部分场景与 resume 语义不同）；"
+            "可尝试 /hapi reopen；"
             "或在原机器上用原生 CLI 按 session id 恢复。"
             "找不到的话只能在同目录新建会话，并手动补充摘要或关键上下文。"
         )
@@ -281,8 +278,8 @@ def _format_reopen_error(status: int, body: str) -> str:
 
     if code or error:
         detail = f"{code} {error}".strip() if code else error
-        return f"reopen 失败: {status} {detail}"
-    return f"reopen 失败: {status} {body[:200]}"
+        return f"恢复失败: {status} {detail}"
+    return f"恢复失败: {status} {body[:200]}"
 
 
 async def rename_session(client: AsyncHapiClient, sid: str, new_name: str) -> tuple[bool, str]:

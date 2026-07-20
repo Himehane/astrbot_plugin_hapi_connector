@@ -1163,7 +1163,7 @@ class CommandHandlers:
     # ── resume ──
 
     async def cmd_resume(self, event: AstrMessageEvent, target: str = ""):
-        """恢复 inactive session: /hapi resume [序号|ID前缀]"""
+        """恢复已停掉的会话: /hapi resume [序号|ID前缀]"""
         await self.state_mgr.set_user_state(event)
         await self.plugin._refresh_sessions()
 
@@ -1231,11 +1231,7 @@ class CommandHandlers:
     # ── reopen ──
 
     async def cmd_reopen(self, event: AstrMessageEvent, target: str = ""):
-        """Reopen inactive session: /hapi reopen [序号|ID前缀]
-
-        与 resume 不同：走 Hub POST /sessions/:id/reopen（0.20.1+），
-        适用于 resume 不可用或部分 Cursor/ACP 场景。
-        """
+        """恢复已停掉的会话（resume 备用接口）: /hapi reopen [序号|ID前缀]"""
         await self.state_mgr.set_user_state(event)
         await self.plugin._refresh_sessions()
 
@@ -1277,8 +1273,7 @@ class CommandHandlers:
             state = _session_resume_state(target_session)
             if state != "inactive":
                 yield event.plain_result(
-                    f"Session [{sid[:8]}] 当前状态为 {state}，"
-                    "reopen 通常用于 inactive session"
+                    f"Session [{sid[:8]}] 当前状态为 {state}，只能恢复 inactive 状态的 session"
                 )
                 return
 
@@ -1298,7 +1293,7 @@ class CommandHandlers:
                 final_sid, event.unified_msg_origin, flavor
             )
             if final_sid != sid:
-                msg += f"\n已切换到 reopen 后的会话 [{flavor}] {final_sid[:8]}..."
+                msg += f"\n已切换到恢复后的会话 [{flavor}] {final_sid[:8]}..."
             else:
                 msg += f"\n已绑定当前窗口 [{flavor}] {final_sid[:8]}..."
         yield event.plain_result(msg)
@@ -1705,10 +1700,10 @@ class CommandHandlers:
                 "  /hapi bind reset        重置窗口路由"
             )
 
-    # ── alias（指令关键词映射一览） ──
+    # ── alias（快捷关键词映射一览） ──
 
     async def cmd_alias(self, event: AstrMessageEvent, arg: str = ""):
-        """查看指令关键词映射：/hapi alias [过滤词]
+        """查看快捷关键词映射：/hapi alias [过滤词]
 
         文案与规则在 keyword_maps.format_maps_list，此处只取运行时配置并输出。
         """

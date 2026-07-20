@@ -230,7 +230,8 @@ const HELP_COMMANDS = [
   { topic: "session", usage: "/hapi s", summary: "查看当前 session 状态（未绑定时回退默认窗口）", example: null, home: false },
   { topic: "session", usage: "/hapi abort [序号|ID前缀]", summary: "中断 session（默认当前，别名: /hapi stop）", example: "/hapi abort 1", home: true },
   { topic: "session", usage: "/hapi archive", summary: "归档当前 session", example: null, home: false },
-  { topic: "session", usage: "/hapi resume [序号|ID前缀]", summary: "恢复被 archive 的 inactive session", example: "/hapi resume 1", home: true },
+  { topic: "session", usage: "/hapi resume [序号|ID前缀]", summary: "恢复已停掉的会话", example: "/hapi resume 1", home: true },
+  { topic: "session", usage: "/hapi reopen [序号|ID前缀]", summary: "恢复已停掉的会话（resume 备用接口）", example: "/hapi reopen 1", home: true },
   { topic: "session", usage: "/hapi rename", summary: "重命名当前 session", example: null, home: false },
   { topic: "session", usage: "/hapi delete", summary: "删除当前 session", example: null, home: false },
   { topic: "session", usage: "/hapi clean [路径前缀]", summary: "批量清理 inactive sessions", example: "/hapi clean C:/work/project", home: false },
@@ -247,7 +248,7 @@ const HELP_COMMANDS = [
   { topic: "push", usage: "/hapi bind [<flavor>]", summary: "设置当前聊天为默认推送窗口；带 flavor（如 claude/codex）时只对对应 agent 生效", example: "/hapi bind claude", home: false },
   { topic: "push", usage: "/hapi bind status", summary: "查看默认推送窗口、flavor 推送窗口和 session 绑定状态", example: null, home: false },
   { topic: "push", usage: "/hapi routes", summary: "查看当前生效的会话推送路由", example: null, home: false },
-  { topic: "push", usage: "/hapi alias [过滤词]", summary: "查看指令关键词映射（匹配规则与当前条目；可按关键词/命令过滤）", example: "/hapi alias to", home: true },
+  { topic: "push", usage: "/hapi alias [过滤词]", summary: "查看快捷关键词映射（匹配规则与当前条目；可按关键词/命令过滤）", example: "/hapi alias to", home: true },
   { topic: "push", usage: "/hapi bind reset", summary: "清空会话路由和窗口状态，保留默认推送窗口和 flavor 推送窗口", example: null, home: false },
   { topic: "files", usage: "/hapi files [路径]", summary: "浏览远端目录", example: "/hapi files src", home: false },
   { topic: "files", usage: "/hapi files -l [路径]", summary: "浏览目录并显示文件大小", example: "/hapi files -l .", home: false },
@@ -1721,80 +1722,57 @@ function renderSessions() {
 
 /* ---------- interact ---------- */
 
-/** 图片 CSS：按图片类型拆开编辑，保存时拼回一条 card_custom_css */
-const CSS_PART_DEFS = [
+/** 当前生效的完整 CSS 文本（默认或已保存自定义） */
+function defaultCssText() {
+  return (
+    (state.meta && state.meta.render && state.meta.render.default_css) ||
+    DEFAULT_CARD_CSS_FALLBACK
+  );
+}
+
+/**
+ * 简易模式可调的 --card-* 变量（出图真正读这些）。
+ * 高级模式写完整 CSS；切换时双向同步。
+ */
+const CSS_SIMPLE_FIELDS = [
   {
-    id: "global",
-    label: "全局",
-    vars: [
-      "--card-bg",
-      "--card-fg",
-      "--card-accent",
-      "--card-muted",
-      "--card-border",
-      "--card-code-bg",
-      "--card-radius",
-      "--card-pad",
-      "--card-width",
-      "--card-font-scale",
-      "--card-title-size",
-      "--card-sub-size",
-      "--card-body-size",
-      "--card-meta-size",
-      "--card-foot-size",
-      "--card-mono",
-      "--card-row-pad-y",
-      "--card-row-pad-x",
-      "--card-row-gap",
+    group: "颜色",
+    items: [
+      { key: "--card-bg", label: "背景", type: "color", fallback: "#f7f4ea" },
+      { key: "--card-fg", label: "正文", type: "color", fallback: "#14120f" },
+      { key: "--card-accent", label: "强调", type: "color", fallback: "#0f6b3c" },
+      { key: "--card-muted", label: "次要", type: "color", fallback: "#3a362e" },
+      { key: "--card-border", label: "边框", type: "color", fallback: "#c9c2b0" },
+      { key: "--card-code-bg", label: "代码底", type: "color", fallback: "#ebe4d0" },
     ],
   },
   {
-    id: "session_list",
-    label: "Session 列表",
-    vars: [
-      "--card-idx-w",
-      "--card-idx-h",
-      "--card-idx-font",
-      "--card-idx-radius",
-      "--card-idx-top",
-      "--card-section-gap",
+    group: "尺寸",
+    items: [
+      { key: "--card-width", label: "宽度", type: "text", fallback: "720px", hint: "如 720px" },
+      { key: "--card-radius", label: "圆角", type: "text", fallback: "12px" },
+      { key: "--card-pad", label: "内边距", type: "text", fallback: "28px" },
+      { key: "--card-font-scale", label: "字号倍率", type: "text", fallback: "1.12", hint: "1 = 100%" },
     ],
   },
   {
-    id: "pending",
-    label: "待审批",
-    vars: [],
-    note: "无独占变量，颜色/字号/行距改「全局」。",
-  },
-  {
-    id: "status",
-    label: "状态",
-    vars: [
-      "--card-badge-h",
-      "--card-badge-pad-x",
-      "--card-badge-font",
-      "--card-badge-dot",
+    group: "字号",
+    items: [
+      { key: "--card-title-size", label: "标题", type: "text", fallback: "24px" },
+      { key: "--card-body-size", label: "正文", type: "text", fallback: "16.5px" },
+      { key: "--card-sub-size", label: "副标题", type: "text", fallback: "14.5px" },
+      { key: "--card-meta-size", label: "元信息", type: "text", fallback: "13.5px" },
     ],
   },
   {
-    id: "permission",
-    label: "权限",
-    vars: [],
-    note: "无独占变量，颜色/字号/行距改「全局」。",
+    group: "列表 / 间距",
+    items: [
+      { key: "--card-idx-w", label: "序号宽", type: "text", fallback: "46px" },
+      { key: "--card-idx-h", label: "序号高", type: "text", fallback: "32px" },
+      { key: "--card-row-gap", label: "行间距", type: "text", fallback: "10px" },
+      { key: "--card-section-gap", label: "分组间距", type: "text", fallback: "16px" },
+    ],
   },
-  {
-    id: "routes",
-    label: "路由",
-    vars: [],
-    note: "无独占变量，颜色/字号/行距改「全局」。",
-  },
-  {
-    id: "message",
-    label: "Agent 对话",
-    vars: [],
-    note: "无独占变量，正文/代码底色等改「全局」。",
-  },
-  { id: "preview", label: "网页预览", mode: "tail" },
 ];
 
 function extractCssVars(css) {
@@ -1807,147 +1785,243 @@ function extractCssVars(css) {
   return map;
 }
 
-function extractPreviewCss(css) {
-  const s = String(css || "");
-  const rootStart = s.indexOf(":root");
-  if (rootStart < 0) return s.trim();
-  const brace = s.indexOf("{", rootStart);
-  if (brace < 0) return "";
-  let depth = 0;
-  for (let i = brace; i < s.length; i++) {
-    const ch = s[i];
-    if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) return s.slice(i + 1).trim();
-    }
-  }
-  return "";
-}
-
-function defaultCssText() {
-  return (
-    (state.meta && state.meta.render && state.meta.render.default_css) ||
-    DEFAULT_CARD_CSS_FALLBACK
+/** 在完整 CSS 上覆盖/写入 :root 里的若干变量（保留其余内容与选择器） */
+function upsertCssVars(css, overrides) {
+  let text = String(css || "").trim() || defaultCssText();
+  const keys = Object.keys(overrides || {}).filter(
+    (k) => overrides[k] != null && overrides[k] !== "",
   );
-}
+  if (!keys.length) return text;
 
-function formatPartVars(def, varMap, fallbackMap) {
-  if (!def.vars?.length) {
-    return def.note ? `/* ${def.note} */` : "/* 无独占变量 */";
-  }
-  return def.vars
-    .map((name) => {
-      const val = varMap[name] ?? fallbackMap[name];
-      if (val == null || val === "") return null;
-      return `  ${name}: ${val};`;
-    })
-    .filter(Boolean)
-    .join("\n");
-}
-
-function splitCssToParts(css) {
-  const src = String(css || "").trim() || defaultCssText();
-  const vars = extractCssVars(src);
-  const fallback = extractCssVars(defaultCssText());
-  const parts = {};
-  for (const def of CSS_PART_DEFS) {
-    if (def.mode === "tail") {
-      parts[def.id] =
-        extractPreviewCss(src) ||
-        extractPreviewCss(defaultCssText()) ||
-        "/* 仅网页预览用选择器 */";
-      continue;
-    }
-    parts[def.id] = formatPartVars(def, vars, fallback);
-  }
-  return parts;
-}
-
-function joinCssParts(parts) {
-  const fallback = extractCssVars(defaultCssText());
-  const merged = { ...fallback };
-  // 有独占变量的块按顺序覆盖；空块忽略
-  for (const def of CSS_PART_DEFS) {
-    if (def.mode === "tail") continue;
-    const found = extractCssVars(parts?.[def.id] || "");
-    Object.assign(merged, found);
-  }
-  const lines = [];
-  const seen = new Set();
-  for (const def of CSS_PART_DEFS) {
-    if (def.mode === "tail" || !def.vars?.length) continue;
-    lines.push(`  /* —— ${def.label} —— */`);
-    for (const name of def.vars) {
-      if (seen.has(name)) continue;
-      seen.add(name);
-      const val = merged[name];
-      if (val == null || val === "") continue;
-      lines.push(`  ${name}: ${val};`);
-    }
-    lines.push("");
-  }
-  // 用户在某块里写了未登记变量，也收进 :root
-  for (const [name, val] of Object.entries(merged)) {
-    if (seen.has(name) || val == null || val === "") continue;
-    lines.push(`  ${name}: ${val};`);
-    seen.add(name);
-  }
-  const preview =
-    String(parts?.preview || "").trim() || extractPreviewCss(defaultCssText());
-  return `:root {\n${lines.join("\n").replace(/\n+$/, "")}\n}\n\n${preview}\n`;
-}
-
-function currentCssFromParts() {
-  flushCssPartEditor();
-  return joinCssParts(state._cssParts || splitCssToParts(defaultCssText()));
-}
-
-function flushCssPartEditor() {
-  const ta = $("#ix-css-part");
-  if (!ta || !state._cssParts) return;
-  const id = state._cssPartId || CSS_PART_DEFS[0].id;
-  state._cssParts[id] = ta.value;
-}
-
-function showCssPart(partId) {
-  const def = CSS_PART_DEFS.find((d) => d.id === partId) || CSS_PART_DEFS[0];
-  state._cssPartId = def.id;
-  if (!state._cssParts) state._cssParts = splitCssToParts(defaultCssText());
-  const ta = $("#ix-css-part");
-  if (ta) {
-    ta.value = state._cssParts[def.id] || "";
-    // 无独占变量的类型：不强制改，仍可粘贴覆盖变量
-    ta.readOnly = false;
-  }
-  $$("#ix-css-tabs [data-css-part]").forEach((t) => {
-    t.classList.toggle("is-on", t.dataset.cssPart === def.id);
-  });
-  const hint = $("#ix-css-part-hint");
-  if (hint) {
-    if (def.mode === "tail") {
-      hint.textContent = "仅网页 DOM 预览读这里；出图不读选择器。";
-    } else if (!def.vars?.length) {
-      hint.textContent = def.note || "此类型无独占变量，改「全局」即可。";
+  for (const key of keys) {
+    const val = String(overrides[key]).trim();
+    const re = new RegExp(
+      "(" + key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*:\\s*)([^;]+)(;)",
+    );
+    if (re.test(text)) {
+      text = text.replace(re, "$1" + val + "$3");
     } else {
-      hint.textContent = "编辑本类型相关变量；保存时拼成完整 CSS。";
+      const root = text.indexOf(":root");
+      if (root >= 0) {
+        const brace = text.indexOf("{", root);
+        if (brace >= 0) {
+          text =
+            text.slice(0, brace + 1) +
+            "\n  " +
+            key +
+            ": " +
+            val +
+            ";" +
+            text.slice(brace + 1);
+          continue;
+        }
+      }
+      text = ":root {\n  " + key + ": " + val + ";\n}\n\n" + text;
+    }
+  }
+  return text;
+}
+
+function getCssEditorMode() {
+  return state._cssEditorMode === "advanced" ? "advanced" : "simple";
+}
+
+function setCssEditorMode(mode) {
+  state._cssEditorMode = mode === "advanced" ? "advanced" : "simple";
+}
+
+/** 简易表单 → 变量 map */
+function readSimpleCssForm() {
+  const out = {};
+  for (const g of CSS_SIMPLE_FIELDS) {
+    for (const it of g.items) {
+      const el = document.querySelector('[data-css-var="' + it.key + '"]');
+      if (!el) continue;
+      let v = String(el.value || "").trim();
+      if (
+        it.type === "color" &&
+        v &&
+        !v.startsWith("#") &&
+        /^[0-9a-fA-F]{3,8}$/.test(v)
+      ) {
+        v = "#" + v;
+      }
+      if (v) out[it.key] = v;
+    }
+  }
+  return out;
+}
+
+/** 把 CSS 变量填进简易表单 */
+function fillSimpleCssForm(css) {
+  const vars = extractCssVars(css || defaultCssText());
+  const fallback = extractCssVars(defaultCssText());
+  for (const g of CSS_SIMPLE_FIELDS) {
+    for (const it of g.items) {
+      const el = document.querySelector('[data-css-var="' + it.key + '"]');
+      if (!el) continue;
+      const val = vars[it.key] ?? fallback[it.key] ?? it.fallback ?? "";
+      el.value = val;
+      const pair = document.querySelector(
+        '[data-css-color-for="' + it.key + '"]',
+      );
+      if (pair && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(val)) {
+        let hex = val;
+        if (hex.length === 4) {
+          hex = "#" + [...hex.slice(1)].map((c) => c + c).join("");
+        } else if (hex.length === 9) {
+          hex = hex.slice(0, 7);
+        }
+        try {
+          pair.value = hex;
+        } catch (_) {
+          /* ignore invalid */
+        }
+      }
     }
   }
 }
 
-function wireCssPartTabs() {
-  const tabs = $$("#ix-css-tabs [data-css-part]");
-  if (!tabs.length) return;
-  tabs.forEach((tab) => {
-    tab.onclick = () => {
-      flushCssPartEditor();
-      showCssPart(tab.dataset.cssPart);
+/**
+ * 当前应保存/预览的完整 CSS。
+ * 简易模式：把表单写回 textarea 再读；高级模式：直接读 textarea。
+ */
+function currentCssFromEditor() {
+  const ta = $("#ix-css");
+  if (!ta) {
+    const cfg = state.data?.config || {};
+    const custom = (cfg.card_custom_css || "").trim();
+    return custom || defaultCssText();
+  }
+  if (getCssEditorMode() === "simple") {
+    const merged = upsertCssVars(
+      ta.value || defaultCssText(),
+      readSimpleCssForm(),
+    );
+    ta.value = merged;
+  }
+  return ta.value || defaultCssText();
+}
+
+function applyCssEditorModeUI() {
+  const mode = getCssEditorMode();
+  const simple = $("#ix-css-simple");
+  const advanced = $("#ix-css-advanced");
+  if (simple) simple.hidden = mode !== "simple";
+  if (advanced) advanced.hidden = mode !== "advanced";
+  $$("#ix-css-mode-tabs [data-css-mode]").forEach((btn) => {
+    btn.classList.toggle("is-on", btn.dataset.cssMode === mode);
+  });
+  const hint = $("#ix-css-mode-hint");
+  if (hint) {
+    hint.textContent =
+      mode === "simple"
+        ? "改常用 --card-* 变量即可出图；需要完整 CSS / 选择器时切「高级」。"
+        : "完整可编辑 CSS。出图只读 :root 的 --card-*；选择器仅影响左侧网页预览。";
+  }
+}
+
+/** 切换简易/高级：先把当前侧写回完整 CSS，再刷新另一侧 */
+function switchCssEditorMode(next) {
+  next = next === "advanced" ? "advanced" : "simple";
+  const cur = getCssEditorMode();
+  const ta = $("#ix-css");
+  if (!ta) {
+    setCssEditorMode(next);
+    applyCssEditorModeUI();
+    return;
+  }
+  if (cur === "simple" && next === "advanced") {
+    ta.value = upsertCssVars(ta.value || defaultCssText(), readSimpleCssForm());
+  } else if (cur === "advanced" && next === "simple") {
+    fillSimpleCssForm(ta.value || defaultCssText());
+  }
+  setCssEditorMode(next);
+  applyCssEditorModeUI();
+}
+
+function wireCssEditorMode() {
+  $$("#ix-css-mode-tabs [data-css-mode]").forEach((btn) => {
+    btn.onclick = () => switchCssEditorMode(btn.dataset.cssMode);
+  });
+  $$("[data-css-color-for]").forEach((picker) => {
+    picker.oninput = () => {
+      const key = picker.dataset.cssColorFor;
+      const text = document.querySelector('[data-css-var="' + key + '"]');
+      if (text) text.value = picker.value;
     };
   });
-  const cur =
-    tabs.find((t) => t.classList.contains("is-on"))?.dataset.cssPart ||
-    CSS_PART_DEFS[0].id;
-  showCssPart(cur);
+  $$('[data-css-var][data-css-kind="color"]').forEach((text) => {
+    text.oninput = () => {
+      const key = text.dataset.cssVar;
+      const picker = document.querySelector(
+        '[data-css-color-for="' + key + '"]',
+      );
+      if (!picker) return;
+      let v = String(text.value || "").trim();
+      if (v && !v.startsWith("#") && /^[0-9a-fA-F]{3,8}$/.test(v)) v = "#" + v;
+      if (/^#([0-9a-fA-F]{6})$/.test(v)) picker.value = v;
+      else if (/^#([0-9a-fA-F]{3})$/.test(v)) {
+        picker.value = "#" + [...v.slice(1)].map((c) => c + c).join("");
+      }
+    };
+  });
+  applyCssEditorModeUI();
+}
+
+function renderSimpleCssFormHtml() {
+  return CSS_SIMPLE_FIELDS.map((g) => {
+    const cells = g.items
+      .map((it) => {
+        if (it.type === "color") {
+          return (
+            '<label class="css-simple-item">' +
+            '<span class="css-simple-label">' +
+            esc(it.label) +
+            "</span>" +
+            '<span class="css-simple-color-row">' +
+            '<input type="color" data-css-color-for="' +
+            attr(it.key) +
+            '" value="' +
+            attr(it.fallback) +
+            '" title="' +
+            attr(it.key) +
+            '" />' +
+            '<input type="text" class="ctrl" data-css-var="' +
+            attr(it.key) +
+            '" data-css-kind="color" value="' +
+            attr(it.fallback) +
+            '" spellcheck="false" />' +
+            "</span></label>"
+          );
+        }
+        return (
+          '<label class="css-simple-item">' +
+          '<span class="css-simple-label">' +
+          esc(it.label) +
+          (it.hint
+            ? ' <span class="muted">· ' + esc(it.hint) + "</span>"
+            : "") +
+          "</span>" +
+          '<input type="text" class="ctrl" data-css-var="' +
+          attr(it.key) +
+          '" value="' +
+          attr(it.fallback) +
+          '" spellcheck="false" />' +
+          "</label>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="css-simple-group">' +
+      '<div class="css-simple-group-title">' +
+      esc(g.group) +
+      "</div>" +
+      '<div class="css-simple-grid">' +
+      cells +
+      "</div></div>"
+    );
+  }).join("");
 }
 
 function normalizeRenderMode(m) {
@@ -2600,7 +2674,7 @@ function collectRenderPatchFromForm() {
     kinds = ["session_list", "pending", "status", "permission", "message"];
   }
   const defaultCss = defaultCssText();
-  let css = currentCssFromParts();
+  let css = currentCssFromEditor();
   if (css.trim() === String(defaultCss).trim()) css = "";
 
   let fontPath = "";
@@ -2692,7 +2766,7 @@ function renderInteract() {
       <div class="card-head">
         <div>
           <h2>快捷操作</h2>
-          <p class="sub">聊天侧前缀、戳一戳与指令关键词映射。改完点右下角保存。</p>
+          <p class="sub">聊天侧前缀、戳一戳与快捷关键词映射。改完点右下角保存。</p>
         </div>
       </div>
 
@@ -2742,9 +2816,9 @@ function renderInteract() {
 
       <div class="field">
         <div class="field-label-row">
-          <div class="field-label">指令关键词映射</div>
+          <div class="field-label">快捷关键词映射</div>
         </div>
-        <p class="field-help">关键词来自帮助命令表。可带参命令支持「关键词 + 参数」。仅当前窗口有交互中会话时生效。</p>
+        <p class="field-help">用快捷关键词替换命令。例如把 <code>stop</code> 映射到 <code>/hapi stop</code>；可带参命令支持「关键词 + 参数」。仅当前窗口有交互中会话时生效。</p>
         <div id="ix-kw-list" class="kw-map-list"></div>
         <div class="kw-map-toolbar">
           <button type="button" class="btn btn-sm" id="ix-kw-add">添加映射</button>
@@ -2812,19 +2886,27 @@ function renderInteract() {
           </div>
 
           <div class="field">
-            <div class="field-label">图片 CSS（当前生效）</div>
-            <p class="field-help">
-              ${rs.using_default_css ? "内置默认样式。" : "已保存的自定义样式。"}
-              按图片类型拆开编辑，保存时拼成完整 CSS。
-            </p>
-            <div class="css-part-tabs" id="ix-css-tabs" role="tablist">
-              ${CSS_PART_DEFS.map(
-                (t, i) =>
-                  `<button type="button" class="css-part-tab ${i === 0 ? "is-on" : ""}" data-css-part="${t.id}" role="tab">${esc(t.label)}</button>`,
-              ).join("")}
+            <div class="field-label-row" style="margin-bottom:6px">
+              <div class="field-label">图片样式</div>
+              <div class="css-mode-tabs" id="ix-css-mode-tabs" role="tablist">
+                <button type="button" class="css-mode-tab is-on" data-css-mode="simple" role="tab">简易</button>
+                <button type="button" class="css-mode-tab" data-css-mode="advanced" role="tab">高级</button>
+              </div>
             </div>
-            <p class="field-help" id="ix-css-part-hint" style="margin:0 0 6px"></p>
-            <textarea id="ix-css-part" class="ctrl render-css-editor" rows="12" spellcheck="false"></textarea>
+            <p class="field-help" id="ix-css-mode-hint" style="margin:0 0 8px">
+              ${rs.using_default_css ? "当前为内置默认。" : "当前为已保存的自定义样式。"}
+              改常用变量即可；完整 CSS 切「高级」。
+            </p>
+            <div id="ix-css-simple" class="css-simple-panel">
+              ${renderSimpleCssFormHtml()}
+            </div>
+            <div id="ix-css-advanced" class="css-advanced-panel" hidden>
+              <p class="field-help" style="margin:0 0 6px">
+                完整可编辑 CSS。聊天出图只读 <code>:root</code> 的 <code>--card-*</code>；
+                <code>.card</code> 等选择器仅影响左侧网页预览。与默认一致时保存为空（走内置）。
+              </p>
+              <textarea id="ix-css" class="ctrl render-css-editor" rows="18" spellcheck="false" placeholder="粘贴或编辑完整 CSS…"></textarea>
+            </div>
           </div>
 
           <div class="field">
@@ -3000,14 +3082,19 @@ function renderInteract() {
   );
 
 
-  state._cssParts = splitCssToParts(rs.effective_css || rs.default_css || DEFAULT_CARD_CSS_FALLBACK);
-  state._cssPartId = CSS_PART_DEFS[0].id;
-  wireCssPartTabs();
+  const cssTa = $("#ix-css");
+  const initCss = rs.effective_css || rs.default_css || DEFAULT_CARD_CSS_FALLBACK;
+  if (cssTa) cssTa.value = initCss;
+  // 默认简易；已保存完整自定义仍默认简易（变量已可从表单改），用户可切高级看全文
+  if (!state._cssEditorMode) state._cssEditorMode = "simple";
+  fillSimpleCssForm(initCss);
+  wireCssEditorMode();
 
   $("#ix-reset-style") &&
     ($("#ix-reset-style").onclick = () => {
-      state._cssParts = splitCssToParts(rs.default_css || DEFAULT_CARD_CSS_FALLBACK);
-      showCssPart(state._cssPartId || CSS_PART_DEFS[0].id);
+      const def = rs.default_css || DEFAULT_CARD_CSS_FALLBACK;
+      if (cssTa) cssTa.value = def;
+      fillSimpleCssForm(def);
       if ($("#ix-font-select")) $("#ix-font-select").value = "";
       if ($("#ix-font-path")) $("#ix-font-path").value = "";
       if ($("#ix-font-custom-wrap")) $("#ix-font-custom-wrap").hidden = true;

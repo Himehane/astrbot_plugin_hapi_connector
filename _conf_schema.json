@@ -84,10 +84,10 @@
     "hint": "approve=批准待审（默认）；pending/list/status=查看；stop=中止当前 session；output_cycle=循环切换推送级别；none=仅确认。不提供一戳拒绝（误触成本高，请用 /hapi deny）。可在 WebUI「交互优化」选择"
   },
   "cmd_keyword_maps": {
-    "description": "指令关键词映射（JSON）",
+    "description": "快捷关键词映射（JSON）",
     "type": "string",
     "default": "[{\"keywords\":[\"stop\",\"停\"],\"command\":\"stop\"},{\"keywords\":[\"sw\"],\"command\":\"sw\"},{\"keywords\":[\"cl\"],\"command\":\"to\",\"args\":\"1 clear\"},{\"keywords\":[\"继续\"],\"command\":\"to\",\"args\":\"1 继续\"}]",
-    "hint": "关键词映射 /hapi 子命令。to 可设发送消息（如 cl→to 1 clear）。推荐在 WebUI「交互优化」配置"
+    "hint": "快捷关键词映射到 /hapi 子命令。to 可设发送消息（如 cl→to 1 clear）。推荐在 WebUI「交互优化」配置"
   },
   "remind_pending": {
     "description": "待审批请求超时重复提醒",
