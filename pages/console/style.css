@@ -1000,7 +1000,6 @@ button {
   border-color: color-mix(in srgb, var(--danger) 25%, var(--line));
 }
 
-/* 路由说明：一段人话，不是三条口号 */
 .rule-prose {
   margin: 0;
   font-family: var(--font-ui);
@@ -1146,13 +1145,12 @@ button {
   min-width: 8px;
 }
 
-/* 唯一滚动区：分组列表，必须能完整滚到底 */
 .win-vis-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
   flex: 1 1 auto;
-  min-height: 0; /* 关键 flex 子项可收缩，才能 overflow 滚动 */
+  min-height: 0;
   height: auto;
   max-height: none;
   overflow-y: auto;
@@ -1220,7 +1218,6 @@ button {
   flex-direction: column;
 }
 
-/* 行：勾选 + 标题/UMO 两行，勾选垂直居中，不裁切 */
 .win-vis-item {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
@@ -2230,12 +2227,6 @@ select.ctrl-sm {
 }
 
 /* ---------- dialog ---------- */
-/*
-  原生 <dialog> 关闭时 UA 是 display:none。作者样式里若写
-  .dlg { display:flex } 会盖掉 UA 规则（author > UA），关闭态仍参与
-  文档流 → 弹窗空壳一直趴在页面最底下占位（不点也看得见）。
-  正确做法：默认 none；仅 [open] 时 flex + fixed 视口居中。
-*/
 .dlg {
   display: none;
   border: 1px solid var(--ink);
@@ -2290,7 +2281,6 @@ select.ctrl-sm {
   overscroll-behavior: contain;
 }
 
-/* 管理可见窗口：更宽更高；头/说明/工具栏固定，只有列表滚 */
 .dlg.dlg-win-vis {
   width: min(640px, calc(100vw - 20px));
   height: min(86vh, 720px);
@@ -2301,7 +2291,7 @@ select.ctrl-sm {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  overflow: hidden; /* 列表自己滚，body 不双滚 */
+  overflow: hidden;
   padding-bottom: 14px;
   min-height: 0;
   flex: 1 1 auto;

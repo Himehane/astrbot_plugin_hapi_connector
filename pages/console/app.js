@@ -746,7 +746,6 @@ function bindSelect(s) {
         `<option value="${attr(w.umo)}" ${s.bound_umo === w.umo ? "selected" : ""}>${esc(w.title)}</option>`,
     )
     .join("");
-  // 空值 = 不单独绑定，交给上方推送设置 / 默认推送窗口；分栏已表达「当前窗口」，不必写「现：xxx」
   return `<option value="" ${s.bound_umo ? "" : "selected"}>按推送设置</option>${opts}`;
 }
 
@@ -1320,7 +1319,6 @@ function openWindowVisibilityDialog() {
     <div class="win-vis-list" id="win-vis-list" tabindex="0">${body}</div>
   `;
   dlg?.showModal();
-  // 打开后把焦点/滚轮落在列表上，方便立刻滚
   requestAnimationFrame(() => {
     const list = $("#win-vis-list");
     if (list) {
@@ -1332,7 +1330,6 @@ function openWindowVisibilityDialog() {
       }
     }
   });
-  // 关闭时去掉宽弹窗样式，避免影响其它 dialog
   const onClose = () => {
     dlg?.classList.remove("dlg-win-vis");
     dlg?.removeEventListener("close", onClose);
@@ -1494,7 +1491,6 @@ function wireTable(visibleIds) {
     cb.indeterminate = true;
   });
 
-  // 全选：未全选 → 全选；已全选或半选再点 → 清空当前列表选择（可反选）
   selAll?.addEventListener("change", () => {
     const shouldSelect = !visibleIds.every((id) => state.selected.has(id));
     visibleIds.forEach((id) => {
