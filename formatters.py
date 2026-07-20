@@ -412,39 +412,44 @@ def get_session_title(session: dict) -> str:
 
 
 def format_session_status(s: dict) -> str:
-    """格式化单个 session 状态"""
-    meta = s.get("metadata", {})
+    """格式化单个 session 状态（纯文本回退；无 emoji）。"""
+    meta = s.get("metadata") or {}
+    if not isinstance(meta, dict):
+        meta = {}
     sid = s.get("id", "?")
     flavor = meta.get("flavor", "?")
     path = meta.get("path", "?")
-    active = s.get("active", False)
-    thinking = s.get("thinking", False)
+    if s.get("thinking"):
+        status = "思考中"
+    elif s.get("active"):
+        status = "运行中"
+    else:
+        status = "已关闭"
     perm = s.get("permissionMode", "default")
     model = s.get("modelMode", "default")
     collab = s.get("collaborationMode", "default")
     summary = get_session_title(s)
+    pending = s.get("pendingRequestsCount") or 0
 
     effort = s.get("effort") or s.get("modelReasoningEffort")
     service_tier = s.get("serviceTier")
     lines = [
-        f"Session:  {sid[:8]}...",
-        f"标题:     {summary}",
-        f"Flavor:   {flavor}",
-        f"Path:     {path}",
-        f"Active:   {active}",
-        f"Thinking: {thinking}",
-        f"权限模式: {perm}",
-        f"模型:     {model}",
+        f"标题:   {summary}",
+        f"ID:     {str(sid)[:8]}",
+        f"Agent:  {flavor}",
+        f"状态:   {status}",
+        f"模型:   {model}",
+        f"权限:   {perm}",
+        f"路径:   {path}",
     ]
     if effort:
-        lines.append(f"推理强度: {effort}")
+        lines.append(f"推理:   {effort}")
     if service_tier:
-        lines.append(f"Service:  {service_tier}")
-    # Codex 等使用 collaborationMode 表达 plan 时展示；其他 flavor 有值也展示
-    if collab and collab != "default":
-        lines.append(f"协作模式: {collab}")
-    elif flavor == "codex":
-        lines.append(f"协作模式: {collab}")
+        lines.append(f"Service: {service_tier}")
+    if collab and (collab != "default" or flavor == "codex"):
+        lines.append(f"协作:   {collab}")
+    if pending:
+        lines.append(f"待审批: {pending}")
     return "\n".join(lines)
 
 

@@ -573,15 +573,23 @@ def sample_payload(kind: str) -> dict[str, Any]:
         }
     if kind == "status":
         return {
-            "title": "Session 状态",
-            "subtitle": "claude · a1b2c3d4",
+            "title": "重构鉴权中间件",
+            "subtitle": "claude · a1b2c3d4 · 思考中",
+            "layout": "status",
+            "status": "思考中",
+            "status_key": "thinking",
+            "flavor": "claude",
+            "sid_short": "a1b2c3d4",
             "rows": [
-                {"index": 0, "label": "状态", "detail": "active · thinking"},
-                {"index": 0, "label": "模型", "detail": "opus · effort high"},
-                {"index": 0, "label": "权限", "detail": "default"},
-                {"index": 0, "label": "路径", "detail": "/home/dev/proj-auth"},
+                {"type": "kv", "label": "状态", "detail": "思考中", "status_key": "thinking"},
+                {"type": "kv", "label": "Agent", "detail": "claude"},
+                {"type": "kv", "label": "模型", "detail": "opus"},
+                {"type": "kv", "label": "权限", "detail": "default"},
+                {"type": "kv", "label": "推理", "detail": "high"},
+                {"type": "kv", "label": "路径", "detail": "…/dev/proj-auth"},
+                {"type": "kv", "label": "ID", "detail": "a1b2c3d4"},
             ],
-            "footer": "output=simple · render=card",
+            "footer": "sw 切换   ·   list 列表   ·   msg 最近消息",
         }
     if kind == "routes":
         return {
@@ -1185,6 +1193,8 @@ def _render_with_pillow(
         return _draw_message_png(data, style)
     if kind == "session_list" or data.get("layout") == "session_list":
         return _draw_session_list_png(data, style)
+    if kind == "status" or data.get("layout") == "status":
+        return _draw_status_png(data, style)
     return _draw_struct_png(kind, data, style, formula_mode=formula_mode)
 
 
@@ -1213,6 +1223,176 @@ def _status_color(
     if sk in ("closed", "idle", "inactive"):
         return muted
     return fg
+
+
+def _draw_status_png(
+    data: dict[str, Any],
+    style: CardStyle,
+) -> tuple[bytes, int, int]:
+    """单 session 状态卡：大标题 + 状态徽章 + 键值网格。"""
+    scale = style.font_scale
+    pad = style.padding
+    width = style.width
+    content_w = width - pad * 2
+
+    title_size = max(18, int(24 * scale))
+    sub_size = max(13, int(14.5 * scale))
+    label_size = max(13, int(14 * scale))
+    value_size = max(14, int(16 * scale))
+    badge_size = max(13, int(14 * scale))
+    foot_size = max(12, int(13 * scale))
+
+    tmp = Image.new("RGB", (width, 100), _hex_to_rgb(style.bg))
+    d0 = ImageDraw.Draw(tmp)
+    font_title = _load_font(title_size, False, style)
+    font_sub = _load_font(sub_size, False, style)
+    font_label = _load_font(label_size, False, style)
+    font_value = _load_font(value_size, False, style)
+    font_badge = _load_font(badge_size, False, style)
+    font_foot = _load_font(foot_size, False, style)
+
+    title = str(data.get("title") or "Session 状态")
+    subtitle = str(data.get("subtitle") or "")
+    footer = str(data.get("footer") or "")
+    rows = list(data.get("rows") or [])
+    status = str(data.get("status") or "")
+    status_key = str(data.get("status_key") or "")
+
+    bg = _hex_to_rgb(style.bg)
+    fg = _hex_to_rgb(style.fg)
+    accent = _hex_to_rgb(style.accent)
+    muted = _hex_to_rgb(style.muted)
+    sub_fg = _mix_rgb(muted, fg, 0.35)
+    border = _hex_to_rgb(style.border)
+    row_bg = _mix_rgb(bg, fg, 0.05)
+    sc = _status_color(status_key, accent, muted, fg)
+    badge_bg = _mix_rgb(bg, sc, 0.18)
+
+    label_w = max(72, int(88 * scale))
+    row_h_base = max(36, int(40 * scale))
+    row_gap = 8
+
+    # 预估高度
+    y = pad
+    y += _text_size(d0, title, font_title)[1] + 8
+    if subtitle:
+        for _ in _wrap_text(d0, subtitle, font_sub, content_w):
+            y += _text_size(d0, "测", font_sub)[1] + 3
+        y += 6
+    if status:
+        y += max(28, int(30 * scale)) + 12
+    y += 8
+    for row in rows:
+        detail = str(row.get("detail") or "")
+        lines = _wrap_text(d0, detail, font_value, content_w - label_w - 24) or [""]
+        h = max(
+            row_h_base,
+            16 + sum(_text_size(d0, ln or " ", font_value)[1] + 3 for ln in lines),
+        )
+        y += h + row_gap
+    if footer:
+        y += 24 + _text_size(d0, "测", font_foot)[1] * 2
+    if style.show_brand:
+        y += 14 + _text_size(d0, "hapi", font_foot)[1]
+    y += pad
+    height = max(int(y), 200)
+
+    img = Image.new("RGB", (width, height), bg)
+    draw = ImageDraw.Draw(img)
+    _draw_rounded_rect(
+        draw,
+        (1, 1, width - 2, height - 2),
+        radius=style.radius,
+        fill=bg,
+        outline=border,
+        width=2,
+    )
+
+    y = pad
+    draw.text((pad, y), title, font=font_title, fill=fg)
+    y += _text_size(draw, title, font_title)[1] + 8
+    if subtitle:
+        for line in _wrap_text(draw, subtitle, font_sub, content_w):
+            draw.text((pad, y), line, font=font_sub, fill=sub_fg)
+            y += _text_size(draw, line or " ", font_sub)[1] + 3
+        y += 6
+
+    if status:
+        badge_h = max(28, int(30 * scale))
+        bw, bh = _text_size(draw, status, font_badge)
+        badge_w = bw + 28
+        _draw_rounded_rect(
+            draw,
+            (pad, y, pad + badge_w, y + badge_h),
+            radius=badge_h // 2,
+            fill=badge_bg,
+            outline=sc,
+            width=1,
+        )
+        # 色点
+        cr = 5
+        cy = y + badge_h // 2
+        draw.ellipse((pad + 12, cy - cr, pad + 12 + cr * 2, cy + cr), fill=sc)
+        draw.text(
+            (pad + 12 + cr * 2 + 8, y + (badge_h - bh) // 2),
+            status,
+            font=font_badge,
+            fill=sc,
+        )
+        y += badge_h + 14
+    else:
+        draw.rectangle((pad, y, pad + min(140, content_w // 3), y + 4), fill=accent)
+        y += 14
+
+    for row in rows:
+        label = str(row.get("label") or "")
+        detail = str(row.get("detail") or "")
+        val_lines = _wrap_text(draw, detail, font_value, content_w - label_w - 24) or [""]
+        h = max(
+            row_h_base,
+            16 + sum(_text_size(draw, ln or " ", font_value)[1] + 3 for ln in val_lines),
+        )
+        _draw_rounded_rect(
+            draw,
+            (pad, y, width - pad, y + h),
+            radius=8,
+            fill=row_bg,
+            outline=None,
+        )
+        # 左标签
+        lw, lh = _text_size(draw, label, font_label)
+        draw.text(
+            (pad + 14, y + (h - lh) // 2),
+            label,
+            font=font_label,
+            fill=sub_fg,
+        )
+        # 右值（可多行）
+        vx = pad + label_w + 8
+        vy = y + 8
+        for line in val_lines:
+            draw.text((vx, vy), line, font=font_value, fill=fg)
+            vy += _text_size(draw, line or " ", font_value)[1] + 3
+        y += h + row_gap
+
+    if footer:
+        y += 4
+        draw.line((pad, y, width - pad, y), fill=border, width=1)
+        y += 12
+        for line in _wrap_text(draw, footer, font_foot, content_w):
+            draw.text((pad, y), line, font=font_foot, fill=accent)
+            y += _text_size(draw, line or " ", font_foot)[1] + 2
+
+    if style.show_brand:
+        brand = "hapi connector"
+        bw, bh = _text_size(draw, brand, font_foot)
+        draw.text(
+            (width - pad - bw, height - pad - bh), brand, font=font_foot, fill=sub_fg
+        )
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return buf.getvalue(), width, height
 
 
 def _draw_session_list_png(

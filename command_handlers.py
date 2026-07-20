@@ -249,7 +249,7 @@ class CommandHandlers:
     # ── s (status) ──
 
     async def cmd_status(self, event: AstrMessageEvent):
-        """查看当前 session 状态"""
+        """查看当前 session 状态（出卡优先）"""
         await self.state_mgr.ensure_primary_session(event)
         await self.state_mgr.set_user_state(event)
         sid = self.state_mgr.effective_sid(event)
@@ -259,7 +259,13 @@ class CommandHandlers:
         try:
             detail = await session_ops.fetch_session_detail(self.client, sid)
             text = formatters.format_session_status(detail)
-            yield event.plain_result(text)
+            from . import output_present
+
+            payload = output_present.build_status_payload(detail)
+            async for result in output_present.present(
+                self.plugin, event, "status", payload, text
+            ):
+                yield result
         except Exception as e:
             yield event.plain_result(f"获取状态失败: {e}")
 

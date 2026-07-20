@@ -7,7 +7,7 @@
  * 页面：概览 / 会话 / 交互 / 命令帮助 / 设置
  */
 
-import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.8";
+import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.9";
 
 /* ---------- constants ---------- */
 
@@ -1484,9 +1484,9 @@ function sampleSub(kind) {
     {
       session_list: "当前窗口可见 · 3",
       pending: "当前窗口 2 项 · 全局 3 项",
-      status: "claude · a1b2c3d4",
+      status: "claude · a1b2c3d4 · 思考中",
       permission: "序号 1 · claude · auth-mw",
-      routes: "通知投递优先级",
+      routes: "绑定 1 · 有默认窗口 · Agent 1",
       message: "claude · auth-mw",
     }[kind] || ""
   );
@@ -1497,9 +1497,9 @@ function sampleFooter(kind) {
     {
       session_list: "/hapi sw <n>  切换    > 消息  快捷发送",
       pending: "/hapi a  全部批准    /hapi pending  列表",
-      status: "output=simple · render=auto",
+      status: "sw 切换   ·   list 列表   ·   msg 最近消息",
       permission: "/hapi allow 1   /hapi deny 1",
-      routes: "/hapi bind  ·  /hapi routes",
+      routes: "bind 设默认   ·   bind <agent> 设 Agent 窗口",
       message: "output=simple",
     }[kind] || ""
   );

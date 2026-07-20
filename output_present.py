@@ -225,6 +225,74 @@ def build_pending_payload(
     }
 
 
+def build_status_payload(session: dict[str, Any]) -> dict[str, Any]:
+    """单 session 状态卡（/hapi status · /hapi s）。"""
+    from . import formatters
+
+    meta = session.get("metadata") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    sid = str(session.get("id") or "?")
+    sid_short = sid[:8]
+    flavor = str(meta.get("flavor") or "?").strip().lower()
+    path = str(meta.get("path") or meta.get("cwd") or "—")
+    title = formatters.get_session_title(session) or "(无标题)"
+    model = session.get("modelMode") or session.get("model") or "default"
+    perm = session.get("permissionMode") or "default"
+    collab = session.get("collaborationMode") or "default"
+    effort = session.get("effort") or session.get("modelReasoningEffort")
+    service_tier = session.get("serviceTier")
+    pending = int(session.get("pendingRequestsCount") or 0)
+
+    if session.get("thinking"):
+        status_key, status = "thinking", "思考中"
+    elif session.get("active"):
+        status_key, status = "active", "运行中"
+    else:
+        status_key, status = "closed", "已关闭"
+
+    # 路径展示：末两段优先
+    path_show = path
+    if path not in ("—", "", "?") and "/" in path:
+        parts = [p for p in path.split("/") if p]
+        if len(parts) > 2:
+            path_show = "…/" + "/".join(parts[-2:])
+
+    rows: list[dict[str, Any]] = [
+        {
+            "type": "kv",
+            "label": "状态",
+            "detail": status,
+            "status_key": status_key,
+        },
+        {"type": "kv", "label": "Agent", "detail": flavor},
+        {"type": "kv", "label": "模型", "detail": str(model)},
+        {"type": "kv", "label": "权限", "detail": str(perm)},
+    ]
+    if effort:
+        rows.append({"type": "kv", "label": "推理", "detail": str(effort)})
+    if service_tier:
+        rows.append({"type": "kv", "label": "Service", "detail": str(service_tier)})
+    if collab and (collab != "default" or flavor == "codex"):
+        rows.append({"type": "kv", "label": "协作", "detail": str(collab)})
+    if pending:
+        rows.append({"type": "kv", "label": "待审批", "detail": str(pending)})
+    rows.append({"type": "kv", "label": "路径", "detail": path_show, "full": path})
+    rows.append({"type": "kv", "label": "ID", "detail": sid_short, "full": sid})
+
+    return {
+        "title": title,
+        "subtitle": f"{flavor} · {sid_short} · {status}",
+        "rows": rows,
+        "layout": "status",
+        "status": status,
+        "status_key": status_key,
+        "flavor": flavor,
+        "sid_short": sid_short,
+        "footer": "sw 切换   ·   list 列表   ·   msg 最近消息",
+    }
+
+
 def build_routes_payload(
     *,
     session_rows: list[dict[str, Any]] | None = None,
