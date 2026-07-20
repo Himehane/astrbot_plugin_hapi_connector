@@ -1105,7 +1105,7 @@ def public_config(plugin) -> dict[str, Any]:
 
         raw_maps = out.get("cmd_keyword_maps")
         maps = normalize_maps(raw_maps)
-        # 未配置或仍是空数组：使用内置默认（stop/停、sw、cl→to /clear）
+        # 未配置或仍是空数组：使用内置默认（stop/停、sw、cl、继续）
         if not maps and (
             raw_maps is None
             or (isinstance(raw_maps, str) and raw_maps.strip() in ("", "[]"))

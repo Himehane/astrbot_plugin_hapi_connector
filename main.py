@@ -109,7 +109,7 @@ class HapiConnectorPlugin(Star):
 
         self._poke_action = normalize_poke_action(self.config.get("poke_action", "approve"))
 
-        # 指令关键词映射（默认 stop/停、sw、cl→to /clear）
+        # 指令关键词映射（默认 stop/停、sw、cl→1 clear、继续→1 继续）
         from .keyword_maps import DEFAULT_KEYWORD_MAPS, normalize_maps
 
         raw_kw = self.config.get("cmd_keyword_maps", None)

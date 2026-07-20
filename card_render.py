@@ -300,7 +300,7 @@ class CardStyle:
     code_bg: str = "#ebe4d0"
     font_scale: float = 1.12
     mono: bool = False
-    show_brand: bool = True
+    show_brand: bool = False
     density: str = "comfortable"
     custom_css: str = ""
     font_path: str = ""
@@ -400,7 +400,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "code_bg": "#ebe4d0",
         "font_scale": 1.12,
         "mono": False,
-        "show_brand": True,
+        "show_brand": False,
         "density": "comfortable",
     },
     "terminal_dark": {
@@ -416,7 +416,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "code_bg": "#2a261e",
         "font_scale": 1.12,
         "mono": False,
-        "show_brand": True,
+        "show_brand": False,
         "density": "comfortable",
     },
     "clean": {
@@ -432,7 +432,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "code_bg": "#f1f5f9",
         "font_scale": 1.15,
         "mono": False,
-        "show_brand": True,
+        "show_brand": False,
         "density": "comfortable",
     },
     "compact": {
@@ -601,7 +601,7 @@ def style_from_config(cfg: dict[str, Any] | None) -> CardStyle:
     mono = base.get("mono", True)
     if "card_mono" in cfg and cfg.get("card_mono") is not None:
         mono = _parse_bool(cfg.get("card_mono"), bool(mono))
-    show_brand = base.get("show_brand", True)
+    show_brand = base.get("show_brand", False)
     if "card_show_brand" in cfg and cfg.get("card_show_brand") is not None:
         show_brand = _parse_bool(cfg.get("card_show_brand"), bool(show_brand))
 
@@ -1081,7 +1081,7 @@ def config_defaults() -> dict[str, Any]:
         "card_fg": "#14120f",
         "card_font_scale": 112,
         "card_density": "comfortable",
-        "card_show_brand": True,
+        "card_show_brand": False,
         "card_mono": False,
         "card_custom_css": "",
         "card_font_path": "",
@@ -1940,8 +1940,8 @@ def _draw_session_list_png(
             m_toff = mb[1]
         except Exception:
             m_th, m_toff = meta_h, 0
-        # Pillow 基线偏上；+6 对齐下对齐 meta 行视觉中线
-        cy = my - m_toff + m_th // 2 + 6
+        # Pillow 基线偏上；+11 再往下对齐 meta 行视觉中线
+        cy = my - m_toff + m_th // 2 + 14
         draw.ellipse((tx, cy - dot_r, tx + dot_r * 2, cy + dot_r), fill=sc)
         draw.text((tx + 14, my), meta_line, font=font_meta, fill=sub_fg)
 

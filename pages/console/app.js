@@ -38,7 +38,7 @@ const UMO = {
 const PAGE_META = {
   overview: { title: "概览", desc: "连接状态与常用设置" },
   sessions: { title: "会话管理", desc: "Session 管理、通知投递与推送窗口设置" },
-  interact: { title: "交互优化", desc: "戳一戳、快捷前缀与推送呈现（卡片样式 / 预览）" },
+  interact: { title: "交互优化", desc: "戳一戳、快捷前缀与推送呈现（图片样式 / 预览）" },
   help: { title: "命令帮助", desc: "按功能分类的 /hapi 指令说明" },
   settings: { title: "设置", desc: "对应插件 _conf_schema.json 全部配置项" },
 };
@@ -142,15 +142,15 @@ const SETTINGS = [
         label: "推送渲染模式",
         type: "enum_cards",
         need: true,
-        help: "纯文本=原样文字；出卡=下方类型渲成图片（需 Pillow）。保存后持久生效。",
+        help: "纯文本=原样文字；图片=下方类型渲成图片（需 Pillow）。保存后持久生效。",
         options: [
           { value: "text", title: "纯文本", desc: "全部文字推送。" },
-          { value: "card", title: "出卡", desc: "勾选类型渲成卡片；含 Agent 对话。" },
+          { value: "card", title: "图片", desc: "勾选类型渲成图片；含 Agent 对话。" },
         ],
       },
       {
         key: "render_kinds",
-        label: "以下类型渲成卡片",
+        label: "以下类型渲成图片",
         type: "kind_checks",
         help: "",
         showIf: { key: "render_mode", eq: "card" },
@@ -442,12 +442,14 @@ function createStore() {
     cmd_keyword_maps: JSON.stringify([
       { keywords: ["stop", "停"], command: "stop" },
       { keywords: ["sw"], command: "sw" },
-      { keywords: ["cl"], command: "to", args: "/clear" },
+      { keywords: ["cl"], command: "to", args: "1 clear" },
+      { keywords: ["继续"], command: "to", args: "1 继续" },
     ]),
     cmd_keyword_maps_list: [
       { keywords: ["stop", "停"], command: "stop", args: "" },
       { keywords: ["sw"], command: "sw", args: "" },
-      { keywords: ["cl"], command: "to", args: "/clear" },
+      { keywords: ["cl"], command: "to", args: "1 clear" },
+      { keywords: ["继续"], command: "to", args: "1 继续" },
     ],
     remind_pending: true,
     remind_interval: 180,
@@ -466,7 +468,7 @@ function createStore() {
     card_fg: "#14120f",
     card_font_scale: 112,
     card_density: "comfortable",
-    card_show_brand: true,
+    card_show_brand: false,
     card_mono: false,
     card_custom_css: "",
     card_font_path: "",
@@ -475,7 +477,7 @@ function createStore() {
       install_hint: "pip install Pillow",
       installable: [
         { id: "font_noto_sc", group: "font", label: "中文字体 Noto Sans SC", desc: "下载到插件 assets/fonts/", installed: false },
-        { id: "dep_pillow", group: "dep", label: "Pillow（出卡引擎）", desc: "pip install Pillow", installed: false },
+        { id: "dep_pillow", group: "dep", label: "Pillow（出图引擎）", desc: "pip install Pillow", installed: false },
       ],
     },
     card_style: {
@@ -485,7 +487,7 @@ function createStore() {
       fg: "#14120f",
       accent: "#0f6b3c",
       density: "comfortable",
-      show_brand: true,
+      show_brand: false,
       mono: false,
       font_scale: 1.12,
     },
@@ -1304,6 +1306,8 @@ function openWindowVisibilityDialog() {
     .join("");
 
   $("#dlg-title").textContent = "管理可见推送窗口";
+  const dlg = $("#dlg");
+  dlg?.classList.add("dlg-win-vis");
   $("#dlg-body").innerHTML = `
     <p class="field-help">勾选的窗口会出现在本页左侧列表和推送下拉框里。按 Bot 分组；默认全部显示。设置只存在本浏览器。</p>
     <div class="win-vis-toolbar">
@@ -1312,9 +1316,15 @@ function openWindowVisibilityDialog() {
       <span class="spacer"></span>
       <button type="button" class="btn btn-primary btn-sm" id="vis-apply">应用</button>
     </div>
-    <div class="win-vis-list">${body}</div>
+    <div class="win-vis-list" id="win-vis-list">${body}</div>
   `;
-  $("#dlg").showModal();
+  dlg?.showModal();
+  // 关闭时去掉宽弹窗样式，避免影响其它 dialog
+  const onClose = () => {
+    dlg?.classList.remove("dlg-win-vis");
+    dlg?.removeEventListener("close", onClose);
+  };
+  dlg?.addEventListener("close", onClose);
 
   const setGroup = (bot, checked) => {
     $$("#dlg-body .win-vis-group").forEach((g) => {
@@ -1641,7 +1651,7 @@ const RENDER_KIND_LABELS = {
 };
 
 const DEFAULT_CARD_CSS_FALLBACK = `/* ============================================
- * 推送卡片样式
+ * 推送图片样式
  *
  * ① :root 里的 --card-*  —— 出图真正读这些
  *    颜色 / 宽度 / 字号 / 徽章 / 序号框 / 行距
@@ -1721,8 +1731,8 @@ const FALLBACK_INSTALLABLE = [
   {
     id: "dep_pillow",
     group: "dep",
-    label: "Pillow（出卡引擎）",
-    desc: "pip install Pillow — 低延迟出卡，不依赖浏览器",
+    label: "Pillow（出图引擎）",
+    desc: "pip install Pillow — 低延迟出图，不依赖浏览器",
     installed: false,
   },
 ];
@@ -1802,15 +1812,16 @@ function paintKwMapList() {
   if (!host) return;
   const rows = Array.isArray(state._ixKwMaps) ? state._ixKwMaps : [];
   if (!rows.length) {
-    host.innerHTML = `<div class="empty-inline">还没有映射。点「添加映射」：填关键词，再选对应 /hapi 命令；可带参命令可填固定参数。</div>`;
+    host.innerHTML = `<div class="empty-inline">还没有映射。点「添加映射」：填关键词，再选对应 /hapi 命令。</div>`;
     return;
   }
   host.innerHTML = rows
     .map((row, i) => {
       const kws = Array.isArray(row.keywords) ? row.keywords.join("，") : "";
       const args = row.args || "";
-      const takes = commandCatalog().commands?.find((c) => c.id === row.command)?.takes_arg;
-      return `<div class="kw-map-row" data-idx="${i}">
+      // 仅 /hapi to 显示「发送消息」固定内容
+      const isTo = String(row.command || "") === "to";
+      return `<div class="kw-map-row ${isTo ? "has-msg" : ""}" data-idx="${i}">
         <label class="kw-map-field">
           <span class="kw-map-label">关键词</span>
           <input type="text" class="ctrl js-kw-keys" data-idx="${i}" value="${attr(kws)}" placeholder="stop，停（逗号分隔，可多个）" />
@@ -1819,10 +1830,14 @@ function paintKwMapList() {
           <span class="kw-map-label">映射命令</span>
           ${cmdSelectHtml(row.command || "", i)}
         </label>
-        <label class="kw-map-field kw-map-args" ${takes ? "" : "hidden"}>
-          <span class="kw-map-label">固定参数</span>
-          <input type="text" class="ctrl js-kw-args" data-idx="${i}" value="${attr(args)}" placeholder="如 /clear（可选）" />
-        </label>
+        ${
+          isTo
+            ? `<label class="kw-map-field kw-map-args">
+          <span class="kw-map-label">发送消息</span>
+          <input type="text" class="ctrl js-kw-args" data-idx="${i}" value="${attr(args)}" placeholder="如 1 clear" />
+        </label>`
+            : ""
+        }
         <button type="button" class="btn btn-sm btn-danger js-kw-del" data-idx="${i}" title="删除">删</button>
       </div>`;
     })
@@ -1842,9 +1857,12 @@ function paintKwMapList() {
     sel.onchange = () => {
       const i = Number(sel.dataset.idx);
       if (!state._ixKwMaps?.[i]) return;
+      const prev = state._ixKwMaps[i].command;
       state._ixKwMaps[i].command = sel.value || "";
-      // 切换命令后重绘以显隐「固定参数」
-      paintKwMapList();
+      // 不是 to 时清掉固定发送内容
+      if (state._ixKwMaps[i].command !== "to") state._ixKwMaps[i].args = "";
+      // 切换命令后重绘以显隐「发送消息」
+      if (prev !== state._ixKwMaps[i].command) paintKwMapList();
     };
   });
   $$("#ix-kw-list .js-kw-args").forEach((inp) => {
@@ -1891,11 +1909,13 @@ function collectQuickOpsPatchFromForm() {
   });
   const maps = (state._ixKwMaps || [])
     .map((m) => {
+      const cmd = String(m.command || "").trim().toLowerCase();
       const entry = {
         keywords: [...(m.keywords || [])].filter(Boolean),
-        command: String(m.command || "").trim().toLowerCase(),
+        command: cmd,
       };
-      const args = String(m.args || "").trim();
+      // 仅 to 保留发送消息
+      const args = cmd === "to" ? String(m.args || "").trim() : "";
       if (args) entry.args = args;
       return entry;
     })
@@ -1973,7 +1993,7 @@ function sampleFooter(kind) {
   );
 }
 
-/** 按真实出卡结构生成 DOM 预览 body */
+/** 按真实出图结构生成 DOM 预览 body */
 function sampleDomBody(kind) {
   if (kind === "message") {
     return `<div class="rpc-md">
@@ -2031,7 +2051,7 @@ function sampleDomBody(kind) {
       )
       .join("");
   }
-  // session_list：对齐真实卡（分组条 + 序号块 + 状态点 + sid）
+  // session_list：对齐真实图片（分组条 + 序号块 + 状态点 + sid）
   const sessions = [
     {
       section: "…/dev/proj-auth",
@@ -2114,9 +2134,8 @@ function paintDomCardPreview() {
       <div class="rpc-bar"></div>
       <div class="rpc-body">${sampleDomBody(kind)}</div>
       ${foot ? `<div class="rpc-foot">${esc(foot)}</div>` : ""}
-      <div class="rpc-brand">hapi connector</div>
-    </div>
-    <p class="field-help" style="margin-top:8px">DOM 仅示意结构。样式以自定义 CSS +「生成实卡」为准。</p>`;
+      </div>
+    <p class="field-help" style="margin-top:8px">DOM 仅示意结构。样式以自定义 CSS +「生成实图」为准。</p>`;
 }
 
 function collectRenderPatchFromForm() {
@@ -2222,7 +2241,8 @@ function renderInteract() {
     state._ixKwMaps = [
       { keywords: ["stop", "停"], command: "stop", args: "" },
       { keywords: ["sw"], command: "sw", args: "" },
-      { keywords: ["cl"], command: "to", args: "/clear" },
+      { keywords: ["cl"], command: "to", args: "1 clear" },
+      { keywords: ["继续"], command: "to", args: "1 继续" },
     ];
   }
 
@@ -2283,7 +2303,7 @@ function renderInteract() {
         <div class="field-label-row">
           <div class="field-label">指令关键词映射</div>
         </div>
-        <p class="field-help">关键词来自帮助命令表。可带参命令支持「关键词 + 参数」，也可填<strong>固定参数</strong>（如 <code>cl</code> → <code>/hapi to /clear</code>）。默认含 stop/停、sw、cl。仅当前窗口有交互中会话时生效。</p>
+        <p class="field-help">关键词来自帮助命令表。可带参命令支持「关键词 + 参数」（如 <code>切换 2</code> → <code>/hapi sw 2</code>）。选 <code>/hapi to</code> 时可填发送消息（如 <code>cl</code> → <code>/hapi to 1 clear</code>）。仅当前窗口有交互中会话时生效。</p>
         <div id="ix-kw-list" class="kw-map-list"></div>
         <div class="kw-map-toolbar">
           <button type="button" class="btn btn-sm" id="ix-kw-add">添加映射</button>
@@ -2307,7 +2327,7 @@ function renderInteract() {
       ${
         pillowOk
           ? ""
-          : `<div class="alert-inline">出卡需要 Pillow。可在下方勾选安装，或手动 <code>pip install Pillow</code>。未安装时配置可保存，运行时回退纯文本。</div>`
+          : `<div class="alert-inline">出图需要 Pillow。可在下方勾选安装，或手动 <code>pip install Pillow</code>。未安装时配置可保存，运行时回退纯文本。</div>`
       }
 
       <div class="render-layout">
@@ -2317,7 +2337,7 @@ function renderInteract() {
             <div class="enum-cards" id="ix-rmode-cards">
               ${[
                 { value: "text", title: "纯文本", desc: "全部走文字推送。" },
-                { value: "card", title: "出卡", desc: "下方勾选的类型渲成卡片。" },
+                { value: "card", title: "图片", desc: "下方勾选的类型渲成图片。" },
               ].map((o) => `<label class="enum-card">
                 <input type="radio" name="ix-rmode" value="${o.value}" ${rs.render_mode === o.value ? "checked" : ""} />
                 <div class="t">${esc(o.title)}</div>
@@ -2328,7 +2348,7 @@ function renderInteract() {
 
           <div id="ix-card-panel" ${rs.render_mode === "card" ? "" : "hidden"}>
           <div class="field">
-            <div class="field-label">以下类型渲成卡片</div>
+            <div class="field-label">以下类型渲成图片</div>
             <div class="chk-grid">${kindChecks}</div>
           </div>
 
@@ -2336,7 +2356,7 @@ function renderInteract() {
             <div class="field-label">公式渲染</div>
             <select id="ix-fmode" class="ctrl" style="max-width:280px">
               ${[
-                { value: "off", title: "关闭（当普通文字出卡）" },
+                { value: "off", title: "关闭（当普通文字，仍可出图）" },
                 { value: "detect", title: "渲染为内嵌图片" },
                 { value: "plain", title: "有公式则只发文字" },
               ]
@@ -2351,23 +2371,21 @@ function renderInteract() {
           </div>
 
           <div class="field">
-            <div class="field-label">卡片 CSS（当前生效）</div>
+            <div class="field-label">图片 CSS（当前生效）</div>
             <p class="field-help css-help">
               ${rs.using_default_css ? "现在用的是内置默认样式。" : "现在用的是你保存过的自定义样式。"}
-              <br /><strong>改 :root 里的变量，聊天出图会跟着变：</strong>
-              <br />· <code>--card-bg / fg / accent / muted / border / code-bg</code> — 背景、字色、强调色、次要字、边框、代码底
-              <br />· <code>--card-width / pad / radius / font-scale</code> — 宽度、内边距、圆角、整体字号倍率
-              <br />· <code>--card-title-size / sub-size / body-size / meta-size / foot-size</code> — 标题 / 副标题 / 正文 / 元信息 / 页脚字号
-              <br />· <code>--card-badge-h / pad-x / font / dot</code> — 状态徽章高、左右内边距、字号、圆点
-              <br />· <code>--card-idx-w / h / font / radius / top</code> — 列表序号框宽高、字号、圆角、距行顶
-              <br />· <code>--card-row-pad-y / pad-x / gap / section-gap</code> — 行内上下/左右留白、行距、分组间距
-              <br />· <code>.card</code> / <code>.row</code> 等选择器只影响左侧网页预览，出图不读。
+              <br /><strong>改 :root 里的变量，聊天发出的图片会跟着变。哪类图片用哪些变量：</strong>
+              <br />· <strong>全部图片通用</strong> — <code>--card-bg / fg / accent / muted / border / code-bg</code>（颜色）；<code>--card-width / pad / radius / font-scale</code>（宽、边距、圆角、字号倍率）；<code>--card-title-size / sub-size / body-size / meta-size / foot-size</code>（标题/副标题/正文/元信息/页脚字号）
+              <br />· <strong>Session 列表</strong> — <code>--card-idx-*</code>（序号框宽高/字号/圆角/距行顶）；<code>--card-row-*</code> 与 <code>--card-section-gap</code>（行距、行内边距、分组间距）
+              <br />· <strong>状态图片</strong> — <code>--card-badge-*</code>（状态徽章高、左右内边距、字号、圆点）
+              <br />· <strong>Agent 对话 / 待审批 / 权限 / 路由</strong> — 主要用通用颜色与字号；行间距看 <code>--card-row-*</code>
+              <br />· <code>.card</code> / <code>.row</code> 等选择器<strong>只影响左侧网页预览</strong>，出图不读。
             </p>
             <textarea id="ix-css" class="ctrl render-css-editor" rows="14" spellcheck="false">${esc(rs.effective_css)}</textarea>
           </div>
 
           <div class="field">
-            <div class="field-label">卡片字体</div>
+            <div class="field-label">图片字体</div>
             <p class="field-help">会在下列路径扫描可选字体。</p>
             <ul class="font-scan-locs">
               ${(fonts.scan_locations || [
@@ -2433,10 +2451,10 @@ function renderInteract() {
                 .join("")}
             </select>
           </div>
-          <p class="field-help">左侧 DOM 示意结构；点「生成实卡」走服务端 Pillow（读自定义 CSS 变量），与聊天发出一致。</p>
+          <p class="field-help">左侧 DOM 示意结构；点「生成实图」走服务端 Pillow（读自定义 CSS 变量），与聊天发出一致。</p>
           <div id="ix-dom-preview" class="render-dom-host"></div>
           <div class="render-actions" style="margin-top:12px">
-            <button type="button" class="btn btn-primary" id="ix-gen-card">生成实卡预览</button>
+            <button type="button" class="btn btn-primary" id="ix-gen-card">生成实图预览</button>
           </div>
           <div id="ix-real-meta" class="field-help" style="margin-top:8px"></div>
           <div id="ix-real-preview" class="render-real-host"></div>
@@ -2444,7 +2462,7 @@ function renderInteract() {
       </div>
 
       <div class="section-actions">
-        <button type="button" class="btn btn-primary" id="ix-save-render">保存呈现设置</button>
+        <button type="button" class="btn btn-primary" id="ix-save-render">保存推送设置</button>
       </div>
     </div>
   `;
@@ -2611,14 +2629,14 @@ function renderInteract() {
         let res = null;
         if (liveMode && api) {
           res = await api.saveConfig(patch);
-          toast(res?.message || "已保存呈现设置");
+          toast(res?.message || "已保存推送设置");
         } else {
           store.saveConfig({
             ...patch,
             render_kinds_list: patch.render_kinds.split(","),
             render_engine: engine,
           });
-          toast("已保存呈现设置（本地 mock）");
+          toast("已保存推送设置（本地 mock）");
         }
         if (res?.config && state.data) state.data.config = { ...state.data.config, ...res.config };
         else if (state.data?.config) Object.assign(state.data.config, patch);
@@ -2650,7 +2668,7 @@ function renderInteract() {
           // mock：无服务端时只提示用 DOM 预览
           res = {
             ok: false,
-            error: "本地预览模式无 Pillow 后端；请在 AstrBot 插件面板内生成实卡，或安装依赖后重试。",
+            error: "本地预览模式无 Pillow 后端；请在 AstrBot 插件面板内生成实图，或安装依赖后重试。",
             ms: 0,
             engine: "none",
             fallback_text: sampleTitle(kind) + "\n" + sampleSub(kind),
@@ -2659,14 +2677,14 @@ function renderInteract() {
         if (res?.ok && res.png_base64) {
           if (meta) {
             const fontHint = res.font_path ? ` · font=${res.font_path}` : "";
-            meta.textContent = `实卡 · ${res.engine} · ${res.ms}ms · ${res.bytes || "?"}B · ${res.width}×${res.height}${fontHint}`;
+            meta.textContent = `实图 · ${res.engine} · ${res.ms}ms · ${res.bytes || "?"}B · ${res.width}×${res.height}${fontHint}`;
           }
           if (host) {
             host.innerHTML = `<img class="render-real-img" alt="card preview" src="data:${res.mime || "image/png"};base64,${res.png_base64}" />`;
           }
         } else {
           if (meta) {
-            meta.textContent = `未能生成实卡（${res?.engine || "none"} · ${res?.ms ?? "?"}ms）：${res?.error || "unknown"}`;
+            meta.textContent = `未能生成实图（${res?.engine || "none"} · ${res?.ms ?? "?"}ms）：${res?.error || "unknown"}`;
           }
           if (host && res?.fallback_text) {
             host.innerHTML = `<pre class="render-fallback">${esc(res.fallback_text)}</pre>`;
@@ -3435,7 +3453,7 @@ function wireLiveMutations() {
 async function saveSettings() {
   const prev = state.data.config;
   const draft = state.draft;
-  // 设置页出卡类型勾选 → 同步到 draft 字符串
+  // 设置页出图类型勾选 → 同步到 draft 字符串
   const kindBoxes = [...document.querySelectorAll("[data-settings-kind]")];
   if (kindBoxes.length) {
     const kinds = kindBoxes.filter((el) => el.checked).map((el) => el.value);
