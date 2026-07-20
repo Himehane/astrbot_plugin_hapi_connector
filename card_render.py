@@ -79,10 +79,12 @@ DEFAULT_KINDS = (
     "message",
 )
 
-# 默认 CSS：用户可在 WebUI 整段覆盖 / 追加。变量名是 Pillow 引擎的契约。
+# 默认 CSS：用户可在 WebUI 整段覆盖。
+# Pillow 只解析 :root 的 --card-* 变量；选择器布局由引擎代码绘制。
 DEFAULT_CARD_CSS = """\
-/* HAPI Connector 推送卡片默认样式（当前生效时可在 WebUI 直接改）
- * Pillow 识别下方 --card-* 变量与基础字号/内边距。
+/* HAPI Connector 推送卡片
+ * Pillow 实际读取：:root 里的 --card-* 变量（色/圆角/内边距/字号倍率）
+ * 不读取：.card / .row 等选择器（布局由引擎代码画，改 CSS 类无效）
  */
 :root {
   --card-bg: #f7f4ea;
@@ -97,7 +99,7 @@ DEFAULT_CARD_CSS = """\
   --card-font-scale: 1.12;
   --card-title-size: 24px;
   --card-body-size: 17px;
-  --card-mono: 0; /* 1=等宽 */
+  --card-mono: 0; /* 1=等宽；配置项 card_mono 优先 */
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
