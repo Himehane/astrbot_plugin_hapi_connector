@@ -7,7 +7,7 @@
  * 页面：概览 / 会话 / 交互 / 命令帮助 / 设置
  */
 
-import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.40";
+import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.41";
 
 /* ---------- constants ---------- */
 
@@ -2140,7 +2140,7 @@ const FALLBACK_INSTALLABLE = [
     id: "dep_matplotlib",
     group: "dep",
     label: "matplotlib（公式）",
-    desc: "pip install matplotlib — 每个公式单独紧凑出图，嵌进消息卡",
+    desc: "pip install matplotlib — 消息卡里的公式用它排版（可选）",
     installed: false,
   },
 ];
@@ -2872,7 +2872,7 @@ function renderInteract() {
             <select id="ix-fmode" class="ctrl" style="max-width:360px">
               ${[
                 { value: "off", title: "关闭" },
-                { value: "detect", title: "含公式时由 matplotlib 渲染（公式单独出图）" },
+                { value: "detect", title: "含公式时公式用 matplotlib 排版" },
                 { value: "plain", title: "含公式时只发文字" },
               ]
                 .map(

@@ -496,7 +496,7 @@ def _install_hint() -> str | None:
     if not _HAS_PILLOW:
         parts.append("pip install Pillow（或 WebUI 勾选安装）")
     if not matplotlib_available():
-        parts.append("含公式时渲染：pip install matplotlib（或 WebUI 勾选）")
+        parts.append("公式排版：pip install matplotlib（或 WebUI 勾选）")
     fonts = font_manager.font_status()
     if not fonts.get("sans") and not fonts.get("user_font"):
         parts.append(
@@ -1833,7 +1833,7 @@ def render_meta() -> dict[str, Any]:
         "formula_subset": {
             "supported": [
                 "plain：含公式时只发文字",
-                "detect：每个公式用 matplotlib 紧凑出图，嵌进 Pillow 消息卡",
+                "detect：含公式时公式用 matplotlib 排版，嵌进 Pillow 消息卡",
             ],
             "delimiters": ["$...$", "$$...$$", "\\(...\\)", "\\[...\\]", "\\begin{...}"],
             "note": "detect 需 matplotlib；单个公式失败只显示源码，不拖垮整张卡。",
