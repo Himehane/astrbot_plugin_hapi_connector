@@ -37,7 +37,7 @@ CONFIG_KEYS = (
     "auto_approve_start",
     "auto_approve_end",
     "default_notification_window",
-    # 推送呈现（卡片可选依赖 Pillow）
+    # 推送呈现（卡片可选依赖 Pillow / Playwright）
     "render_mode",
     "formula_mode",
     "render_kinds",
@@ -50,6 +50,9 @@ CONFIG_KEYS = (
     "card_density",
     "card_show_brand",
     "card_mono",
+    "card_custom_css",
+    "card_font_path",
+    "card_font_auto_download",
 )
 
 SENSITIVE_KEYS = frozenset({"access_token", "cf_access_client_secret"})
@@ -78,6 +81,7 @@ BOOL_KEYS = frozenset({
     "auto_approve_enabled",
     "card_show_brand",
     "card_mono",
+    "card_font_auto_download",
 })
 
 INT_KEYS = frozenset({
@@ -153,7 +157,7 @@ class WebApi:
         return json_response(card_render.render_meta())
 
     async def render_preview(self):
-        """按当前或请求内样式生成结构卡 PNG（base64）。Pillow 可选。"""
+        """按当前或请求内样式生成结构卡/对话卡 PNG（base64）。"""
         import base64
         from astrbot.api.web import error_response, json_response, request
         from . import card_render
@@ -172,41 +176,30 @@ class WebApi:
         cfg_view = dict(public_config(self.plugin))
         style_patch = payload.get("style")
         if isinstance(style_patch, dict):
-            # 允许前端用与 conf 相同的扁平键
+            alias = {
+                "preset": "card_style_preset",
+                "width": "card_width",
+                "accent": "card_accent",
+                "bg": "card_bg",
+                "fg": "card_fg",
+                "font_scale": "card_font_scale",
+                "density": "card_density",
+                "show_brand": "card_show_brand",
+                "mono": "card_mono",
+                "custom_css": "card_custom_css",
+                "font_path": "card_font_path",
+                "font_auto_download": "card_font_auto_download",
+            }
             for k, v in style_patch.items():
-                if k in CONFIG_KEYS or k in (
-                    "card_style_preset",
-                    "card_width",
-                    "card_accent",
-                    "card_bg",
-                    "card_fg",
-                    "card_font_scale",
-                    "card_density",
-                    "card_show_brand",
-                    "card_mono",
-                    "preset",
-                    "width",
-                    "accent",
-                    "bg",
-                    "fg",
-                    "font_scale",
-                    "density",
-                    "show_brand",
-                    "mono",
-                ):
-                    # 映射短键
-                    alias = {
-                        "preset": "card_style_preset",
-                        "width": "card_width",
-                        "accent": "card_accent",
-                        "bg": "card_bg",
-                        "fg": "card_fg",
-                        "font_scale": "card_font_scale",
-                        "density": "card_density",
-                        "show_brand": "card_show_brand",
-                        "mono": "card_mono",
-                    }
-                    cfg_view[alias.get(k, k)] = v
+                mapped = alias.get(k, k)
+                if mapped in CONFIG_KEYS or k in CONFIG_KEYS:
+                    cfg_view[mapped] = v
+
+        # 顶层也允许直接传 card_custom_css
+        if payload.get("card_custom_css") is not None:
+            cfg_view["card_custom_css"] = payload.get("card_custom_css")
+        if payload.get("card_font_path") is not None:
+            cfg_view["card_font_path"] = payload.get("card_font_path")
 
         formula_mode = str(
             payload.get("formula_mode")
@@ -218,8 +211,9 @@ class WebApi:
         if not isinstance(data, dict):
             data = card_render.sample_payload(kind)
 
+        prefer = payload.get("engine")
         result = card_render.render_card(
-            kind, data, style, formula_mode=formula_mode
+            kind, data, style, formula_mode=formula_mode, prefer_engine=prefer
         )
         body: dict[str, Any] = {
             "ok": result.ok,
@@ -228,6 +222,7 @@ class WebApi:
             "ms": round(result.ms, 1),
             "error": result.error,
             "fallback_text": result.fallback_text,
+            "font_path": result.font_path,
             "engine_status": card_render.engine_status(),
             "style": card_render.style_to_public(style),
         }
@@ -1149,6 +1144,20 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
             cleaned[key] = val
             continue
 
+        if key == "card_custom_css":
+            s = str(raw_val if raw_val is not None else "")
+            if len(s) > 200_000:
+                raise ConfigValidationError("card_custom_css 过长（上限 200KB）")
+            cleaned[key] = s
+            continue
+
+        if key == "card_font_path":
+            s = str(raw_val if raw_val is not None else "").strip()
+            if len(s) > 512:
+                raise ConfigValidationError("card_font_path 过长")
+            cleaned[key] = s
+            continue
+
         if key in ("card_accent", "card_bg", "card_fg"):
             s = str(raw_val or "").strip()
             if not s:
@@ -1180,8 +1189,8 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
         raise ConfigValidationError("remind_interval 至少 30 秒")
     if "card_width" in cleaned:
         n = cleaned["card_width"]
-        if n < 400 or n > 1200:
-            raise ConfigValidationError("card_width 范围 400–1200")
+        if n < 400 or n > 1400:
+            raise ConfigValidationError("card_width 范围 400–1400")
     if "card_font_scale" in cleaned:
         n = cleaned["card_font_scale"]
         if n < 75 or n > 150:
@@ -1596,7 +1605,8 @@ def build_columns(sessions: list[dict], defaults: dict) -> list[dict]:
     for u in (defaults.get("flavor") or {}).values():
         ensure(u)
     for s in sessions:
-        ensure(s.get("effective_umo")).sessions.append(s)
+        # ensure() 返回 dict，必须用 ["sessions"]，不能 .sessions
+        ensure(s.get("effective_umo"))["sessions"].append(s)
 
     cols = list(map_.values())
     cols.sort(key=lambda c: (0 if c["umo"] else 1, -len(c["sessions"])))
