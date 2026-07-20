@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>HAPI 连接器 · 管理面板</title>
     <!-- 纯静态本地资源，符合 plugin-pages：禁止外链 CDN / 字体 / 脚本 -->
-    <link rel="stylesheet" href="./style.css?v=3.1.37" />
+    <link rel="stylesheet" href="./style.css?v=3.1.39" />
   </head>
   <body>
     <div class="app-shell" id="app">
@@ -118,6 +118,20 @@
       <div id="dlg-body" class="dlg-body"></div>
     </dialog>
 
-    <script type="module" src="./app.js?v=3.1.37"></script>
+    <dialog id="dlg-confirm" class="dlg dlg-confirm">
+      <div class="dlg-head">
+        <h2 id="dlg-confirm-title">确认</h2>
+        <button type="button" class="icon-btn" id="dlg-confirm-x" aria-label="关闭">×</button>
+      </div>
+      <div class="dlg-body">
+        <p id="dlg-confirm-msg" class="dlg-why"></p>
+        <div class="dlg-actions">
+          <button type="button" class="btn btn-sm" id="dlg-confirm-no">取消</button>
+          <button type="button" class="btn btn-sm btn-primary" id="dlg-confirm-yes">确定</button>
+        </div>
+      </div>
+    </dialog>
+
+    <script type="module" src="./app.js?v=3.1.39"></script>
   </body>
 </html>

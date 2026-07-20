@@ -722,6 +722,33 @@ function allKnownWindows() {
   return [...map.values()].sort((a, b) => String(a.title).localeCompare(String(b.title), "zh"));
 }
 
+/** 某窗口上的 session 统计：显式绑定 / 有效投递 / 运行中 */
+function windowSessionStats(umo) {
+  const u = String(umo || "");
+  let bound = 0;
+  let effective = 0;
+  let active = 0;
+  if (!u) return { bound, effective, active };
+  for (const s of state.data?.sessions || []) {
+    if (s?.bound_umo && String(s.bound_umo) === u) bound++;
+    if (s?.effective_umo && String(s.effective_umo) === u) {
+      effective++;
+      if (s.active) active++;
+    }
+  }
+  return { bound, effective, active };
+}
+
+/** 弹窗列表里展示的绑定数文案 */
+function formatWindowBindMeta(umo) {
+  const { bound, effective, active } = windowSessionStats(umo);
+  const parts = [];
+  parts.push(`绑 ${bound}`);
+  if (effective !== bound) parts.push(`投递 ${effective}`);
+  if (active > 0) parts.push(`运行 ${active}`);
+  return parts.join(" · ");
+}
+
 /** 本页下拉选项（隐藏的不出现；keep 里的已选值强制保留） */
 function visibleWindowOptions(keepUmos = []) {
   const keep = new Set((keepUmos || []).filter(Boolean).map(String));
@@ -1062,7 +1089,8 @@ function renderOverview() {
     b.onclick = () => go(b.dataset.go);
   });
   $("#btn-reconnect")?.addEventListener("click", async () => {
-    if (!confirm("按当前已保存配置重建连接并重启 SSE？")) return;
+    const ok = await askConfirm("按当前已保存配置重建连接并重启 SSE？", { title: "重连", yes: "重连" });
+    if (!ok) return;
     try {
       if (liveMode && api) {
         const res = await api.reconnect();
@@ -1286,9 +1314,14 @@ function openWindowVisibilityDialog() {
       const rows = list
         .map((w) => {
           const on = !hidden.has(w.umo);
-          return `<label class="win-vis-item">
+          const meta = formatWindowBindMeta(w.umo);
+          const { bound, effective, active } = windowSessionStats(w.umo);
+          // 活跃：当前有运行中 session 投递到此窗口
+          const isActive = active > 0;
+          return `<label class="win-vis-item${isActive ? " is-active-win" : ""}" data-bound="${bound}" data-effective="${effective}" data-active="${active}">
             <input type="checkbox" data-vis-umo value="${attr(w.umo)}" ${on ? "checked" : ""} />
             <span class="win-vis-title">${esc(w.title)}</span>
+            <span class="win-vis-bind${bound || effective ? "" : " is-zero"}">${esc(meta)}</span>
             <span class="win-vis-umo mono">${esc(w.umo)}</span>
           </label>`;
         })
@@ -1309,10 +1342,11 @@ function openWindowVisibilityDialog() {
   const dlg = $("#dlg");
   dlg?.classList.add("dlg-win-vis");
   $("#dlg-body").innerHTML = `
-    <p class="field-help win-vis-help">勾选的窗口会出现在本页左侧列表和推送下拉框里。按 Bot 分组；默认全部显示。设置只存在本浏览器。</p>
+    <p class="field-help win-vis-help">勾选的窗口会出现在本页左侧列表和推送下拉框里。按 Bot 分组；默认全部显示。设置只存在本浏览器。「绑」= 显式绑定数；「投递」= 实际会推到该窗口的 session 数（含类型/默认路由，仅当与绑定数不同时显示）；「运行」= 其中正在运行的。</p>
     <div class="win-vis-toolbar">
       <button type="button" class="btn btn-sm" id="vis-all">全部显示</button>
       <button type="button" class="btn btn-sm" id="vis-none">全部隐藏</button>
+      <button type="button" class="btn btn-sm" id="vis-active" title="只勾选当前有运行中 session 的窗口">仅选择活跃窗口</button>
       <span class="spacer"></span>
       <button type="button" class="btn btn-primary btn-sm" id="vis-apply">应用</button>
     </div>
@@ -1376,6 +1410,19 @@ function openWindowVisibilityDialog() {
         inp.checked = false;
       });
       refreshGroupCounts();
+    });
+  $("#vis-active") &&
+    ($("#vis-active").onclick = () => {
+      let n = 0;
+      $$("#dlg-body input[data-vis-umo]").forEach((inp) => {
+        const row = inp.closest(".win-vis-item");
+        const activeN = Number(row?.dataset?.active || 0);
+        const on = activeN > 0;
+        inp.checked = on;
+        if (on) n++;
+      });
+      refreshGroupCounts();
+      toast(n ? `已勾选 ${n} 个活跃窗口（有运行中 session）` : "当前没有运行中 session 的窗口");
     });
   $("#vis-apply") &&
     ($("#vis-apply").onclick = () => {
@@ -1599,9 +1646,19 @@ function wireTable(visibleIds) {
       const action = b.dataset.batch;
       const labels = { resume: "恢复", archive: "归档", delete: "删除" };
       const label = labels[action] || action;
-      if (action === "delete" && !confirm(`删除 ${ids.length} 个 session？不可恢复。`)) return;
-      if (action === "archive" && !confirm(`归档 ${ids.length} 个 session？`)) return;
-      if (action === "resume" && !confirm(`恢复 ${ids.length} 个？可能得到新 session id。`)) return;
+      const confirmMsgs = {
+        delete: `删除 ${ids.length} 个 session？不可恢复。`,
+        archive: `归档 ${ids.length} 个 session？`,
+        resume: `恢复 ${ids.length} 个？可能得到新 session id。`,
+      };
+      if (confirmMsgs[action]) {
+        const ok = await askConfirm(confirmMsgs[action], {
+          title: label,
+          yes: label,
+          danger: action === "delete",
+        });
+        if (!ok) return;
+      }
 
       $$("#sess-panel [data-batch]").forEach((x) => {
         x.disabled = true;
@@ -1615,6 +1672,7 @@ function wireTable(visibleIds) {
           await refresh({ repaint: true });
           return;
         }
+        toast(`正在${label} ${ids.length} 个…`);
         const res = await api.batchLifecycle(ids, action);
         const results = Array.isArray(res?.results) ? res.results : [];
         const okN = results.filter((r) => r && r.ok).length;
@@ -1632,13 +1690,17 @@ function wireTable(visibleIds) {
         }
         toast(tip);
         ids.forEach((id) => state.selected.delete(id));
-        // 始终 fresh 拉一次，避免 snapshot 陈旧看起来像没操作
         if (res?.snapshot) applySnapFromResult(res);
         await refresh({ fresh: true, repaint: true });
       } catch (err) {
         console.error("batch lifecycle", action, err);
         toast(`${label}失败: ` + (err.message || err));
         await refresh({ fresh: true, repaint: true });
+      } finally {
+        $$("#sess-panel [data-batch]").forEach((x) => {
+          x.disabled = false;
+          x.classList.remove("is-busy");
+        });
       }
     };
   });
@@ -2003,8 +2065,8 @@ const FALLBACK_INSTALLABLE = [
   {
     id: "dep_matplotlib",
     group: "dep",
-    label: "matplotlib（公式排版）",
-    desc: "pip install matplotlib — Agent 消息整图里的公式用它排版",
+    label: "matplotlib（公式）",
+    desc: "pip install matplotlib — 含公式时由它渲染",
     installed: false,
   },
 ];
@@ -2736,8 +2798,8 @@ function renderInteract() {
             <select id="ix-fmode" class="ctrl" style="max-width:360px">
               ${[
                 { value: "off", title: "关闭" },
-                { value: "detect", title: "有公式时整条仍出图（matplotlib 排公式）" },
-                { value: "plain", title: "有公式时整条只发文字" },
+                { value: "detect", title: "含公式时由 matplotlib 渲染" },
+                { value: "plain", title: "含公式时只发文字" },
               ]
                 .map(
                   (o) =>
@@ -3496,6 +3558,63 @@ function allSettingsFields() {
 
 /* saveSettings() defined later as async in data layer */
 
+
+/** iframe sandbox 常无 allow-modals，window.confirm 会静默失败 → 按钮像失灵 */
+function askConfirm(message, opts = {}) {
+  const msg = String(message || "确定？");
+  const danger = Boolean(opts.danger);
+  const title = opts.title || "确认";
+  const yesText = opts.yes || "确定";
+  const noText = opts.no || "取消";
+
+  return new Promise((resolve) => {
+    const dlg = $("#dlg-confirm");
+    const msgEl = $("#dlg-confirm-msg");
+    const titleEl = $("#dlg-confirm-title");
+    const yes = $("#dlg-confirm-yes");
+    const no = $("#dlg-confirm-no");
+    const x = $("#dlg-confirm-x");
+    if (!dlg || !msgEl || !yes || !no) {
+      toast(msg);
+      resolve(true);
+      return;
+    }
+    if (titleEl) titleEl.textContent = title;
+    msgEl.textContent = msg;
+    yes.textContent = yesText;
+    no.textContent = noText;
+    yes.classList.toggle("btn-danger", danger);
+    yes.classList.toggle("btn-primary", !danger);
+
+    let settled = false;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      yes.onclick = null;
+      no.onclick = null;
+      if (x) x.onclick = null;
+      dlg.removeEventListener("close", onClose);
+      try {
+        if (dlg.open) dlg.close();
+      } catch (_) {}
+      resolve(v);
+    };
+    const onClose = () => finish(false);
+    yes.onclick = () => finish(true);
+    no.onclick = () => finish(false);
+    if (x) x.onclick = () => finish(false);
+    dlg.addEventListener("close", onClose);
+    try {
+      if (dlg.open) dlg.close();
+      dlg.showModal();
+    } catch (e) {
+      console.error("confirm dialog failed", e);
+      toast(msg);
+      resolve(true);
+    }
+  });
+}
+
 function toast(msg) {
   let el = $("#settings-toast");
   if (!el || $("#view-settings")?.hidden) {
@@ -3613,9 +3732,19 @@ function openDetail(id) {
       const action = b.dataset.life;
       const labels = { resume: "恢复", archive: "归档", delete: "删除" };
       const label = labels[action] || action;
-      if (action === "delete" && !confirm("确定删除？不可恢复。")) return;
-      if (action === "resume" && !confirm("恢复后可能得到新 session id，继续？")) return;
-      if (action === "archive" && !confirm("确定归档？")) return;
+      const confirmMsgs = {
+        delete: "确定删除？不可恢复。",
+        resume: "恢复后可能得到新 session id，继续？",
+        archive: "确定归档？",
+      };
+      if (confirmMsgs[action]) {
+        const ok = await askConfirm(confirmMsgs[action], {
+          title: label,
+          yes: label,
+          danger: action === "delete",
+        });
+        if (!ok) return;
+      }
       $$("#dlg-body [data-life]").forEach((x) => {
         x.disabled = true;
         x.classList.add("is-busy");
@@ -3634,8 +3763,8 @@ function openDetail(id) {
           openDetail(res.new_id || id);
           return;
         }
+        toast(`正在${label}…`);
         const res = await api.lifecycle(id, action);
-        // 单条 lifecycle 失败时后端走 error_response，bridge 会抛；这里防业务体 ok:false
         if (res && res.ok === false) {
           throw new Error(res.message || `${label}失败`);
         }
@@ -3648,11 +3777,22 @@ function openDetail(id) {
           return;
         }
         await refresh({ fresh: true, repaint: true });
-        openDetail(res?.new_id || id);
+        const nextId = res?.new_id || id;
+        if (state.data?.sessions?.some((x) => x.id === nextId)) openDetail(nextId);
+        else {
+          $("#dlg").close();
+          toast(`${label}成功（列表已刷新）`);
+        }
       } catch (err) {
         console.error("lifecycle", action, id, err);
         toast(`${label}失败: ` + (err.message || err));
         await refresh({ fresh: true, repaint: true });
+        // 失败后重开详情，恢复按钮
+        if ($("#dlg")?.open === false && state.data?.sessions?.some((x) => x.id === id)) {
+          openDetail(id);
+        } else if (state.data?.sessions?.some((x) => x.id === id)) {
+          openDetail(id);
+        }
       }
     };
   });

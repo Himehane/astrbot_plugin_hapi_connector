@@ -2191,6 +2191,21 @@ select.ctrl-sm {
   flex-direction: column;
 }
 
+.dlg.dlg-confirm {
+  width: min(400px, calc(100vw - 24px));
+  z-index: 1100;
+}
+.dlg.dlg-confirm .dlg-actions {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.dlg.dlg-confirm .btn-danger.btn-primary,
+.dlg.dlg-confirm .btn-primary.is-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
 .dlg::backdrop {
   background: var(--scrim);
 }
