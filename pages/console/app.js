@@ -7,7 +7,7 @@
  * 页面：概览 / 会话 / 交互 / 命令帮助 / 设置
  */
 
-import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.11";
+import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.32";
 
 /* ---------- constants ---------- */
 
@@ -1587,8 +1587,10 @@ function wireTable(visibleIds) {
     };
   });
 
-  $$("[data-batch]").forEach((b) => {
-    b.onclick = async () => {
+  $$("#sess-panel [data-batch]").forEach((b) => {
+    b.onclick = async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
       const ids = visibleIds.filter((id) => state.selected.has(id));
       if (!ids.length) {
         toast("请先勾选 session");
@@ -1601,55 +1603,42 @@ function wireTable(visibleIds) {
       if (action === "archive" && !confirm(`归档 ${ids.length} 个 session？`)) return;
       if (action === "resume" && !confirm(`恢复 ${ids.length} 个？可能得到新 session id。`)) return;
 
-      // 防连点
-      $$("[data-batch]").forEach((x) => {
+      $$("#sess-panel [data-batch]").forEach((x) => {
         x.disabled = true;
         x.classList.add("is-busy");
       });
       try {
-        if (liveMode && api) {
-          const res = await api.batchLifecycle(ids, action);
-          const results = Array.isArray(res?.results) ? res.results : [];
-          const okN = results.filter((r) => r?.ok).length;
-          const failN = results.length - okN;
-          const detail = results
-            .filter((r) => !r?.ok)
-            .slice(0, 3)
-            .map((r) => `${String(r.id || "").slice(0, 8)}: ${r.message || "失败"}`)
-            .join("；");
-          if (failN === 0) {
-            toast(res?.message || `${label}成功 ${okN}/${results.length || ids.length}`);
-          } else if (okN === 0) {
-            toast(res?.message || `${label}全部失败` + (detail ? ` · ${detail}` : ""));
-          } else {
-            toast(
-              (res?.message || `${label}部分成功 ${okN}/${results.length}`) +
-                (detail ? ` · ${detail}` : ""),
-            );
-          }
+        if (!liveMode || !api) {
+          for (const id of ids) store.lifecycle(id, action);
           ids.forEach((id) => state.selected.delete(id));
-          // 批量接口自带 snapshot；失败也强制 fresh 拉一次
-          if (!applySnapFromResult(res)) await refresh({ fresh: true, repaint: true });
-          else {
-            renderTopConn();
-            renderSessions();
-          }
+          toast(`${label}完成（本地 mock）`);
+          await refresh({ repaint: true });
           return;
         }
-        // mock
-        for (const id of ids) store.lifecycle(id, action);
+        const res = await api.batchLifecycle(ids, action);
+        const results = Array.isArray(res?.results) ? res.results : [];
+        const okN = results.filter((r) => r && r.ok).length;
+        const failN = Math.max(0, (results.length || ids.length) - okN);
+        const detail = results
+          .filter((r) => r && !r.ok)
+          .slice(0, 3)
+          .map((r) => `${String(r.id || "").slice(0, 8)}: ${r.message || "失败"}`)
+          .join("；");
+        let tip = res?.message || "";
+        if (!tip) {
+          if (failN === 0) tip = `${label}成功 ${okN}/${results.length || ids.length}`;
+          else if (okN === 0) tip = `${label}全部失败` + (detail ? ` · ${detail}` : "");
+          else tip = `${label}部分成功 ${okN}/${results.length}` + (detail ? ` · ${detail}` : "");
+        }
+        toast(tip);
         ids.forEach((id) => state.selected.delete(id));
-        toast(`${label}完成（本地 mock）`);
-        await refresh({ repaint: true });
+        // 始终 fresh 拉一次，避免 snapshot 陈旧看起来像没操作
+        if (res?.snapshot) applySnapFromResult(res);
+        await refresh({ fresh: true, repaint: true });
       } catch (err) {
+        console.error("batch lifecycle", action, err);
         toast(`${label}失败: ` + (err.message || err));
         await refresh({ fresh: true, repaint: true });
-      } finally {
-        // renderSessions 会重建按钮，这里兜底
-        $$("[data-batch]").forEach((x) => {
-          x.disabled = false;
-          x.classList.remove("is-busy");
-        });
       }
     };
   });
@@ -3517,53 +3506,52 @@ function openDetail(id) {
     }
   };
   $$("#dlg-body [data-life]").forEach((b) => {
-    b.onclick = async () => {
+    b.onclick = async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
       const action = b.dataset.life;
       const labels = { resume: "恢复", archive: "归档", delete: "删除" };
       const label = labels[action] || action;
       if (action === "delete" && !confirm("确定删除？不可恢复。")) return;
       if (action === "resume" && !confirm("恢复后可能得到新 session id，继续？")) return;
       if (action === "archive" && !confirm("确定归档？")) return;
-      b.disabled = true;
-      b.classList.add("is-busy");
+      $$("#dlg-body [data-life]").forEach((x) => {
+        x.disabled = true;
+        x.classList.add("is-busy");
+      });
       try {
-        if (liveMode && api) {
-          const res = await api.lifecycle(id, action);
-          toast(res?.message || `${label}成功`);
+        if (!liveMode || !api) {
+          const res = store.lifecycle(id, action);
           state.selected.delete(id);
+          toast(`${label}完成（本地 mock）`);
           if (action === "delete") {
             $("#dlg").close();
-            if (!applySnapFromResult(res)) await refresh({ fresh: true, repaint: true });
-            else {
-              renderTopConn();
-              renderSessions();
-            }
+            await refresh({ repaint: true });
             return;
           }
-          if (!applySnapFromResult(res)) await refresh({ fresh: true, repaint: true });
-          else {
-            renderTopConn();
-            renderSessions();
-          }
+          await refresh({ repaint: true });
           openDetail(res.new_id || id);
           return;
         }
-        const res = store.lifecycle(id, action);
+        const res = await api.lifecycle(id, action);
+        // 单条 lifecycle 失败时后端走 error_response，bridge 会抛；这里防业务体 ok:false
+        if (res && res.ok === false) {
+          throw new Error(res.message || `${label}失败`);
+        }
+        toast(res?.message || `${label}成功`);
         state.selected.delete(id);
-        toast(`${label}完成（本地 mock）`);
+        if (res?.snapshot) applySnapFromResult(res);
         if (action === "delete") {
           $("#dlg").close();
-          await refresh({ repaint: true });
+          await refresh({ fresh: true, repaint: true });
           return;
         }
-        await refresh({ repaint: true });
-        openDetail(res.new_id || id);
+        await refresh({ fresh: true, repaint: true });
+        openDetail(res?.new_id || id);
       } catch (err) {
+        console.error("lifecycle", action, id, err);
         toast(`${label}失败: ` + (err.message || err));
         await refresh({ fresh: true, repaint: true });
-      } finally {
-        b.disabled = false;
-        b.classList.remove("is-busy");
       }
     };
   });

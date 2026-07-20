@@ -779,33 +779,56 @@ def _session_row(plugin, sid: str) -> dict | None:
 
 
 async def run_lifecycle(plugin, sid: str, action: str) -> dict:
-    """执行 resume|archive|delete|abort，返回结果 dict。"""
+    """执行 resume|archive|delete|abort，返回结果 dict。
+
+    与聊天 /hapi archive|resume|delete 共用 session_ops，不在这里硬编码 HAPI 路径。
+    """
     from . import session_ops
 
-    session = _find_session(plugin, sid)
+    action = str(action or "").strip().lower()
+    raw_sid = str(sid or "").strip()
+    if not raw_sid:
+        raise LifecycleError("空 session id", 400)
+    if action not in ("resume", "archive", "delete", "abort"):
+        raise LifecycleError(f"未知 action: {action}", 400)
+
+    # 缓存可能过期：找不到时强制刷新再查一次
+    session = _find_session(plugin, raw_sid)
+    if session is None:
+        try:
+            await plugin._refresh_sessions()
+        except Exception as e:
+            logger.warning("lifecycle pre-refresh failed: %s", e)
+        session = _find_session(plugin, raw_sid)
+
     if session:
-        sid = session["id"]
-    elif action != "delete":
-        # delete 允许清理残留绑定
-        raise LifecycleError("session 不存在", 404)
+        sid = str(session.get("id") or raw_sid)
+    else:
+        sid = raw_sid
+        if action != "delete":
+            raise LifecycleError(f"session 不存在: {raw_sid[:16]}", 404)
 
     new_id = None
+    msg = ""
+
     if action == "abort":
         ok, msg = await session_ops.abort_session(plugin.client, sid)
         if not ok:
-            raise LifecycleError(msg, 502)
+            raise LifecycleError(msg or "中断失败", 502)
+
     elif action == "archive":
-        # 已归档/非 active：HAPI 可能返回失败；前端批量时给出明确文案
-        if session is not None and not session.get("active") and not session.get("thinking"):
-            raise LifecycleError("session 已是归档/非运行状态，无需再归档", 400)
+        # 与聊天指令一致：直接调 HAPI archive；已归档时把上游错误原样返回
         ok, msg = await session_ops.archive_session(plugin.client, sid)
         if not ok:
             raise LifecycleError(msg or "归档失败", 502)
+
     elif action == "delete":
+        # 与 /hapi delete 一致：运行中先归档再删
         if session and (session.get("active") or session.get("thinking")):
             ok_arc, msg_arc = await session_ops.archive_session(plugin.client, sid)
             if not ok_arc:
-                raise LifecycleError(f"归档失败，删除中止: {msg_arc}", 502)
+                # 有的 HAPI 对已停会话 archive 失败仍可删
+                logger.warning("delete: archive first failed sid=%s: %s", sid[:12], msg_arc)
         ok, msg = await session_ops.delete_session(plugin.client, sid)
         if not ok:
             raise LifecycleError(msg or "删除失败", 502)
@@ -813,27 +836,29 @@ async def run_lifecycle(plugin, sid: str, action: str) -> dict:
             await plugin.state_mgr.unbind_session(sid)
         except Exception as e:
             logger.warning("unbind after delete failed sid=%s: %s", sid, e)
+
     elif action == "resume":
         if session and session.get("active"):
-            raise LifecycleError("session 已是 active，无需恢复", 400)
-        old_bound = plugin.binding_mgr._session_owners.get(sid)
+            raise LifecycleError("session 已是运行中，无需恢复", 400)
+        old_bound = None
         old_flavor = "unknown"
+        try:
+            old_bound = plugin.binding_mgr._session_owners.get(sid)
+        except Exception:
+            old_bound = None
         if session:
             old_flavor = str((session.get("metadata") or {}).get("flavor") or "unknown")
         ok, msg, resumed_sid = await session_ops.resume_session(plugin.client, sid)
         if not ok:
-            raise LifecycleError(msg, 502)
+            raise LifecycleError(msg or "恢复失败", 502)
         new_id = resumed_sid or sid
-        if new_id != sid:
-            # 迁移绑定
-            if old_bound:
-                await plugin.state_mgr.unbind_session(sid)
+        if old_bound:
+            try:
+                if new_id != sid:
+                    await plugin.state_mgr.unbind_session(sid)
                 await plugin.state_mgr.capture_window(new_id, old_bound, old_flavor)
-        else:
-            if old_bound:
-                await plugin.state_mgr.capture_window(new_id, old_bound, old_flavor)
-    else:
-        raise LifecycleError("未知 action", 400)
+            except Exception as e:
+                logger.warning("rebind after resume failed: %s", e)
 
     try:
         await plugin._refresh_sessions()
@@ -845,7 +870,7 @@ async def run_lifecycle(plugin, sid: str, action: str) -> dict:
         "action": action,
         "id": sid,
         "new_id": new_id,
-        "message": msg if action != "resume" else msg,
+        "message": msg or f"{action} 成功",
         "session": _session_row(plugin, new_id or sid),
         "snapshot": build_sessions_snapshot(plugin),
     }
