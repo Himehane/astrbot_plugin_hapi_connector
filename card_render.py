@@ -80,11 +80,16 @@ DEFAULT_KINDS = (
 )
 
 # 默认 CSS：用户可在 WebUI 整段覆盖。
-# Pillow 只解析 :root 的 --card-* 变量；选择器布局由引擎代码绘制。
+# Pillow 读取 :root 全部 --card-*（色 + 字号 + 布局尺寸）；选择器仅 DOM 预览用。
 DEFAULT_CARD_CSS = """\
-/* HAPI Connector 推送卡片
- * Pillow 实际读取：:root 里的 --card-* 变量（色/圆角/内边距/字号倍率）
- * 不读取：.card / .row 等选择器（布局由引擎代码画，改 CSS 类无效）
+/* HAPI Connector 推送卡片 — 用 :root 变量调布局，保存后出图生效
+ *
+ * 色: --card-bg/fg/accent/muted/border/code-bg
+ * 整体: --card-width / --card-pad / --card-radius / --card-font-scale
+ * 字号: --card-title-size / --card-sub-size / --card-body-size / --card-meta-size / --card-foot-size
+ * status 徽章: --card-badge-h / --card-badge-pad-x / --card-badge-font / --card-badge-dot
+ * list 序号: --card-idx-w / --card-idx-h / --card-idx-font / --card-idx-radius / --card-idx-top
+ * list 行: --card-row-pad-y / --card-row-pad-x / --card-row-gap / --card-section-gap
  */
 :root {
   --card-bg: #f7f4ea;
@@ -93,13 +98,37 @@ DEFAULT_CARD_CSS = """\
   --card-muted: #3a362e;
   --card-border: #c9c2b0;
   --card-code-bg: #ebe4d0;
+
   --card-radius: 12px;
   --card-pad: 28px;
   --card-width: 720px;
   --card-font-scale: 1.12;
+
   --card-title-size: 24px;
-  --card-body-size: 17px;
-  --card-mono: 0; /* 1=等宽；配置项 card_mono 优先 */
+  --card-sub-size: 14.5px;
+  --card-body-size: 16.5px;
+  --card-meta-size: 13.5px;
+  --card-foot-size: 13px;
+  --card-mono: 0;
+
+  /* status 状态徽章 */
+  --card-badge-h: 40px;
+  --card-badge-pad-x: 20px;
+  --card-badge-font: 16.5px;
+  --card-badge-dot: 6px;
+
+  /* list 序号框 */
+  --card-idx-w: 46px;
+  --card-idx-h: 32px;
+  --card-idx-font: 14px;
+  --card-idx-radius: 7px;
+  --card-idx-top: 6px;
+
+  /* list 行距 */
+  --card-row-pad-y: 13px;
+  --card-row-pad-x: 14px;
+  --card-row-gap: 10px;
+  --card-section-gap: 16px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -261,15 +290,37 @@ class CardStyle:
     bg: str = "#f7f4ea"
     fg: str = "#14120f"
     accent: str = "#0f6b3c"
-    muted: str = "#3a362e"  # 副文也够深，手机上可读
+    muted: str = "#3a362e"
     border: str = "#c9c2b0"
     code_bg: str = "#ebe4d0"
     font_scale: float = 1.12
-    mono: bool = False  # 正文默认非等宽，更清晰
+    mono: bool = False
     show_brand: bool = True
     density: str = "comfortable"
     custom_css: str = ""
     font_path: str = ""
+    # 字号基值（px，再 × font_scale）
+    title_size: float = 24.0
+    sub_size: float = 14.5
+    body_size: float = 16.5
+    meta_size: float = 13.5
+    foot_size: float = 13.0
+    # status 徽章
+    badge_h: int = 40
+    badge_pad_x: int = 20
+    badge_font: float = 16.5
+    badge_dot: int = 6
+    # list 序号
+    idx_w: int = 46
+    idx_h: int = 32
+    idx_font: float = 14.0
+    idx_radius: int = 7
+    idx_top: int = 6
+    # list 行
+    row_pad_y: int = 13
+    row_pad_x: int = 14
+    row_gap: int = 10
+    section_gap: int = 16
 
     def resolved(self) -> "CardStyle":
         preset = self.preset if self.preset in PRESETS else "terminal_light"
@@ -279,11 +330,24 @@ class CardStyle:
         if scale > 3:
             scale = scale / 100.0
         scale = max(0.85, min(1.6, scale))
+
+        def _i(v, lo, hi, default):
+            try:
+                return max(lo, min(hi, int(v)))
+            except (TypeError, ValueError):
+                return default
+
+        def _f(v, lo, hi, default):
+            try:
+                return max(lo, min(hi, float(v)))
+            except (TypeError, ValueError):
+                return default
+
         return CardStyle(
             preset=preset,
             width=width,
-            padding=max(12, min(48, int(self.padding or 28))),
-            radius=max(0, min(28, int(self.radius or 12))),
+            padding=_i(self.padding, 8, 64, 28),
+            radius=_i(self.radius, 0, 32, 12),
             bg=self.bg or "#f7f4ea",
             fg=self.fg or "#14120f",
             accent=self.accent or "#0f6b3c",
@@ -296,6 +360,24 @@ class CardStyle:
             density=dens,
             custom_css=self.custom_css or "",
             font_path=self.font_path or "",
+            title_size=_f(self.title_size, 12, 48, 24),
+            sub_size=_f(self.sub_size, 10, 28, 14.5),
+            body_size=_f(self.body_size, 10, 32, 16.5),
+            meta_size=_f(self.meta_size, 9, 24, 13.5),
+            foot_size=_f(self.foot_size, 9, 22, 13),
+            badge_h=_i(self.badge_h, 20, 80, 40),
+            badge_pad_x=_i(self.badge_pad_x, 8, 48, 20),
+            badge_font=_f(self.badge_font, 10, 28, 16.5),
+            badge_dot=_i(self.badge_dot, 2, 16, 6),
+            idx_w=_i(self.idx_w, 24, 96, 46),
+            idx_h=_i(self.idx_h, 0, 96, 32),
+            idx_font=_f(self.idx_font, 10, 28, 14),
+            idx_radius=_i(self.idx_radius, 0, 24, 7),
+            idx_top=_i(self.idx_top, 0, 40, 6),
+            row_pad_y=_i(self.row_pad_y, 4, 40, 13),
+            row_pad_x=_i(self.row_pad_x, 4, 40, 14),
+            row_gap=_i(self.row_gap, 0, 32, 10),
+            section_gap=_i(self.section_gap, 0, 40, 16),
         )
 
 
@@ -453,6 +535,22 @@ def _parse_bool(v: Any, default: bool) -> bool:
     return default
 
 
+def _css_num(raw: Any, default: float) -> float:
+    """从 CSS 值抽数字：'40px' / '1.12' → float。"""
+    if raw is None:
+        return default
+    s = str(raw).strip()
+    if not s:
+        return default
+    m = re.search(r"-?\d+(?:\.\d+)?", s)
+    if not m:
+        return default
+    try:
+        return float(m.group(0))
+    except ValueError:
+        return default
+
+
 def style_from_config(cfg: dict[str, Any] | None) -> CardStyle:
     cfg = cfg or {}
     preset = str(cfg.get("card_style_preset") or "terminal_light").strip()
@@ -472,7 +570,7 @@ def style_from_config(cfg: dict[str, Any] | None) -> CardStyle:
             v = float(raw)
             if v > 3:
                 v = v / 100.0
-            return max(0.75, min(1.5, v))
+            return max(0.75, min(1.6, v))
         except (TypeError, ValueError):
             return default
 
@@ -507,7 +605,6 @@ def style_from_config(cfg: dict[str, Any] | None) -> CardStyle:
         custom_css = str(cfg.get("card_custom_css") or "")
     font_path = str(cfg.get("card_font_path") or "").strip()
 
-    # 用户自定义 CSS 里的变量可覆盖色值
     vars_from_css = extract_css_vars(custom_css) if custom_css else {}
 
     def pick_color(key: str, conf_key: str, base_key: str) -> str:
@@ -517,38 +614,66 @@ def style_from_config(cfg: dict[str, Any] | None) -> CardStyle:
             return vars_from_css[key]
         return str(base[base_key])
 
-    pad = 16 if density == "compact" else int(base.get("padding", 24))
-    if "--card-pad" in vars_from_css:
-        try:
-            pad = int(re.sub(r"[^\d]", "", vars_from_css["--card-pad"]) or pad)
-        except ValueError:
-            pass
+    def vnum(css_key: str, default: float) -> float:
+        if css_key in vars_from_css:
+            return _css_num(vars_from_css[css_key], default)
+        return default
 
+    pad = 16 if density == "compact" else int(base.get("padding", 28))
+    pad = int(vnum("--card-pad", pad))
+    radius = int(vnum("--card-radius", int(base.get("radius", 12))))
+    if "--card-width" in vars_from_css:
+        width = max(400, min(1400, int(vnum("--card-width", width))))
+
+    if "card_font_scale" in cfg and cfg.get("card_font_scale") not in (None, ""):
+        font_scale = _float_scale(
+            cfg.get("card_font_scale"), float(base.get("font_scale", 1.12))
+        )
+    elif "--card-font-scale" in vars_from_css:
+        font_scale = _float_scale(
+            vars_from_css["--card-font-scale"], float(base.get("font_scale", 1.12))
+        )
+    else:
+        font_scale = float(base.get("font_scale", 1.12))
+
+    compact = density == "compact"
     return CardStyle(
         preset=preset,
         width=width,
         padding=pad,
-        radius=int(base.get("radius", 12)),
+        radius=radius,
         bg=pick_color("--card-bg", "card_bg", "bg"),
         fg=pick_color("--card-fg", "card_fg", "fg"),
         accent=pick_color("--card-accent", "card_accent", "accent"),
         muted=str(vars_from_css.get("--card-muted") or base["muted"]),
         border=str(vars_from_css.get("--card-border") or base["border"]),
-        code_bg=str(vars_from_css.get("--card-code-bg") or base.get("code_bg", "#efe9d8")),
-        font_scale=_float_scale(
-            cfg.get(
-                "card_font_scale",
-                float(base.get("font_scale", 1.0)) * 100
-                if isinstance(base.get("font_scale"), float)
-                else base.get("font_scale", 1.0),
-            ),
-            float(base.get("font_scale", 1.0)),
+        code_bg=str(
+            vars_from_css.get("--card-code-bg") or base.get("code_bg", "#efe9d8")
         ),
+        font_scale=font_scale,
         mono=bool(mono),
         show_brand=bool(show_brand),
         density=density,
         custom_css=custom_css,
         font_path=font_path,
+        title_size=vnum("--card-title-size", 24),
+        sub_size=vnum("--card-sub-size", 14.5),
+        body_size=vnum("--card-body-size", 16.5),
+        meta_size=vnum("--card-meta-size", 13.5),
+        foot_size=vnum("--card-foot-size", 13),
+        badge_h=int(vnum("--card-badge-h", 40)),
+        badge_pad_x=int(vnum("--card-badge-pad-x", 20)),
+        badge_font=vnum("--card-badge-font", 16.5),
+        badge_dot=int(vnum("--card-badge-dot", 6)),
+        idx_w=int(vnum("--card-idx-w", 40 if compact else 46)),
+        idx_h=int(vnum("--card-idx-h", 28 if compact else 32)),
+        idx_font=vnum("--card-idx-font", 14),
+        idx_radius=int(vnum("--card-idx-radius", 7)),
+        idx_top=int(vnum("--card-idx-top", 4 if compact else 6)),
+        row_pad_y=int(vnum("--card-row-pad-y", 10 if compact else 13)),
+        row_pad_x=int(vnum("--card-row-pad-x", 12 if compact else 14)),
+        row_gap=int(vnum("--card-row-gap", 8 if compact else 10)),
+        section_gap=int(vnum("--card-section-gap", 12 if compact else 16)),
     )
 
 
@@ -584,12 +709,13 @@ def sample_payload(kind: str) -> dict[str, Any]:
     if kind == "permission":
         return {
             "title": "权限请求",
-            "subtitle": "序号 1 · claude · auth-mw",
+            "subtitle": "序号 1 · 重构鉴权中间件 · claude · a1b2c3d4",
             "rows": [
                 {"index": 0, "label": "工具", "detail": "Bash"},
-                {"index": 0, "label": "命令", "detail": "pytest -q tests/test_auth.py"},
+                {"index": 0, "label": "详情", "detail": "pytest -q tests/test_auth.py"},
+                {"index": 0, "label": "待审批", "detail": "全局 1 · 本会话 1 · 本条序号 1"},
             ],
-            "footer": "/hapi allow 1   /hapi deny 1",
+            "footer": "/hapi a  全部批准    /hapi allow <序号>  单项\n/hapi deny  全部拒绝    /hapi pending  列表",
         }
     if kind == "status":
         return {
@@ -643,13 +769,15 @@ def sample_payload(kind: str) -> dict[str, Any]:
         }
     if kind == "message":
         return {
-            "title": "Agent 消息",
-            "subtitle": "claude · auth-mw",
+            "title": "重构鉴权中间件",
+            "subtitle": "Agent 消息 · /home/dev/proj-auth · claude · a1b2c3d4",
             "body": (
                 "## 修复摘要\n\n"
                 "已完成鉴权中间件重构：\n\n"
-                "1. 统一 JWT 校验\n"
-                "2. 补充单测覆盖\n\n"
+                "| 项 | 状态 |\n"
+                "| --- | --- |\n"
+                "| JWT 校验 | 已统一 |\n"
+                "| 单测覆盖 | 已补充 |\n\n"
                 "```ts\n"
                 "export function requireAuth(req) {\n"
                 "  return verify(req.headers.authorization);\n"
@@ -657,7 +785,7 @@ def sample_payload(kind: str) -> dict[str, Any]:
                 "```\n\n"
                 "> 建议：合并前跑一遍 `npm test`\n"
             ),
-            "footer": "output=simple",
+            "footer": "",
         }
     return {
         "title": "Session 列表",
@@ -863,7 +991,23 @@ def render_meta() -> dict[str, Any]:
             "--card-width",
             "--card-font-scale",
             "--card-title-size",
+            "--card-sub-size",
             "--card-body-size",
+            "--card-meta-size",
+            "--card-foot-size",
+            "--card-badge-h",
+            "--card-badge-pad-x",
+            "--card-badge-font",
+            "--card-badge-dot",
+            "--card-idx-w",
+            "--card-idx-h",
+            "--card-idx-font",
+            "--card-idx-radius",
+            "--card-idx-top",
+            "--card-row-pad-y",
+            "--card-row-pad-x",
+            "--card-row-gap",
+            "--card-section-gap",
         ],
         "engine": engine_status(),
         "formula_subset": {
@@ -1045,8 +1189,94 @@ def _esc(s: str) -> str:
     return html.escape(s, quote=False)
 
 
+
+def _is_md_table_sep(line: str) -> bool:
+    """GFM 分隔行：| --- | :---: | ---: |"""
+    s = (line or "").strip()
+    if not s:
+        return False
+    body = s.strip().strip("|")
+    cells = [c.strip() for c in body.split("|")]
+    if not cells:
+        return False
+    return all(bool(re.match(r"^:?-{2,}:?$", c)) for c in cells)
+
+
+def _split_md_table_row(line: str) -> list[str]:
+    s = (line or "").rstrip()
+    if s.lstrip().startswith("|"):
+        s = s.lstrip()[1:]
+    if s.rstrip().endswith("|"):
+        s = s.rstrip()[:-1]
+    return [c.strip() for c in s.split("|")]
+
+
+def _try_parse_md_table(lines: list[str], start: int) -> tuple[dict[str, Any], int] | None:
+    """从 start 起解析 GFM 表格。成功返回 (block, next_index)。"""
+    if start + 1 >= len(lines):
+        return None
+    head_line = lines[start]
+    sep_line = lines[start + 1]
+    if "|" not in head_line:
+        return None
+    if not _is_md_table_sep(sep_line):
+        return None
+    headers = _split_md_table_row(head_line)
+    if not headers or all(not h for h in headers):
+        return None
+    seps = _split_md_table_row(sep_line)
+    aligns: list[str] = []
+    for s in seps:
+        left = s.startswith(":")
+        right = s.endswith(":")
+        if left and right:
+            aligns.append("center")
+        elif right:
+            aligns.append("right")
+        else:
+            aligns.append("left")
+    while len(aligns) < len(headers):
+        aligns.append("left")
+    rows: list[list[str]] = []
+    i = start + 2
+    while i < len(lines):
+        row_line = lines[i]
+        if not row_line.strip():
+            break
+        if "|" not in row_line:
+            break
+        if re.match(r"^(#{1,3})\s+", row_line) or row_line.strip().startswith("```"):
+            break
+        cells = _split_md_table_row(row_line)
+        if len(cells) < len(headers):
+            cells = cells + [""] * (len(headers) - len(cells))
+        elif len(cells) > len(headers):
+            cells = cells[: len(headers) - 1] + [" | ".join(cells[len(headers) - 1 :])]
+        rows.append(cells)
+        i += 1
+    return (
+        {
+            "type": "table",
+            "headers": headers,
+            "rows": rows,
+            "aligns": aligns[: len(headers)],
+            "text": "",
+        },
+        i,
+    )
+
+
+def _plain_inline(s: str) -> str:
+    """Pillow 用：去掉 ** ` 等标记，保留纯文本。"""
+    plain = re.sub(r"\*\*([^*]+)\*\*", r"\1", s or "")
+    plain = re.sub(r"`([^`]+)`", r"\1", plain)
+    plain = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", plain)
+    plain = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", plain)
+    return plain
+
+
 def markdown_to_html(text: str) -> str:
-    """轻量 Markdown → HTML（标题/列表/代码/引用/粗斜体/链接/hr）。"""
+    """轻量 Markdown → HTML（标题/列表/代码/引用/表格/粗斜体/链接/hr）。"""
     if not text:
         return ""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
@@ -1082,6 +1312,20 @@ def markdown_to_html(text: str) -> str:
             out.append(
                 f'<pre><code class="lang-{_esc(lang)}">{code}</code></pre>'
             )
+            continue
+
+        # GFM table
+        parsed = _try_parse_md_table(lines, i)
+        if parsed is not None:
+            close_lists()
+            block, ni = parsed
+            ths = "".join(f"<th>{_inline(h)}</th>" for h in block["headers"])
+            trs = [f"<tr>{ths}</tr>"]
+            for row in block["rows"]:
+                tds = "".join(f"<td>{_inline(c)}</td>" for c in row)
+                trs.append(f"<tr>{tds}</tr>")
+            out.append("<table>\n" + "\n".join(trs) + "\n</table>")
+            i = ni
             continue
 
         if not line.strip():
@@ -1249,18 +1493,18 @@ def _draw_status_png(
     data: dict[str, Any],
     style: CardStyle,
 ) -> tuple[bytes, int, int]:
-    """单 session 状态卡：大标题 + 状态徽章 + 键值网格。"""
+    """单 session 状态卡：大标题 + 状态徽章 + 键值网格。布局可走 CSS 变量。"""
     scale = style.font_scale
     pad = style.padding
     width = style.width
     content_w = width - pad * 2
 
-    title_size = max(18, int(24 * scale))
-    sub_size = max(13, int(14.5 * scale))
-    label_size = max(13, int(14 * scale))
-    value_size = max(14, int(16 * scale))
-    badge_size = max(15, int(16.5 * scale))
-    foot_size = max(12, int(13 * scale))
+    title_size = max(14, int(style.title_size * scale))
+    sub_size = max(11, int(style.sub_size * scale))
+    label_size = max(11, int(style.meta_size * scale))
+    value_size = max(12, int(style.body_size * scale))
+    badge_size = max(12, int(style.badge_font * scale))
+    foot_size = max(10, int(style.foot_size * scale))
 
     tmp = Image.new("RGB", (width, 100), _hex_to_rgb(style.bg))
     d0 = ImageDraw.Draw(tmp)
@@ -1289,10 +1533,11 @@ def _draw_status_png(
     badge_bg = _mix_rgb(bg, sc, 0.18)
 
     label_w = max(72, int(88 * scale))
-    row_h_base = max(36, int(40 * scale))
-    row_gap = 8
-    # 状态徽章：略大，易点读
-    badge_h = max(36, int(40 * scale))
+    row_h_base = max(32, int(style.row_pad_y * 2 + value_size + 8))
+    row_gap = style.row_gap
+    badge_h = max(20, int(style.badge_h))
+    badge_pad_x = max(8, int(style.badge_pad_x))
+    badge_dot = max(2, int(style.badge_dot))
 
     # 预估高度
     y = pad
@@ -1341,7 +1586,7 @@ def _draw_status_png(
 
     if status:
         bw, bh = _text_size(draw, status, font_badge)
-        badge_w = max(bw + 40, int(120 * scale))
+        badge_w = max(bw + badge_pad_x * 2 + badge_dot * 2 + 10, int(100 * scale))
         _draw_rounded_rect(
             draw,
             (pad, y, pad + badge_w, y + badge_h),
@@ -1350,12 +1595,11 @@ def _draw_status_png(
             outline=sc,
             width=2,
         )
-        # 色点 + 文字在徽章内垂直居中
-        cr = 6
+        cr = badge_dot
         cy = y + badge_h // 2
-        draw.ellipse((pad + 14, cy - cr, pad + 14 + cr * 2, cy + cr), fill=sc)
+        draw.ellipse((pad + badge_pad_x - 6, cy - cr, pad + badge_pad_x - 6 + cr * 2, cy + cr), fill=sc)
         draw.text(
-            (pad + 14 + cr * 2 + 10, y + (badge_h - bh) // 2),
+            (pad + badge_pad_x - 6 + cr * 2 + 8, y + (badge_h - bh) // 2),
             status,
             font=font_badge,
             fill=sc,
@@ -1420,24 +1664,27 @@ def _draw_session_list_png(
     data: dict[str, Any],
     style: CardStyle,
 ) -> tuple[bytes, int, int]:
-    """会话列表专用版式：分组头 + 卡片行 + 状态色点 + 当前高亮，不照抄文本列表。"""
+    """会话列表专用版式：分组头 + 卡片行 + 状态色点 + 当前高亮。布局可走 CSS 变量。"""
     scale = style.font_scale
-    dense = style.density == "compact"
     pad = style.padding
     width = style.width
     content_w = width - pad * 2
 
-    title_size = max(18, int(24 * scale))
-    sub_size = max(13, int(14.5 * scale))
-    body_size = max(14, int(16.5 * scale))
-    meta_size = max(12, int(13.5 * scale))
-    foot_size = max(12, int(13 * scale))
-    idx_size = max(13, int(14 * scale))
+    title_size = max(14, int(style.title_size * scale))
+    sub_size = max(11, int(style.sub_size * scale))
+    body_size = max(12, int(style.body_size * scale))
+    meta_size = max(10, int(style.meta_size * scale))
+    foot_size = max(10, int(style.foot_size * scale))
+    idx_size = max(11, int(style.idx_font * scale))
 
-    row_pad_y = 10 if dense else 13
-    row_pad_x = 12 if dense else 14
-    section_gap = 12 if dense else 16
-    row_gap = 8 if dense else 10
+    row_pad_y = max(4, int(style.row_pad_y))
+    row_pad_x = max(4, int(style.row_pad_x))
+    section_gap = max(0, int(style.section_gap))
+    row_gap = max(0, int(style.row_gap))
+    idx_box_w = max(24, int(style.idx_w))
+    idx_box_h_cfg = max(0, int(style.idx_h))
+    idx_radius = max(0, int(style.idx_radius))
+    idx_top = max(0, int(style.idx_top))
 
     tmp = Image.new("RGB", (width, 100), _hex_to_rgb(style.bg))
     d0 = ImageDraw.Draw(tmp)
@@ -1464,7 +1711,6 @@ def _draw_session_list_png(
     row_bg_cur = _mix_rgb(bg, accent, 0.14)
     section_bg = _mix_rgb(bg, accent, 0.08)
 
-    idx_box_w = max(42, int(46 * scale))
     # 预估高度
     y = pad
     y += _text_size(d0, title, font_title)[1] + 6
@@ -1602,8 +1848,9 @@ def _draw_session_list_png(
         except Exception:
             tw, th = _text_size(draw, idx_txt, font_idx)
             toff_x, toff_y = 0, 0
-        idx_box_h = max(th + 14, int(28 * scale), idx_box_w - 6)
-        idx_box_top = y + max(6, row_pad_y - 2)
+        # 高度：CSS --card-idx-h 优先，0 则按字号自动
+        idx_box_h = idx_box_h_cfg if idx_box_h_cfg > 0 else max(th + 14, idx_box_w - 6)
+        idx_box_top = y + idx_top
         idx_box_left = pad + row_pad_x
         _draw_rounded_rect(
             draw,
@@ -1613,7 +1860,7 @@ def _draw_session_list_png(
                 idx_box_left + idx_box_w,
                 idx_box_top + idx_box_h,
             ),
-            radius=7,
+            radius=idx_radius,
             fill=_mix_rgb(fill, accent, 0.22 if is_current else 0.12),
             outline=None,
         )
@@ -1861,8 +2108,51 @@ def _draw_message_png(data: dict[str, Any], style: CardStyle) -> tuple[bytes, in
 
     blocks = _parse_md_blocks(body)
 
+    def _table_col_widths(headers, rows) -> list[int]:
+        n = max(1, len(headers))
+        # 按字符权重估宽，再缩放到 content_w
+        weights = []
+        for ci in range(n):
+            samples = [_plain_inline(str(headers[ci] if ci < len(headers) else ""))]
+            for r in rows:
+                if ci < len(r):
+                    samples.append(_plain_inline(str(r[ci])))
+            max_len = max((len(s) for s in samples), default=1)
+            weights.append(max(2, min(max_len, 28)))
+        total_w = sum(weights) or 1
+        usable = max(80, content_w - 2)
+        cols = [max(36, int(usable * w / total_w)) for w in weights]
+        # 修正舍入
+        drift = usable - sum(cols)
+        if cols:
+            cols[-1] = max(36, cols[-1] + drift)
+        return cols
+
+    def _measure_table(b) -> int:
+        headers = list(b.get("headers") or [])
+        rows = list(b.get("rows") or [])
+        cols = _table_col_widths(headers, rows)
+        cell_pad_x, cell_pad_y = 8, 6
+        line_h = _text_size(d0, "测", font_code)[1] + 2
+
+        def row_h(cells, is_header=False):
+            f = font_body if is_header else font_code
+            max_lines = 1
+            for ci, cell in enumerate(cells):
+                cw = cols[ci] - cell_pad_x * 2 if ci < len(cols) else 40
+                wrapped = _wrap_text(d0, _plain_inline(str(cell)), f, max(20, cw)) or [""]
+                max_lines = max(max_lines, len(wrapped))
+            return max_lines * line_h + cell_pad_y * 2
+
+        h = row_h(headers, True)
+        for r in rows:
+            h += row_h(r, False)
+        return h + 16
+
     def measure_block(b) -> int:
         h = 0
+        if b["type"] == "table":
+            return _measure_table(b)
         if b["type"] == "code":
             for line in _wrap_text(d0, b["text"], font_code, content_w - 24) or [""]:
                 h += _text_size(d0, line or " ", font_code)[1] + line_extra
@@ -1880,7 +2170,7 @@ def _draw_message_png(data: dict[str, Any], style: CardStyle) -> tuple[bytes, in
             prefix = "- "
         elif b["type"] == "quote":
             prefix = "| "
-        text = prefix + b["text"]
+        text = prefix + b.get("text", "")
         for line in _wrap_text(d0, text, f, content_w):
             h += _text_size(d0, line or " ", f)[1] + line_extra
         return h + 10
@@ -1958,6 +2248,51 @@ def _draw_message_png(data: dict[str, Any], style: CardStyle) -> tuple[bytes, in
                 yy += _text_size(draw, line or " ", font_code)[1] + line_extra
             y += block_h + 12
             continue
+        if b["type"] == "table":
+            headers = list(b.get("headers") or [])
+            rows = list(b.get("rows") or [])
+            cols = _table_col_widths(headers, rows)
+            cell_pad_x, cell_pad_y = 8, 6
+            line_h = _text_size(draw, "测", font_code)[1] + 2
+            table_w = sum(cols)
+            x0 = pad
+
+            def _draw_row(cells, yy, is_header=False):
+                f = font_body if is_header else font_code
+                # 先算行高
+                wrapped_cols = []
+                max_lines = 1
+                for ci in range(len(cols)):
+                    cell = cells[ci] if ci < len(cells) else ""
+                    cw = max(20, cols[ci] - cell_pad_x * 2)
+                    wrapped = _wrap_text(draw, _plain_inline(str(cell)), f, cw) or [""]
+                    wrapped_cols.append(wrapped)
+                    max_lines = max(max_lines, len(wrapped))
+                rh = max_lines * line_h + cell_pad_y * 2
+                fill = code_bg if is_header else bg
+                # 底色
+                draw.rectangle((x0, yy, x0 + table_w, yy + rh), fill=fill, outline=border, width=1)
+                # 竖线 + 文字
+                cx = x0
+                for ci, col_w in enumerate(cols):
+                    if ci > 0:
+                        draw.line((cx, yy, cx, yy + rh), fill=border, width=1)
+                    wrapped = wrapped_cols[ci] if ci < len(wrapped_cols) else [""]
+                    ty = yy + cell_pad_y
+                    for ln in wrapped:
+                        draw.text((cx + cell_pad_x, ty), ln, font=f, fill=fg)
+                        ty += line_h
+                    cx += col_w
+                # 右边框
+                draw.line((x0 + table_w, yy, x0 + table_w, yy + rh), fill=border, width=1)
+                return rh
+
+            y_row = y
+            y_row += _draw_row(headers, y_row, True)
+            for r in rows:
+                y_row += _draw_row(r, y_row, False)
+            y = y_row + 12
+            continue
         if b["type"] == "hr":
             draw.line((pad, y + 8, width - pad, y + 8), fill=border, width=1)
             y += 18
@@ -2014,10 +2349,10 @@ def _draw_message_png(data: dict[str, Any], style: CardStyle) -> tuple[bytes, in
     return buf.getvalue(), width, height
 
 
-def _parse_md_blocks(text: str) -> list[dict[str, str]]:
+def _parse_md_blocks(text: str) -> list[dict[str, Any]]:
     text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
     lines = text.split("\n")
-    blocks: list[dict[str, str]] = []
+    blocks: list[dict[str, Any]] = []
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -2030,6 +2365,13 @@ def _parse_md_blocks(text: str) -> list[dict[str, str]]:
             if i < len(lines):
                 i += 1
             blocks.append({"type": "code", "text": "\n".join(buf)})
+            continue
+        # GFM table（须在空行/hr 判断前）
+        parsed = _try_parse_md_table(lines, i)
+        if parsed is not None:
+            block, ni = parsed
+            blocks.append(block)
+            i = ni
             continue
         if not line.strip():
             i += 1
