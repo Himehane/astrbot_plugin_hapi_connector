@@ -1137,8 +1137,8 @@ def public_config(plugin) -> dict[str, Any]:
                 {
                     "id": "dep_matplotlib",
                     "group": "dep",
-                    "label": "matplotlib（公式内嵌）",
-                    "desc": "pip install matplotlib",
+                    "label": "matplotlib（公式）",
+                    "desc": "pip install matplotlib — 含公式时由它渲染",
                     "installed": False,
                 },
             ]

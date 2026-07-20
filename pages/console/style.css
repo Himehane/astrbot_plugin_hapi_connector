@@ -1220,7 +1220,7 @@ button {
 
 .win-vis-item {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: 22px minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
   column-gap: 10px;
   row-gap: 2px;
@@ -1239,6 +1239,14 @@ button {
 
 .win-vis-item:hover {
   background: var(--bg-deep);
+}
+
+.win-vis-item.is-active-win {
+  background: color-mix(in srgb, var(--ok, #16a34a) 6%, var(--surface));
+}
+
+.win-vis-item.is-active-win:hover {
+  background: color-mix(in srgb, var(--ok, #16a34a) 10%, var(--bg-deep));
 }
 
 .win-vis-item input[type="checkbox"] {
@@ -1266,8 +1274,28 @@ button {
   white-space: nowrap;
 }
 
+.win-vis-bind {
+  grid-column: 3;
+  grid-row: 1;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cursor);
+  white-space: nowrap;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  justify-self: end;
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.win-vis-bind.is-zero {
+  color: var(--faint);
+  font-weight: 500;
+}
+
 .win-vis-umo {
-  grid-column: 2;
+  grid-column: 2 / span 2;
   grid-row: 2;
   font-size: 10px;
   color: var(--faint);

@@ -128,10 +128,11 @@ hapi codex    # Open Codex
 | `render_mode` | 推送呈现：`text` / `card`（勾选类型是否出卡，含对话） | text |
 | `render_kinds` | 出卡类型（逗号分隔）：`session_list,pending,status,permission,routes,message` | 见 schema |
 | `card_style_preset` / 配色 | 预设与 token；也可完全用自定义 CSS 覆盖 | terminal_light |
-| `card_custom_css` | 完整可编辑 CSS（Playwright 完整生效；Pillow 识别 `--card-*`） | 空=默认 |
+| `formula_mode` | 公式：`off` / `detect`（含公式时由 matplotlib 渲染）/ `plain`（含公式时只发文字） | off |
+| `card_custom_css` | 完整可编辑 CSS（Pillow 识别 `--card-*` 变量） | 空=默认 |
 | `card_font_path` | 字体文件路径；留空用 `assets/fonts` 或系统已装 CJK | 空 |
 
-> 卡片为**可选能力**：`pip install -r requirements-render.txt`（Pillow 快路径）。完整 CSS：`pip install playwright && playwright install chromium`。中文字体不自动下载——需要时放进 `assets/fonts/` 或填 `card_font_path`；系统已装 Noto/雅黑等时也可直接用。
+> 卡片为**可选能力**：`pip install -r requirements-render.txt`（Pillow）。含公式时需额外 `pip install matplotlib`。中文字体不自动下载——需要时放进 `assets/fonts/` 或填 `card_font_path`；系统已装 Noto/雅黑等时也可直接用。
 
 ### 自动审批
 

@@ -7,7 +7,7 @@
  * 页面：概览 / 会话 / 交互 / 命令帮助 / 设置
  */
 
-import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.35";
+import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.39";
 
 /* ---------- constants ---------- */
 
@@ -1342,7 +1342,7 @@ function openWindowVisibilityDialog() {
   const dlg = $("#dlg");
   dlg?.classList.add("dlg-win-vis");
   $("#dlg-body").innerHTML = `
-    <p class="field-help win-vis-help">勾选的窗口会出现在本页左侧列表和推送下拉框里。按 Bot 分组；默认全部显示。设置只存在本浏览器。「绑」= 显式绑定数；「投递」= 实际会推到该窗口的 session 数（含类型/默认路由，仅当与绑定数不同时显示）；「运行」= 其中正在运行的。</p>
+    <p class="field-help win-vis-help">勾选的窗口会出现在本页左侧列表和推送下拉框里。按 Bot 分组；默认全部显示。设置只存在本浏览器。右侧「绑/投递/运行」为本窗口 session 数。</p>
     <div class="win-vis-toolbar">
       <button type="button" class="btn btn-sm" id="vis-all">全部显示</button>
       <button type="button" class="btn btn-sm" id="vis-none">全部隐藏</button>

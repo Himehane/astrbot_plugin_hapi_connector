@@ -8,6 +8,7 @@
 
 可选依赖：
     pip install Pillow
+    pip install matplotlib  # formula_mode=detect：含公式时由 matplotlib 渲染
 """
 
 from __future__ import annotations
@@ -59,8 +60,7 @@ except ImportError:  # pragma: no cover — 脚本直跑 / 未作为包部署
 
 
 RENDER_MODES = ("text", "card")
-# off=当普通文字出卡；detect=有公式时尽量渲成小图嵌进卡（引擎未接时仍按源码）；
-# plain=识别到公式则放弃出卡，只发纯文本
+# off=公式当普通字；detect=含公式时由 matplotlib 渲染；plain=含公式时只发文字
 FORMULA_MODES = ("off", "detect", "plain")
 CARD_KINDS = (
     "session_list",
@@ -482,7 +482,7 @@ def engine_status(user_font_path: str | None = None) -> dict[str, Any]:
         "matplotlib": mpl,
         "engines": {
             "card": "pillow" if _HAS_PILLOW else None,
-            "formula": "matplotlib" if mpl else None,
+            "message_formula": "matplotlib" if mpl else None,
         },
         "fonts": fonts,
         "installable": font_manager.installable_items(),
@@ -495,7 +495,7 @@ def _install_hint() -> str | None:
     if not _HAS_PILLOW:
         parts.append("pip install Pillow（或 WebUI 勾选安装）")
     if not matplotlib_available():
-        parts.append("公式内嵌：pip install matplotlib（或 WebUI 勾选）")
+        parts.append("含公式时渲染：pip install matplotlib（或 WebUI 勾选）")
     fonts = font_manager.font_status()
     if not fonts.get("sans") and not fonts.get("user_font"):
         parts.append(
@@ -997,75 +997,321 @@ def extract_formula_segments(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def render_formula_png(
-    latex: str,
-    *,
-    fg: str = "#14120f",
-    bg: str = "#f7f4ea",
-    fontsize: float = 13,
-    dpi: int = 140,
-    max_width_px: int = 640,
-) -> bytes | None:
-    """用 matplotlib mathtext 渲公式为 PNG；失败返回 None。"""
-    if not matplotlib_available() or not _HAS_PILLOW:
-        return None
-    src = (latex or "").strip()
-    if not src:
-        return None
-    one = " ".join(src.split())
-    # mathtext 需要 $...$
-    if one.startswith("\\begin"):
-        candidates = [f"${one}$"]
-    else:
-        candidates = [f"$\\displaystyle {one}$", f"${one}$"]
+def _md_body_to_plain_lines(text: str, max_chars: int = 42) -> list[str]:
+    """matplotlib 消息路径：Markdown 粗略收成可换行纯文本。"""
+    s = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    out: list[str] = []
+    in_code = False
+    for raw in s.split("\n"):
+        line = raw.rstrip()
+        if line.strip().startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            plain = line
+        else:
+            plain = line
+            if plain.startswith("#"):
+                plain = plain.lstrip("#").strip()
+            if plain.startswith(("- ", "* ", "+ ")):
+                plain = "· " + plain[2:]
+            elif re.match(r"^\d+\.\s+", plain):
+                plain = re.sub(r"^\d+\.\s+", "· ", plain)
+            if plain.startswith(">"):
+                plain = plain.lstrip("> ").strip()
+            # 去掉粗体/斜体/行内代码标记，保留内容
+            plain = re.sub(r"`([^`]+)`", r"\1", plain)
+            plain = re.sub(r"\*\*([^*]+)\*\*", r"\1", plain)
+            plain = re.sub(r"\*([^*]+)\*", r"\1", plain)
+            plain = re.sub(r"__([^_]+)__", r"\1", plain)
+            plain = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", plain)
+        if not plain.strip():
+            out.append("")
+            continue
+        # 按字符宽粗 wrap（CJK 按 1，ASCII 约 0.5 估）
+        buf = ""
+        width = 0.0
+        limit = float(max(12, max_chars))
+        for ch in plain:
+            w = 1.0 if ord(ch) > 0x2E80 else 0.55
+            if buf and width + w > limit:
+                out.append(buf)
+                buf = ch
+                width = w
+            else:
+                buf += ch
+                width += w
+        if buf:
+            out.append(buf)
+    # 压连续空行
+    cleaned: list[str] = []
+    for ln in out:
+        if ln == "" and cleaned and cleaned[-1] == "":
+            continue
+        cleaned.append(ln)
+    return cleaned
 
+
+def _formula_to_mathtext(latex: str) -> list[str]:
+    """把一段 LaTeX 收成 matplotlib mathtext 候选（失败则上层用源码字）。"""
+    one = " ".join((latex or "").strip().split())
+    if not one:
+        return []
+    # mathtext 不吃 \[ \] \( \) 外壳
+    if one.startswith("\\[") and one.endswith("\\]"):
+        one = one[2:-2].strip()
+    if one.startswith("\\(") and one.endswith("\\)"):
+        one = one[2:-2].strip()
+    if one.startswith("$$") and one.endswith("$$"):
+        one = one[2:-2].strip()
+    cands: list[str] = []
+    if one.startswith("\\begin"):
+        cands.append(f"${one}$")
+    else:
+        cands.append(f"$\\displaystyle {one}$")
+        cands.append(f"${one}$")
+    return cands
+
+
+def render_message_matplotlib_png(
+    data: dict[str, Any],
+    style: "CardStyle",
+) -> tuple[bytes, int, int] | None:
+    """含公式时由 matplotlib 渲染整条 Agent 消息。失败返回 None。"""
+    if not matplotlib_available():
+        return None
     try:
         import matplotlib
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        from matplotlib.font_manager import FontProperties
+        from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea, VPacker
+    except Exception as e:
+        logger.debug("matplotlib import failed: %s", e)
+        return None
 
-        data = None
-        for expr in candidates:
-            fig = None
+    title = str(data.get("title") or "Agent 消息")
+    subtitle = str(data.get("subtitle") or "")
+    body = str(data.get("body") or data.get("text") or "")
+    footer = str(data.get("footer") or "")
+
+    width_px = max(400, min(1400, int(style.width or 720)))
+    dpi = 140
+    width_in = width_px / float(dpi)
+    max_chars = max(28, int((width_px - 56) / 15))
+
+    font_file = font_manager.resolve_font_path(
+        mono=False, user_path=style.font_path or None
+    )
+    fp = FontProperties(fname=str(font_file)) if font_file else FontProperties()
+    fp_title = FontProperties(fname=str(font_file)) if font_file else FontProperties()
+    try:
+        fp_title.set_weight("bold")
+    except Exception:
+        pass
+
+    scale = float(style.font_scale or 1.0)
+    fs_title = max(13.0, 15.5 * scale)
+    fs_sub = max(9.5, 10.5 * scale)
+    fs_body = max(10.5, 12.0 * scale)
+    fs_math = max(11.0, 12.5 * scale)
+    fs_foot = max(9.0, 10.0 * scale)
+
+    fg = style.fg or "#14120f"
+    bg = style.bg or "#f7f4ea"
+    accent = style.accent or "#0f6b3c"
+    muted = style.muted or "#3a362e"
+
+    children: list[Any] = []
+
+    def _text_area(
+        txt: str,
+        *,
+        size: float,
+        color: str,
+        bold: bool = False,
+        mono: bool = False,
+        math: bool = False,
+    ):
+        props: dict[str, Any] = {
+            "color": color,
+            "fontsize": size,
+        }
+        if math:
+            # mathtext 走默认 math 字体，不要塞 CJK FontProperties
+            pass
+        elif bold:
+            props["fontproperties"] = fp_title
+        else:
+            props["fontproperties"] = fp
+        if mono and not math:
+            props["family"] = "monospace"
+        return TextArea(txt if txt else " ", textprops=props, multilinebaseline=True)
+
+    def _math_area(latex: str):
+        for expr in _formula_to_mathtext(latex):
             try:
-                fig = plt.figure(dpi=dpi)
-                fig.patch.set_facecolor(bg)
-                fig.text(0.5, 0.5, expr, fontsize=fontsize, color=fg, ha="center", va="center")
-                buf = io.BytesIO()
-                fig.savefig(
-                    buf,
-                    format="png",
-                    dpi=dpi,
-                    facecolor=bg,
-                    edgecolor="none",
-                    bbox_inches="tight",
-                    pad_inches=0.1,
-                    transparent=False,
-                )
-                data = buf.getvalue()
-                if data and len(data) > 64:
-                    break
-                data = None
+                _fig = plt.figure(figsize=(0.1, 0.1))
+                try:
+                    _fig.text(0, 0, expr)
+                    _fig.canvas.draw()
+                finally:
+                    plt.close(_fig)
+                return _text_area(expr, size=fs_math, color=fg, math=True)
             except Exception:
-                data = None
-            finally:
-                if fig is not None:
-                    plt.close(fig)
-        if not data:
+                continue
+        src = " ".join((latex or "").split()) or "?"
+        return _text_area(src, size=fs_body * 0.95, color=muted, mono=True)
+
+    def _plain_one_line(s: str) -> str:
+        lines = _md_body_to_plain_lines(s, max_chars=10_000)
+        return " ".join(x for x in lines if x).strip()
+
+    def _segs_to_rows(segs: list[tuple[str, str]]) -> list[list[tuple[str, str]]]:
+        """按换行切成行；行内公式与前后文字同一行，块级公式独占一行。"""
+        rows: list[list[tuple[str, str]]] = []
+        cur: list[tuple[str, str]] = []
+
+        def flush() -> None:
+            nonlocal cur
+            if cur:
+                rows.append(cur)
+                cur = []
+
+        for kind, content in segs:
+            if kind == "formula":
+                is_display = ("\n" in content) or content.lstrip().startswith("\\begin")
+                if is_display:
+                    flush()
+                    rows.append([("formula", content)])
+                else:
+                    cur.append(("formula", content))
+                continue
+            parts = str(content or "").split("\n")
+            for idx, part in enumerate(parts):
+                if idx > 0:
+                    flush()
+                if part:
+                    cur.append(("text", part))
+                elif idx < len(parts) - 1:
+                    flush()
+                    rows.append([])
+        flush()
+        return rows
+
+    children.append(_text_area(title, size=fs_title, color=fg, bold=True))
+    if subtitle.strip():
+        children.append(_text_area(subtitle.strip(), size=fs_sub, color=muted))
+    children.append(_text_area("━" * min(18, max_chars // 2), size=fs_sub, color=accent))
+
+    segs = extract_formula_segments(body) if text_has_formula(body) else [("text", body)]
+    if not segs:
+        segs = [("text", body)]
+
+    for row in _segs_to_rows(segs):
+        if not row:
+            children.append(_text_area(" ", size=fs_body * 0.4, color=fg))
+            continue
+        only_text = all(k == "text" for k, _ in row)
+        if only_text:
+            joined = "".join(c for _, c in row)
+            for ln in _md_body_to_plain_lines(joined, max_chars=max_chars):
+                children.append(_text_area(ln if ln else " ", size=fs_body, color=fg))
+            continue
+        # 含公式：同行横排；块级公式单独一格
+        if len(row) == 1 and row[0][0] == "formula":
+            children.append(_math_area(row[0][1]))
+            continue
+        row_items: list[Any] = []
+        for kind, content in row:
+            if kind == "text":
+                plain = _plain_one_line(content)
+                if plain:
+                    row_items.append(_text_area(plain, size=fs_body, color=fg))
+            else:
+                row_items.append(_math_area(content))
+        if not row_items:
+            continue
+        if len(row_items) == 1:
+            children.append(row_items[0])
+        else:
+            children.append(
+                HPacker(children=row_items, align="center", pad=0, sep=3)
+            )
+
+    if footer.strip():
+        children.append(_text_area("─" * min(24, max_chars // 2), size=fs_sub, color=muted))
+        for ln in _md_body_to_plain_lines(footer, max_chars=max_chars):
+            children.append(_text_area(ln, size=fs_foot, color=accent))
+
+    if not children:
+        return None
+
+    pack = VPacker(children=children, align="left", pad=10, sep=5)
+    # 估算高度：行数 × 行高
+    est_lines = max(6, len(children) + 2)
+    height_in = max(1.6, min(28.0, 0.22 * est_lines + 0.6))
+
+    fig = None
+    try:
+        fig = plt.figure(figsize=(width_in, height_in), dpi=dpi, facecolor=bg)
+        ax = fig.add_axes([0.0, 0.0, 1.0, 1.0])
+        ax.set_axis_off()
+        ax.set_facecolor(bg)
+        anchored = AnchoredOffsetbox(
+            loc="upper left",
+            child=pack,
+            pad=0.6,
+            borderpad=0.5,
+            frameon=True,
+            bbox_to_anchor=(0.0, 1.0),
+            bbox_transform=ax.transAxes,
+        )
+        # 边框色贴近卡片
+        anchored.patch.set_boxstyle("round,pad=0.4,rounding_size=0.4")
+        anchored.patch.set_facecolor(bg)
+        anchored.patch.set_edgecolor(style.border or "#c9c2b0")
+        anchored.patch.set_linewidth(1.2)
+        ax.add_artist(anchored)
+
+        buf = io.BytesIO()
+        fig.savefig(
+            buf,
+            format="png",
+            dpi=dpi,
+            facecolor=bg,
+            edgecolor="none",
+            bbox_inches="tight",
+            pad_inches=0.12,
+            transparent=False,
+        )
+        png = buf.getvalue()
+        if not png or len(png) < 64:
             return None
-        im = Image.open(io.BytesIO(data)).convert("RGB")
-        if max_width_px > 0 and im.width > max_width_px:
-            ratio = max_width_px / float(im.width)
+        if not _HAS_PILLOW:
+            # 无 Pillow 时也能返回，尺寸用估算
+            return png, width_px, int(height_in * dpi)
+        im = Image.open(io.BytesIO(png)).convert("RGB")
+        # 限制最大宽
+        if im.width > width_px + 40:
+            ratio = width_px / float(im.width)
             nh = max(1, int(im.height * ratio))
             resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
-            im = im.resize((max_width_px, nh), resample)
-        out = io.BytesIO()
-        im.save(out, format="PNG", optimize=True)
-        return out.getvalue()
+            im = im.resize((width_px, nh), resample)
+            out = io.BytesIO()
+            im.save(out, format="PNG", optimize=True)
+            png = out.getvalue()
+            return png, width_px, nh
+        return png, im.width, im.height
     except Exception as e:
-        logger.debug("render_formula_png failed: %s · %s", e, src[:60])
+        logger.warning("render_message_matplotlib_png failed: %s", e)
         return None
+    finally:
+        if fig is not None:
+            plt.close(fig)
+        # 清掉校验用残留
+        plt.close("all")
 
 
 def payload_has_formula(data: dict[str, Any] | None) -> bool:
@@ -1214,11 +1460,11 @@ def render_meta() -> dict[str, Any]:
         "engine": engine_status(),
         "formula_subset": {
             "supported": [
-                "plain：检测到公式则整条消息只发文字",
-                "detect：整条 Agent 消息出图，公式定界段用 matplotlib 排版",
+                "plain：含公式时只发文字",
+                "detect：含公式时由 matplotlib 渲染",
             ],
             "delimiters": ["$...$", "$$...$$", "\\(...\\)", "\\[...\\]", "\\begin{...}"],
-            "note": "detect 需 matplotlib；无法解析的公式按源码嵌在同一张消息图里。",
+            "note": "detect 需 matplotlib；失败回退 Pillow 纯文。",
             "matplotlib": matplotlib_available(),
         },
     }
@@ -1660,7 +1906,15 @@ def _render_with_pillow(
     formula_mode: str = "off",
 ) -> tuple[bytes, int, int]:
     if kind == "message":
-        return _draw_message_png(data, style, formula_mode=formula_mode)
+        fmode = normalize_formula_mode(formula_mode)
+        body = str((data or {}).get("body") or (data or {}).get("text") or "")
+        # 含公式时由 matplotlib 渲染；失败再回退 Pillow 纯文
+        if fmode == "detect" and text_has_formula(body) and matplotlib_available():
+            whole = render_message_matplotlib_png(data or {}, style)
+            if whole is not None:
+                return whole
+            logger.info("matplotlib 渲染失败，回退 Pillow 纯文")
+        return _draw_message_png(data, style, formula_mode="off")
     if kind == "session_list" or data.get("layout") == "session_list":
         return _draw_session_list_png(data, style)
     if kind == "status" or data.get("layout") == "status":
@@ -2301,14 +2555,13 @@ def _draw_message_png(
     *,
     formula_mode: str = "off",
 ) -> tuple[bytes, int, int]:
-    """Pillow 对话卡：Markdown 子集；formula_mode=detect 时公式用 matplotlib 内嵌。"""
+    """Pillow 对话卡：Markdown 子集（公式当普通字）。"""
+    _ = formula_mode
     scale = style.font_scale
     pad = style.padding
     width = style.width
     content_w = width - pad * 2
     line_extra = 4  # 行距
-    fmode = normalize_formula_mode(formula_mode)
-    use_formula_img = fmode == "detect" and matplotlib_available()
 
     # 手机聊天气泡里看：正文至少 ~16–18px 量级
     title_size = max(18, int(24 * scale))
@@ -2318,7 +2571,6 @@ def _draw_message_png(
     h1_size = max(18, int(22 * scale))
     h2_size = max(16, int(19 * scale))
     foot_size = max(12, int(13 * scale))
-    formula_fs = max(11.0, body_size * 0.95)
 
     tmp = Image.new("RGB", (width, 100), _hex_to_rgb(style.bg))
     d0 = ImageDraw.Draw(tmp)
@@ -2337,16 +2589,7 @@ def _draw_message_png(
     body = str(data.get("body") or data.get("text") or "")
     footer = str(data.get("footer") or "")
 
-    # detect：先把公式块抽出来，成功渲图的变成 formula_img，失败当普通文本
-    if use_formula_img and text_has_formula(body):
-        blocks = _parse_md_blocks_with_formulas(
-            body,
-            style=style,
-            max_formula_w=content_w,
-            formula_fontsize=formula_fs,
-        )
-    else:
-        blocks = _parse_md_blocks(body)
+    blocks = _parse_md_blocks(body)
 
     def _table_col_widths(headers, rows) -> list[int]:
         n = max(1, len(headers))
@@ -2391,11 +2634,6 @@ def _draw_message_png(
 
     def measure_block(b) -> int:
         h = 0
-        if b["type"] == "formula_img":
-            im = b.get("image")
-            if im is not None:
-                return int(getattr(im, "height", 40)) + 14
-            return 48
         if b["type"] == "table":
             return _measure_table(b)
         if b["type"] == "code":
@@ -2473,26 +2711,6 @@ def _draw_message_png(
         if y > height - pad - 28:
             draw.text((pad, y), "...", font=font_body, fill=sub_fg)
             break
-        if b["type"] == "formula_img":
-            im = b.get("image")
-            if im is not None:
-                try:
-                    # 居中贴图
-                    x0 = pad + max(0, (content_w - im.width) // 2)
-                    img.paste(im, (x0, y))
-                    y += im.height + 12
-                except Exception:
-                    # 贴图失败则当文本
-                    for line in _wrap_text(draw, str(b.get("text") or ""), font_body, content_w):
-                        draw.text((pad, y), line, font=font_body, fill=fg)
-                        y += _text_size(draw, line or " ", font_body)[1] + line_extra
-                    y += 8
-            else:
-                for line in _wrap_text(draw, str(b.get("text") or ""), font_body, content_w):
-                    draw.text((pad, y), line, font=font_body, fill=fg)
-                    y += _text_size(draw, line or " ", font_body)[1] + line_extra
-                y += 8
-            continue
         if b["type"] == "code":
             lines = _wrap_text(draw, b["text"], font_code, content_w - 24) or [""]
             block_h = (
@@ -2612,49 +2830,6 @@ def _draw_message_png(
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
     return buf.getvalue(), width, height
-
-
-def _parse_md_blocks_with_formulas(
-    text: str,
-    *,
-    style: CardStyle,
-    max_formula_w: int,
-    formula_fontsize: float,
-) -> list[dict[str, Any]]:
-    """整条消息：按数学定界切段 → 正文走 Markdown，公式段整段交给 matplotlib。
-
-    不是「按命令密度猜公式」，只处理已定界的数学；无定界则整段当 Markdown。
-    """
-    segs = extract_formula_segments(text)
-    if not segs:
-        return _parse_md_blocks(text)
-    # 全是纯文本（无公式段）
-    if all(k == "text" for k, _ in segs):
-        return _parse_md_blocks(text)
-
-    out: list[dict[str, Any]] = []
-    for kind, content in segs:
-        if kind == "text":
-            if content.strip():
-                out.extend(_parse_md_blocks(content))
-            continue
-        png = render_formula_png(
-            content,
-            fg=style.fg,
-            bg=style.bg,
-            fontsize=formula_fontsize,
-            max_width_px=max(80, max_formula_w - 8),
-        )
-        if png and _HAS_PILLOW:
-            try:
-                im = Image.open(io.BytesIO(png)).convert("RGB")
-                out.append({"type": "formula_img", "image": im, "text": content})
-                continue
-            except Exception:
-                pass
-        # 引擎失败：公式源码当普通段，仍在整条消息图里
-        out.append({"type": "p", "text": content})
-    return out or _parse_md_blocks(text)
 
 
 def _parse_md_blocks(text: str) -> list[dict[str, Any]]:
