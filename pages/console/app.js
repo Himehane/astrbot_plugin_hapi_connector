@@ -3523,37 +3523,51 @@ function openDetail(id) {
   $$("#dlg-body [data-life]").forEach((b) => {
     b.onclick = async () => {
       const action = b.dataset.life;
-      if (action === "delete" && !confirm("确定删除？")) return;
+      const labels = { resume: "恢复", archive: "归档", delete: "删除" };
+      const label = labels[action] || action;
+      if (action === "delete" && !confirm("确定删除？不可恢复。")) return;
       if (action === "resume" && !confirm("恢复后可能得到新 session id，继续？")) return;
       if (action === "archive" && !confirm("确定归档？")) return;
+      b.disabled = true;
+      b.classList.add("is-busy");
       try {
         if (liveMode && api) {
           const res = await api.lifecycle(id, action);
-          toast(res.message || "完成");
+          toast(res?.message || `${label}成功`);
           state.selected.delete(id);
           if (action === "delete") {
             $("#dlg").close();
-            if (!applySnapFromResult(res)) await refresh();
-            else { renderTopConn(); renderSessions(); }
+            if (!applySnapFromResult(res)) await refresh({ fresh: true, repaint: true });
+            else {
+              renderTopConn();
+              renderSessions();
+            }
             return;
           }
-          if (!applySnapFromResult(res)) await refresh();
-          else { renderTopConn(); renderSessions(); }
+          if (!applySnapFromResult(res)) await refresh({ fresh: true, repaint: true });
+          else {
+            renderTopConn();
+            renderSessions();
+          }
           openDetail(res.new_id || id);
           return;
         }
         const res = store.lifecycle(id, action);
         state.selected.delete(id);
+        toast(`${label}完成（本地 mock）`);
         if (action === "delete") {
           $("#dlg").close();
-          await refresh();
+          await refresh({ repaint: true });
           return;
         }
-        await refresh();
+        await refresh({ repaint: true });
         openDetail(res.new_id || id);
       } catch (err) {
-        toast("操作失败: " + (err.message || err));
-        await refresh();
+        toast(`${label}失败: ` + (err.message || err));
+        await refresh({ fresh: true, repaint: true });
+      } finally {
+        b.disabled = false;
+        b.classList.remove("is-busy");
       }
     };
   });
