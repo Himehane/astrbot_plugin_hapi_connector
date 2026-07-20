@@ -2242,3 +2242,20 @@ input[type="range"] {
   margin-top: 2px;
   line-height: 1.4;
 }
+
+
+.ext-link {
+  color: var(--bind, #1d4ed8);
+  word-break: break-all;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ext-link:hover { filter: brightness(0.9); }
+.kv .break, .mono.break { word-break: break-all; }
+.kv-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-ui);
+}
+.muted { color: var(--muted); }

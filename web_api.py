@@ -54,7 +54,7 @@ CONFIG_KEYS = (
     "card_font_path",
 )
 
-SENSITIVE_KEYS = frozenset({"access_token", "cf_access_client_secret"})
+SENSITIVE_KEYS = frozenset({"cf_access_client_secret"})  # access_token 按用户要求明文回显
 
 # 改这些后需要重建 client / 重启 SSE
 RECONNECT_KEYS = frozenset({
@@ -118,6 +118,7 @@ def register_pages(plugin) -> None:
         (f"{prefix}/hub/launch", api.hub_launch, ["GET"], "WebUI HAPI Web launch URL"),
         (f"{prefix}/render/meta", api.render_meta, ["GET"], "WebUI render meta"),
         (f"{prefix}/render/preview", api.render_preview, ["POST"], "WebUI card preview"),
+        (f"{prefix}/render/install", api.render_install, ["POST"], "WebUI install font/deps"),
     ]
     for route, handler, methods, desc in routes:
         ctx.register_web_api(route, handler, methods, desc)
@@ -138,21 +139,62 @@ class WebApi:
 
         from .poke_actions import poke_actions_meta
 
+        from . import font_manager
+
         profiles = flavor_profiles.export_profiles_meta()
+        render_meta = card_render.render_meta()
+        render_meta["installable"] = font_manager.installable_items()
         return json_response({
             "plugin_name": PLUGIN_NAME,
             "plugin_version": _plugin_version(self.plugin),
             "output_levels": list(OUTPUT_LEVELS),
-            "render": card_render.render_meta(),
+            "render": render_meta,
             "poke_actions": poke_actions_meta(),
             **profiles,
         })
 
     async def render_meta(self):
         from astrbot.api.web import json_response
+        from . import card_render, font_manager
+
+        meta = card_render.render_meta()
+        meta["installable"] = font_manager.installable_items()
+        return json_response(meta)
+
+    async def render_install(self):
+        """按勾选项安装字体到插件目录，和/或 pip 依赖（非自动，需显式 POST）。"""
+        import asyncio
+        from astrbot.api.web import error_response, json_response, request
+        from . import font_manager
+
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是对象", status_code=400)
+
+        ids = payload.get("ids") or payload.get("items") or []
+        if isinstance(ids, str):
+            ids = [x.strip() for x in ids.replace("，", ",").split(",") if x.strip()]
+        if not isinstance(ids, list):
+            return error_response("ids 必须是数组", status_code=400)
+
+        force = bool(payload.get("force"))
+
+        def _run():
+            return font_manager.install_selected(
+                [str(x) for x in ids], force_font=force
+            )
+
+        try:
+            result = await asyncio.to_thread(_run)
+        except Exception as e:
+            logger.exception("render install failed")
+            return error_response(f"安装失败: {e}", status_code=500)
+
+        # 刷新引擎状态给前端
         from . import card_render
 
-        return json_response(card_render.render_meta())
+        result["engine"] = card_render.engine_status()
+        return json_response(result)
 
     async def render_preview(self):
         """按当前或请求内样式生成结构卡/对话卡 PNG（base64）。"""
@@ -160,78 +202,107 @@ class WebApi:
         from astrbot.api.web import error_response, json_response, request
         from . import card_render
 
-        payload = await request.json(default={})
-        if not isinstance(payload, dict):
-            return error_response("请求体必须是对象", status_code=400)
+        try:
+            try:
+                payload = await request.json(default={})
+            except TypeError:
+                # 旧 bridge 可能不支持 default=
+                payload = await request.json()
+            if payload is None:
+                payload = {}
+            if not isinstance(payload, dict):
+                return error_response("请求体必须是对象", status_code=400)
 
-        kind = str(payload.get("kind") or "session_list").strip()
-        if kind not in card_render.CARD_KINDS:
-            return error_response(
-                f"kind 必须是 {'/'.join(card_render.CARD_KINDS)}", status_code=400
+            kind = str(payload.get("kind") or "session_list").strip()
+            if kind not in card_render.CARD_KINDS:
+                return error_response(
+                    f"kind 必须是 {'/'.join(card_render.CARD_KINDS)}", status_code=400
+                )
+
+            # 样式：请求 style 覆盖 + 否则读插件 config
+            try:
+                cfg_view = dict(public_config(self.plugin))
+            except Exception as e:
+                logger.warning("public_config in preview failed: %s", e)
+                cfg_view = dict(card_render.config_defaults())
+
+            style_patch = payload.get("style")
+            if isinstance(style_patch, dict):
+                alias = {
+                    "preset": "card_style_preset",
+                    "width": "card_width",
+                    "accent": "card_accent",
+                    "bg": "card_bg",
+                    "fg": "card_fg",
+                    "font_scale": "card_font_scale",
+                    "density": "card_density",
+                    "show_brand": "card_show_brand",
+                    "mono": "card_mono",
+                    "custom_css": "card_custom_css",
+                    "font_path": "card_font_path",
+                }
+                for k, v in style_patch.items():
+                    mapped = alias.get(k, k)
+                    if mapped in CONFIG_KEYS or k in CONFIG_KEYS:
+                        cfg_view[mapped] = v
+
+            # 顶层也允许直接传 card_custom_css
+            if payload.get("card_custom_css") is not None:
+                cfg_view["card_custom_css"] = payload.get("card_custom_css")
+            if payload.get("card_font_path") is not None:
+                cfg_view["card_font_path"] = payload.get("card_font_path")
+
+            formula_mode = str(
+                payload.get("formula_mode")
+                or cfg_view.get("formula_mode")
+                or "off"
+            ).strip()
+            style = card_render.style_from_config(cfg_view)
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                data = card_render.sample_payload(kind)
+
+            prefer = payload.get("engine")
+            if prefer not in ("pillow", "playwright", None, ""):
+                prefer = None
+            result = card_render.render_card(
+                kind,
+                data,
+                style,
+                formula_mode=formula_mode,
+                prefer_engine=prefer or "pillow",
             )
-
-        # 样式：请求 style 覆盖 + 否则读插件 config
-        cfg_view = dict(public_config(self.plugin))
-        style_patch = payload.get("style")
-        if isinstance(style_patch, dict):
-            alias = {
-                "preset": "card_style_preset",
-                "width": "card_width",
-                "accent": "card_accent",
-                "bg": "card_bg",
-                "fg": "card_fg",
-                "font_scale": "card_font_scale",
-                "density": "card_density",
-                "show_brand": "card_show_brand",
-                "mono": "card_mono",
-                "custom_css": "card_custom_css",
-                "font_path": "card_font_path",
+            body: dict[str, Any] = {
+                "ok": result.ok,
+                "kind": result.kind,
+                "engine": result.engine,
+                "ms": round(result.ms, 1),
+                "error": result.error,
+                "fallback_text": result.fallback_text,
+                "font_path": result.font_path,
             }
-            for k, v in style_patch.items():
-                mapped = alias.get(k, k)
-                if mapped in CONFIG_KEYS or k in CONFIG_KEYS:
-                    cfg_view[mapped] = v
-
-        # 顶层也允许直接传 card_custom_css
-        if payload.get("card_custom_css") is not None:
-            cfg_view["card_custom_css"] = payload.get("card_custom_css")
-        if payload.get("card_font_path") is not None:
-            cfg_view["card_font_path"] = payload.get("card_font_path")
-
-        formula_mode = str(
-            payload.get("formula_mode")
-            or cfg_view.get("formula_mode")
-            or "off"
-        ).strip()
-        style = card_render.style_from_config(cfg_view)
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            data = card_render.sample_payload(kind)
-
-        prefer = payload.get("engine")
-        result = card_render.render_card(
-            kind, data, style, formula_mode=formula_mode, prefer_engine=prefer
-        )
-        body: dict[str, Any] = {
-            "ok": result.ok,
-            "kind": result.kind,
-            "engine": result.engine,
-            "ms": round(result.ms, 1),
-            "error": result.error,
-            "fallback_text": result.fallback_text,
-            "font_path": result.font_path,
-            "engine_status": card_render.engine_status(),
-            "style": card_render.style_to_public(style),
-        }
-        if result.ok and result.png:
-            body.update({
-                "mime": result.mime,
-                "width": result.width,
-                "height": result.height,
-                "bytes": result.bytes_len,
-                "png_base64": base64.b64encode(result.png).decode("ascii"),
-            })
-        return json_response(body)
+            try:
+                body["engine_status"] = card_render.engine_status()
+            except Exception:
+                body["engine_status"] = {"pillow": card_render.pillow_available()}
+            try:
+                body["style"] = card_render.style_to_public(style)
+            except Exception:
+                body["style"] = {}
+            if result.ok and result.png:
+                body.update({
+                    "mime": result.mime,
+                    "width": result.width,
+                    "height": result.height,
+                    "bytes": result.bytes_len,
+                    "png_base64": base64.b64encode(result.png).decode("ascii"),
+                })
+            return json_response(body)
+        except Exception as e:
+            logger.exception("WebUI render_preview failed")
+            return error_response(
+                f"render/preview 失败: {type(e).__name__}: {e}", status_code=500
+            )
 
     async def overview(self):
         from astrbot.api.web import error_response, json_response, request
@@ -902,10 +973,11 @@ def _cfg_get(cfg: Any, key: str, default: Any = None) -> Any:
 
 
 def public_config(plugin) -> dict[str, Any]:
-    """脱敏后的配置视图（给前端）。
+    """配置视图（给前端）。
 
-    读的是**插件运行时** `plugin.config`（与官方设置页同源），
-    不是浏览器再连一遍 HAPI。敏感键永不回显明文。
+    读的是**插件运行时** `plugin.config`（与官方设置页同源）。
+    access_token 明文返回（管理面板仅管理员可见）；CF secret 仍不回显。
+    附带 hapi_web_url：可点击的官方 HAPI 启动链（含 token 自动登录）。
     """
     from . import card_render
     from .poke_actions import normalize_poke_action, poke_actions_meta
@@ -957,7 +1029,35 @@ def public_config(plugin) -> dict[str, Any]:
     try:
         out["render_engine"] = card_render.engine_status()
     except Exception:
-        out["render_engine"] = {"pillow": False, "install_hint": "pip install Pillow"}
+        out["render_engine"] = {
+            "pillow": False,
+            "playwright": False,
+            "install_hint": "pip install Pillow",
+            "installable": [],
+        }
+    # 保证前端总能拿到勾选项（即使 engine_status 旧缓存/异常）
+    if not out["render_engine"].get("installable"):
+        try:
+            from . import font_manager
+
+            out["render_engine"]["installable"] = font_manager.installable_items()
+        except Exception:
+            out["render_engine"]["installable"] = [
+                {
+                    "id": "font_noto_sc",
+                    "group": "font",
+                    "label": "中文字体 Noto Sans SC",
+                    "desc": "下载到插件 assets/fonts/",
+                    "installed": False,
+                },
+                {
+                    "id": "dep_pillow",
+                    "group": "dep",
+                    "label": "Pillow（出卡引擎）",
+                    "desc": "pip install Pillow",
+                    "installed": False,
+                },
+            ]
     try:
         out["card_style"] = card_render.style_to_public(
             card_render.style_from_config(out)
@@ -972,12 +1072,39 @@ def public_config(plugin) -> dict[str, Any]:
         out["poke_action"] = "approve"
         out["poke_actions"] = []
 
+    out["access_token"] = token  # 明文（面板内使用）
     out["access_token_configured"] = bool(token.strip())
     out["access_token_namespace"] = ns
     out["cf_access_client_secret_configured"] = bool(
         str(_cfg_get(cfg, "cf_access_client_secret", "") or "").strip()
     )
     out["cf_access_enabled"] = bool(cf_id)
+
+    # 可点击的官方 HAPI 启动链（浏览器新标签打开，不依赖 window.open）
+    try:
+        from urllib.parse import urlencode, urljoin
+
+        endpoint = str(out.get("hapi_endpoint") or "").strip()
+        if endpoint:
+            base = endpoint.rstrip("/")
+            parsed = urlparse(base if "://" in base else f"http://{base}")
+            if parsed.scheme in ("http", "https") and parsed.netloc:
+                origin = f"{parsed.scheme}://{parsed.netloc}"
+                page = origin + "/"
+                q: dict[str, str] = {"hub": origin}
+                if token.strip():
+                    q["token"] = token.strip()
+                out["hapi_web_url"] = f"{page}?{urlencode(q)}"
+                out["hapi_web_url_safe"] = page
+            else:
+                out["hapi_web_url"] = ""
+                out["hapi_web_url_safe"] = ""
+        else:
+            out["hapi_web_url"] = ""
+            out["hapi_web_url_safe"] = ""
+    except Exception:
+        out["hapi_web_url"] = ""
+        out["hapi_web_url_safe"] = ""
     return out
 
 
@@ -1177,6 +1304,13 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
                 _hex_to_rgb(s)
             except Exception as e:
                 raise ConfigValidationError(f"{key} 不是合法颜色") from e
+            cleaned[key] = s
+            continue
+
+        if key == "access_token":
+            s = "" if raw_val is None else str(raw_val).strip()
+            if not s:
+                continue  # 留空不改
             cleaned[key] = s
             continue
 
