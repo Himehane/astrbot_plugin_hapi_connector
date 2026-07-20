@@ -242,24 +242,32 @@ class WebApi:
         return json_response(body)
 
     async def overview(self):
-        from astrbot.api.web import json_response, request
+        from astrbot.api.web import error_response, json_response, request
 
-        # 默认读缓存；?fresh=1 才强制拉 HAPI。绝不 wake SSE。
-        force = _query_truthy(request, "fresh")
-        await soft_refresh_sessions(self.plugin, force=force)
-        snap = build_sessions_snapshot(self.plugin)
-        return json_response({
-            "connection": snap["connection"],
-            "metrics": snap["metrics"],
-            "config": public_config(self.plugin),
-            "plugin_version": _plugin_version(self.plugin),
-            "cache": snap.get("cache"),
-        })
+        try:
+            # 默认读缓存；?fresh=1 才强制拉 HAPI。绝不 wake SSE。
+            force = _query_truthy(request, "fresh")
+            await soft_refresh_sessions(self.plugin, force=force)
+            snap = build_sessions_snapshot(self.plugin)
+            return json_response({
+                "connection": snap["connection"],
+                "metrics": snap["metrics"],
+                "config": snap.get("config") or public_config(self.plugin),
+                "plugin_version": _plugin_version(self.plugin),
+                "cache": snap.get("cache"),
+            })
+        except Exception as e:
+            logger.exception("WebUI overview failed")
+            return error_response(f"overview 失败: {type(e).__name__}: {e}", status_code=500)
 
     async def get_config(self):
-        from astrbot.api.web import json_response
+        from astrbot.api.web import error_response, json_response
 
-        return json_response({"config": public_config(self.plugin)})
+        try:
+            return json_response({"config": public_config(self.plugin)})
+        except Exception as e:
+            logger.exception("WebUI get_config failed")
+            return error_response(f"读取配置失败: {type(e).__name__}: {e}", status_code=500)
 
     async def post_config(self):
         from astrbot.api.web import error_response, json_response, request
@@ -284,21 +292,55 @@ class WebApi:
         return json_response(formatters.export_help_data())
 
     async def connection_wake(self):
-        from astrbot.api.web import json_response
+        from astrbot.api.web import error_response, json_response
 
-        was = bool(self.plugin.sse_listener._hibernated)
-        self.plugin.sse_listener.wake_up()
-        return json_response({
-            "woken": was,
-            "connection": self.plugin.sse_listener.get_connection_status(),
-        })
+        try:
+            sse = self.plugin.sse_listener
+            was = bool(getattr(sse, "_hibernated", False))
+            sse.wake_up()
+            return json_response({
+                "woken": was,
+                "connection": connection_view(self.plugin),
+            })
+        except Exception as e:
+            logger.exception("WebUI wake failed")
+            return error_response(f"唤醒失败: {type(e).__name__}: {e}", status_code=500)
 
     async def sessions_snapshot(self):
-        from astrbot.api.web import json_response, request
+        from astrbot.api.web import error_response, json_response, request
 
-        force = _query_truthy(request, "fresh")
-        await soft_refresh_sessions(self.plugin, force=force)
-        return json_response(build_sessions_snapshot(self.plugin))
+        try:
+            force = _query_truthy(request, "fresh")
+            await soft_refresh_sessions(self.plugin, force=force)
+            return json_response(build_sessions_snapshot(self.plugin))
+        except Exception as e:
+            logger.exception("WebUI sessions_snapshot failed")
+            # 降级：尽量返回连接 + 空会话，避免前端整页 mock 默认值
+            try:
+                partial = {
+                    "connection": connection_view(self.plugin),
+                    "metrics": {
+                        "active": 0, "thinking": 0, "pending": 0, "unrouted": 0, "total": 0,
+                    },
+                    "sessions": [],
+                    "columns": [],
+                    "defaults": {
+                        "primary": None, "flavor": {}, "writable": False,
+                        "writable_reason": f"snapshot 失败: {e}",
+                        "known_user_count": 0,
+                    },
+                    "window_options": [],
+                    "config": public_config(self.plugin),
+                    "plugin_version": _plugin_version(self.plugin),
+                    "error": f"{type(e).__name__}: {e}",
+                    "cache": {"from_memory": True, "sessions_age_sec": None, "refresh_ttl_sec": SESSIONS_REFRESH_TTL},
+                }
+                return json_response(partial)
+            except Exception as e2:
+                return error_response(
+                    f"sessions/snapshot 失败: {type(e).__name__}: {e}; fallback: {e2}",
+                    status_code=500,
+                )
 
     async def session_detail(self, sid: str):
         from astrbot.api.web import error_response, json_response
@@ -809,6 +851,8 @@ async def reconnect_hapi(plugin) -> dict:
     plugin.sse_listener._hibernated = False
     plugin.sse_listener.conn_fail_count = 0
     plugin.sse_listener.conn_error = None
+    if hasattr(plugin.sse_listener, "_stream_live"):
+        plugin.sse_listener._stream_live = False
     plugin.sse_listener.start(
         output_level,
         remind_pending=remind,
@@ -840,42 +884,98 @@ class ConfigValidationError(ValueError):
     """配置校验失败。"""
 
 
-def public_config(plugin) -> dict[str, Any]:
-    """脱敏后的配置视图（给前端）。"""
-    from . import card_render
+def _cfg_get(cfg: Any, key: str, default: Any = None) -> Any:
+    """兼容 AstrBotConfig / dict / 类属性。"""
+    if cfg is None:
+        return default
+    if isinstance(cfg, dict) or hasattr(cfg, "get"):
+        try:
+            val = cfg.get(key, default)
+        except Exception:
+            val = default
+        return default if val is None else val
+    try:
+        val = cfg[key]  # type: ignore[index]
+    except Exception:
+        val = getattr(cfg, key, default)
+    return default if val is None else val
 
-    cfg = plugin.config
-    token = str(cfg.get("access_token") or "")
+
+def public_config(plugin) -> dict[str, Any]:
+    """脱敏后的配置视图（给前端）。
+
+    读的是**插件运行时** `plugin.config`（与官方设置页同源），
+    不是浏览器再连一遍 HAPI。敏感键永不回显明文。
+    """
+    from . import card_render
+    from .poke_actions import normalize_poke_action, poke_actions_meta
+
+    cfg = getattr(plugin, "config", None)
+    token = str(_cfg_get(cfg, "access_token", "") or "")
     ns = None
     if ":" in token:
         ns = token.split(":", 1)[1].strip() or None
 
-    cf_id = str(cfg.get("cf_access_client_id") or "").strip()
+    cf_id = str(_cfg_get(cfg, "cf_access_client_id", "") or "").strip()
     defaults = card_render.config_defaults()
+    # 非卡片类的 schema 默认，避免 key 缺失时前端显示 undefined
+    schema_defaults: dict[str, Any] = {
+        "hapi_endpoint": "http://127.0.0.1:3006",
+        "proxy_url": "",
+        "cf_access_client_id": "",
+        "max_reconnect_attempts": 30,
+        "jwt_lifetime": 900,
+        "refresh_before_expiry": 180,
+        "output_level": "simple",
+        "summary_msg_count": 5,
+        "quick_prefix": ">",
+        "poke_approve": True,
+        "poke_action": "approve",
+        "remind_pending": True,
+        "remind_interval": 180,
+        "auto_approve_enabled": False,
+        "auto_approve_start": "23:00",
+        "auto_approve_end": "07:00",
+        "default_notification_window": "",
+        **defaults,
+    }
     out: dict[str, Any] = {}
     for key in CONFIG_KEYS:
         if key in SENSITIVE_KEYS:
             continue
-        val = cfg.get(key)
-        if val is None and key in defaults:
-            val = defaults[key]
+        fallback = schema_defaults.get(key)
+        val = _cfg_get(cfg, key, fallback)
+        if val is None and key in schema_defaults:
+            val = schema_defaults[key]
         out[key] = val
 
-    # 前端方便：kinds 同时给数组
-    out["render_kinds_list"] = card_render.parse_kinds(out.get("render_kinds"))
-    out["render_engine"] = card_render.engine_status()
-    out["card_style"] = card_render.style_to_public(
-        card_render.style_from_config(out)
-    )
-    from .poke_actions import normalize_poke_action, poke_actions_meta
+    # 前端方便：kinds 同时给数组；失败时不拖垮整个 config
+    try:
+        out["render_kinds_list"] = card_render.parse_kinds(out.get("render_kinds"))
+    except Exception:
+        out["render_kinds_list"] = list(card_render.DEFAULT_KINDS)
+    try:
+        out["render_engine"] = card_render.engine_status()
+    except Exception:
+        out["render_engine"] = {"pillow": False, "install_hint": "pip install Pillow"}
+    try:
+        out["card_style"] = card_render.style_to_public(
+            card_render.style_from_config(out)
+        )
+    except Exception:
+        out["card_style"] = {}
 
-    out["poke_action"] = normalize_poke_action(out.get("poke_action"))
-    out["poke_actions"] = poke_actions_meta()
+    try:
+        out["poke_action"] = normalize_poke_action(out.get("poke_action"))
+        out["poke_actions"] = poke_actions_meta()
+    except Exception:
+        out["poke_action"] = "approve"
+        out["poke_actions"] = []
 
     out["access_token_configured"] = bool(token.strip())
     out["access_token_namespace"] = ns
     out["cf_access_client_secret_configured"] = bool(
-        str(cfg.get("cf_access_client_secret") or "").strip()
+        str(_cfg_get(cfg, "cf_access_client_secret", "") or "").strip()
     )
     out["cf_access_enabled"] = bool(cf_id)
     return out
@@ -1251,16 +1351,27 @@ async def soft_refresh_sessions(plugin, *, force: bool = False) -> bool:
 
 
 def build_sessions_snapshot(plugin) -> dict:
-    """与 demo store.snap() 对齐的全局快照。只读内存，不触发网络。"""
+    """与 demo store.snap() 对齐的全局快照。只读内存，不触发网络。
+
+    数据来源：插件进程内 sessions_cache / SSE / 绑定表 / plugin.config。
+    """
     import time
 
-    sessions_raw = list(plugin.sessions_cache or [])
-    owners = dict(plugin.binding_mgr._session_owners)
-    # 只计数，不拷贝 pending 详情
-    counts_fn = getattr(plugin.sse_listener, "pending_counts", None)
-    pending_counts = counts_fn() if callable(counts_fn) else {
-        sid: len(reqs) for sid, reqs in plugin.sse_listener.pending.items() if reqs
-    }
+    sessions_raw = list(getattr(plugin, "sessions_cache", None) or [])
+    binding = getattr(plugin, "binding_mgr", None)
+    owners = dict(getattr(binding, "_session_owners", {}) or {}) if binding else {}
+
+    sse = getattr(plugin, "sse_listener", None)
+    counts_fn = getattr(sse, "pending_counts", None) if sse is not None else None
+    if callable(counts_fn):
+        pending_counts = counts_fn()
+    elif sse is not None:
+        pending_counts = {
+            sid: len(reqs) for sid, reqs in getattr(sse, "pending", {}).items() if reqs
+        }
+    else:
+        pending_counts = {}
+
     defaults = aggregate_route_defaults(plugin)
     conn = connection_view(plugin)
     cache_ts = float(getattr(plugin, "_sessions_cache_ts", 0) or 0)
@@ -1268,21 +1379,26 @@ def build_sessions_snapshot(plugin) -> dict:
 
     sessions = []
     for s in sessions_raw:
+        if not isinstance(s, dict):
+            continue
         sid = s.get("id")
         if not sid:
             continue
         meta = s.get("metadata") or {}
+        if not isinstance(meta, dict):
+            meta = {}
         flavor = str(meta.get("flavor") or "").strip().lower() or "unknown"
-        title = formatters.get_session_title(s) if hasattr(formatters, "get_session_title") else (
-            meta.get("name") or meta.get("title") or sid[:8]
-        )
+        try:
+            title = formatters.get_session_title(s)
+        except Exception:
+            title = meta.get("name") or meta.get("title") or str(sid)[:8]
         path = meta.get("path") or meta.get("cwd") or meta.get("workingDirectory") or ""
         bound = owners.get(sid)
         eff_umo, layer = resolve_route_layer(sid, flavor, owners, defaults)
         pending_n = int(pending_counts.get(sid) or 0)
         sessions.append({
             "id": sid,
-            "id_short": sid[:8],
+            "id_short": str(sid)[:8],
             "title": title,
             "flavor": flavor,
             "path": path,
@@ -1299,6 +1415,12 @@ def build_sessions_snapshot(plugin) -> dict:
     columns = build_columns(sessions, defaults)
     window_options = build_window_options(owners, defaults, plugin)
 
+    try:
+        cfg_view = public_config(plugin)
+    except Exception as e:
+        logger.exception("public_config in snapshot failed")
+        cfg_view = {"_error": f"{type(e).__name__}: {e}"}
+
     return {
         "connection": conn,
         "metrics": {
@@ -1312,7 +1434,7 @@ def build_sessions_snapshot(plugin) -> dict:
         "columns": columns,
         "defaults": defaults,
         "window_options": window_options,
-        "config": public_config(plugin),
+        "config": cfg_view,
         "plugin_version": _plugin_version(plugin),
         "cache": {
             "sessions_age_sec": None if cache_age is None else round(cache_age, 1),
@@ -1323,17 +1445,68 @@ def build_sessions_snapshot(plugin) -> dict:
 
 
 def connection_view(plugin) -> dict:
-    status = plugin.sse_listener.get_connection_status()
-    endpoint = str(plugin.config.get("hapi_endpoint") or "").strip()
+    """插件侧 SSE 连接视图（读插件运行时，不直连 HAPI）。"""
+    endpoint = str(_cfg_get(getattr(plugin, "config", None), "hapi_endpoint", "") or "").strip()
     host = _endpoint_host(endpoint)
+    sse = getattr(plugin, "sse_listener", None)
+    if sse is None:
+        return {
+            "sse_status": "disconnected",
+            "endpoint_host": host,
+            "endpoint": endpoint,
+            "conn_fail_count": 0,
+            "conn_error": "SSEListener 未初始化",
+            "hibernated": False,
+            "task_running": False,
+            "stream_live": False,
+            "source": "plugin_sse",
+        }
+    try:
+        status_fn = getattr(sse, "get_connection_status", None)
+        if callable(status_fn):
+            status = status_fn()
+        else:
+            task = getattr(sse, "_task", None)
+            task_running = bool(task and not task.done())
+            hibernated = bool(getattr(sse, "_hibernated", False))
+            stream_live = bool(getattr(sse, "_stream_live", False))
+            fail = int(getattr(sse, "conn_fail_count", 0) or 0)
+            if hibernated:
+                st = "hibernated"
+            elif task_running and stream_live and fail == 0:
+                st = "connected"
+            elif task_running:
+                st = "reconnecting"
+            else:
+                st = "disconnected"
+            status = {
+                "sse_status": st,
+                "conn_fail_count": fail,
+                "conn_error": getattr(sse, "conn_error", None),
+                "hibernated": hibernated,
+                "task_running": task_running,
+                "stream_live": stream_live,
+            }
+    except Exception as e:
+        logger.warning("connection_view failed: %s", e)
+        status = {
+            "sse_status": "disconnected",
+            "conn_fail_count": 0,
+            "conn_error": f"{type(e).__name__}: {e}",
+            "hibernated": False,
+            "task_running": False,
+            "stream_live": False,
+        }
     return {
-        "sse_status": status["sse_status"],
+        "sse_status": status.get("sse_status") or "disconnected",
         "endpoint_host": host,
         "endpoint": endpoint,
-        "conn_fail_count": status["conn_fail_count"],
-        "conn_error": status["conn_error"],
-        "hibernated": status["hibernated"],
-        "task_running": status["task_running"],
+        "conn_fail_count": int(status.get("conn_fail_count") or 0),
+        "conn_error": status.get("conn_error"),
+        "hibernated": bool(status.get("hibernated")),
+        "task_running": bool(status.get("task_running")),
+        "stream_live": bool(status.get("stream_live")),
+        "source": "plugin_sse",  # 明确：状态来自插件 SSE，不是网页直连 HAPI
     }
 
 

@@ -15,13 +15,56 @@ export async function initBridge() {
   return { bridge, ctx };
 }
 
+function formatApiError(err, endpoint) {
+  if (!err) return `API ${endpoint} 失败`;
+  // axios / fetch-like
+  const status = err.status || err.statusCode || err.response?.status;
+  const body = err.response?.data || err.data || err.body;
+  let detail = "";
+  if (typeof body === "string") detail = body;
+  else if (body && typeof body === "object") {
+    detail = body.message || body.error || body.msg || body.detail || JSON.stringify(body).slice(0, 300);
+  } else {
+    detail = err.message || String(err);
+  }
+  if (status) return `API ${endpoint} → ${status}: ${detail}`;
+  return `API ${endpoint} 失败: ${detail}`;
+}
+
+/** Dashboard 可能包一层 { code, data, message }，尽量解包到业务体 */
+function unwrap(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  // 常见包装：{ code:0, data:{...} } / { status:"ok", data }
+  if (payload.data != null && (payload.code === 0 || payload.code === 200 || payload.status === "ok" || payload.success === true)) {
+    return payload.data;
+  }
+  // 有时 bridge 直接返回业务对象
+  return payload;
+}
+
 export function createApi(bridge) {
   async function get(endpoint, params) {
-    return bridge.apiGet(endpoint, params);
+    try {
+      const raw = await bridge.apiGet(endpoint, params);
+      return unwrap(raw);
+    } catch (e) {
+      const err = new Error(formatApiError(e, endpoint));
+      err.cause = e;
+      err.endpoint = endpoint;
+      throw err;
+    }
   }
 
   async function post(endpoint, body) {
-    return bridge.apiPost(endpoint, body || {});
+    try {
+      const raw = await bridge.apiPost(endpoint, body || {});
+      return unwrap(raw);
+    } catch (e) {
+      const err = new Error(formatApiError(e, endpoint));
+      err.cause = e;
+      err.endpoint = endpoint;
+      throw err;
+    }
   }
 
   return {

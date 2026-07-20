@@ -634,13 +634,28 @@ function bindSelect(s) {
 
 /* ---------- shell render ---------- */
 
+/** 连接状态文案：插件 SSE，不是浏览器直连 HAPI */
+function connLabel(c) {
+  const st = c?.sse_status || "disconnected";
+  if (st === "connected") return "已连接";
+  if (st === "hibernated") return "已休眠";
+  if (st === "reconnecting") return "重连中";
+  if (st === "disconnected") return "未连接";
+  return st;
+}
+
+function connIsOk(c) {
+  return c?.sse_status === "connected";
+}
+
 function renderTopConn() {
-  const c = state.data.connection;
-  const ok = c.sse_status === "connected";
-  const label = ok ? "已连接" : c.sse_status === "hibernated" ? "已休眠" : "重连中";
+  const c = state.data?.connection || {};
+  const ok = connIsOk(c);
+  const label = connLabel(c);
+  const host = c.endpoint_host || "—";
 
   $("#top-conn").className = `conn-chip ${ok ? "ok" : "bad"}`;
-  $("#top-conn").innerHTML = `<span class="dot"></span>${esc(label)} · ${esc(c.endpoint_host)}`;
+  $("#top-conn").innerHTML = `<span class="dot"></span>${esc(label)} · ${esc(host)}`;
 
   const foot = $("#sidebar-conn");
   foot.className = `sidebar-footer ${ok ? "ok" : "bad"}`;
@@ -648,12 +663,12 @@ function renderTopConn() {
 }
 
 function renderAlert() {
-  const c = state.data.connection;
+  const c = state.data?.connection || {};
   const el = $("#alert");
   if (c.sse_status === "hibernated") {
     el.hidden = false;
     el.innerHTML = `<div class="alert alert-danger">
-      <span>SSE 已休眠（失败 ${c.conn_fail_count} 次）${c.conn_error ? " · " + esc(c.conn_error) : ""}</span>
+      <span>插件 SSE 已休眠（失败 ${c.conn_fail_count || 0} 次）${c.conn_error ? " · " + esc(c.conn_error) : ""}。这是插件↔HAPI 的连接，不是网页本身。</span>
       <button type="button" class="btn btn-sm" id="btn-wake">唤醒</button>
     </div>`;
     $("#btn-wake").onclick = async () => {
@@ -665,6 +680,19 @@ function renderAlert() {
         toast("唤醒失败: " + (e.message || e));
       }
     };
+  } else if (c.sse_status === "reconnecting" && c.conn_error) {
+    el.hidden = false;
+    el.innerHTML = `<div class="alert alert-danger">
+      <span>插件 SSE 重连中（失败 ${c.conn_fail_count || 0} 次）· ${esc(c.conn_error)}</span>
+    </div>`;
+  } else if (c.sse_status === "disconnected") {
+    el.hidden = false;
+    el.innerHTML = `<div class="alert alert-danger">
+      <span>插件 SSE 未启动${c.conn_error ? " · " + esc(c.conn_error) : "（插件可能未完成 initialize，或配置未连上 HAPI）"}。可点「按配置重连 HAPI」或重载插件。</span>
+    </div>`;
+  } else if (state.data?.error) {
+    el.hidden = false;
+    el.innerHTML = `<div class="alert alert-danger"><span>部分数据加载异常: ${esc(state.data.error)}</span></div>`;
   } else {
     el.hidden = true;
     el.innerHTML = "";
@@ -711,11 +739,11 @@ function renderOverview() {
   renderTopConn();
   renderAlert();
 
-  const c = state.data.connection;
-  const m = state.data.metrics;
-  const cfg = state.data.config;
-  const ok = c.sse_status === "connected";
-  const label = ok ? "已连接" : c.sse_status === "hibernated" ? "已休眠" : "重连中";
+  const c = state.data.connection || {};
+  const m = state.data.metrics || {};
+  const cfg = state.data.config || {};
+  const ok = connIsOk(c);
+  const label = connLabel(c);
 
   const levelOpts = OUTPUT_LEVELS.map(
     (o) =>
@@ -810,17 +838,18 @@ function renderOverview() {
       <div class="card-head">
         <div>
           <h2>连接信息</h2>
-          <p class="sub">来自当前插件配置（demo mock）</p>
+          <p class="sub">来自<strong>插件运行时</strong>配置与 SSE 状态（不是网页直连 HAPI）</p>
         </div>
         <button type="button" class="linkish" data-go="settings">改连接 →</button>
       </div>
       <dl class="kv">
-        <dt>Endpoint</dt><dd>${esc(cfg.hapi_endpoint || c.endpoint_host)}</dd>
-        <dt>SSE</dt><dd>${esc(label)}</dd>
+        <dt>Endpoint</dt><dd>${esc(cfg.hapi_endpoint || c.endpoint || c.endpoint_host || "—")}</dd>
+        <dt>插件 SSE</dt><dd>${esc(label)}${c.stream_live ? " · 流活跃" : ""}${c.task_running === false ? " · 任务未运行" : ""}</dd>
         <dt>Token</dt><dd>${cfg.access_token_configured ? "已配置" + (cfg.access_token_namespace ? " · ns=" + esc(cfg.access_token_namespace) : "") : "未配置"}</dd>
-        <dt>推送级别</dt><dd>${esc(cfg.output_level)}</dd>
+        <dt>推送级别</dt><dd>${esc(cfg.output_level || "—")}</dd>
         <dt>代理</dt><dd>${esc(cfg.proxy_url || "无")}</dd>
         <dt>CF Access</dt><dd>${cfg.cf_access_enabled ? "已启用" : "未启用"}</dd>
+        ${c.conn_error ? `<dt>最近错误</dt><dd>${esc(c.conn_error)}</dd>` : ""}
       </dl>
     </div>
 
@@ -828,7 +857,7 @@ function renderOverview() {
       <div class="card-head">
         <div>
           <h2>快捷操作</h2>
-          <p class="sub">Demo 本地模拟</p>
+          <p class="sub">${liveMode ? "操作走插件 API" : "本地 mock（无 bridge）"}</p>
         </div>
       </div>
       <div class="quick-actions">
@@ -2480,16 +2509,30 @@ function applySnapFromResult(res) {
 async function fetchSnapshot(opts = {}) {
   if (!liveMode || !api) return store.snap();
   const snap = await api.sessionsSnapshot(opts);
+  if (!snap || typeof snap !== "object") {
+    throw new Error("sessions/snapshot 返回空或非对象");
+  }
   if (!snap.columns) snap.columns = [];
   if (!snap.window_options) snap.window_options = [];
   if (!snap.defaults) snap.defaults = { primary: null, flavor: {}, writable: false };
-  if (!snap.config) {
-    // config 通常已在 snapshot 内；缺省时再拉一次
+  if (!snap.connection) {
+    snap.connection = {
+      sse_status: "disconnected",
+      endpoint_host: "—",
+      conn_fail_count: 0,
+      conn_error: "snapshot 未包含 connection",
+    };
+  }
+  if (!snap.config || typeof snap.config !== "object" || snap.config._error) {
+    // config 通常已在 snapshot 内；缺省/出错时再拉一次，避免显示 mock 默认值
     try {
-      const cfg = await api.config();
-      snap.config = cfg.config || cfg;
-    } catch (_) {
-      snap.config = state.data?.config || {};
+      const cfgRes = await api.config();
+      const cfg = cfgRes?.config || cfgRes;
+      if (cfg && typeof cfg === "object") snap.config = cfg;
+    } catch (e) {
+      console.warn("config fallback failed", e);
+      if (!snap.config) snap.config = state.data?.config || {};
+      snap.config_error = e.message || String(e);
     }
   }
   return snap;
@@ -2710,17 +2753,33 @@ async function boot() {
     state.data = await fetchSnapshot();
   } catch (e) {
     console.error(e);
-    showAlert("加载数据失败: " + (e.message || e));
-    // fallback empty shell
+    showAlert("加载数据失败: " + (e.message || e) + "（请查 AstrBot 日志中的 WebUI *failed）");
+    // 空壳：不填 mock 默认配置，避免与真实设置混淆
     state.data = {
-      connection: { sse_status: "disconnected", endpoint_host: "—", conn_fail_count: 0, conn_error: String(e) },
+      connection: {
+        sse_status: "disconnected",
+        endpoint_host: "—",
+        conn_fail_count: 0,
+        conn_error: e.message || String(e),
+        source: "frontend_fallback",
+      },
       metrics: { active: 0, thinking: 0, pending: 0, unrouted: 0, total: 0 },
       sessions: [],
       columns: [],
       defaults: { primary: null, flavor: {}, writable: false },
       window_options: [],
       config: {},
+      error: e.message || String(e),
     };
+    // 仍尝试单独拉 config，尽量显示真实设置
+    if (liveMode && api) {
+      try {
+        const cfgRes = await api.config();
+        state.data.config = cfgRes?.config || cfgRes || {};
+      } catch (e2) {
+        console.warn("boot config failed", e2);
+      }
+    }
   }
   state.focusWindow = state.data.columns[0]?.umo || "__none__";
   go("overview");

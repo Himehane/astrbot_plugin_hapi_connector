@@ -32,7 +32,7 @@ class SSEListener:
         # 跟踪 session 状态以检测变化
         self.session_states: dict[str, dict] = {}
         self._lock = asyncio.Lock()
-        # 上次 SSE 连接错误描述，None 表示连接正常
+        # 上次 SSE 连接错误描述，None 表示尚无错误记录
         self.conn_error: str | None = None
         # 连续失败计数（内存，重启归零）
         self.conn_fail_count: int = 0
@@ -40,6 +40,8 @@ class SSEListener:
         self._max_reconnect: int = 0
         # 是否已休眠（达到重连上限）
         self._hibernated: bool = False
+        # 当前是否正持有可用的 SSE 流（读到数据后置 True，断线/停任务置 False）
+        self._stream_live: bool = False
         self._task: asyncio.Task | None = None
         self._remind_task: asyncio.Task | None = None
         self._remind_enabled: bool = False
@@ -85,10 +87,13 @@ class SSEListener:
         if self._task and not self._task.done():
             logger.info("SSE 监听已在运行，跳过重复启动")
             return
+        self._hibernated = False
+        self._stream_live = False
         self._task = asyncio.create_task(self._listen_loop())
 
     async def stop(self):
         """停止 SSE 监听"""
+        self._stream_live = False
         for task in (self._task, self._remind_task,
                      getattr(self, '_debounce_task', None),
                      getattr(self, '_completion_task', None),
@@ -112,18 +117,25 @@ class SSEListener:
             self._hibernated = False
             self.conn_fail_count = 0
             self.conn_error = None
+            self._stream_live = False
             if self._task is None or self._task.done():
                 self._task = asyncio.create_task(self._listen_loop())
                 logger.info("SSE 监听器已唤醒，重新开始连接")
 
     def get_connection_status(self) -> dict:
-        """供 WebUI / 诊断使用的连接状态快照（不暴露私有字段直接读写）。"""
+        """供 WebUI / 诊断使用的连接状态快照（不暴露私有字段直接读写）。
+
+        状态语义（插件侧 SSE 任务，不是浏览器直连 HAPI）：
+        - connected: 任务在跑且已成功读到 SSE 流
+        - reconnecting: 任务在跑但未建立流，或刚失败正在退避重试
+        - hibernated: 达到重连上限，已停任务
+        - disconnected: 无监听任务（未 initialize / 已 stop）
+        """
         task_running = bool(self._task and not self._task.done())
+        stream_live = bool(getattr(self, "_stream_live", False))
         if self._hibernated:
             sse_status = "hibernated"
-        elif self.conn_error:
-            sse_status = "reconnecting"
-        elif task_running and self.conn_fail_count == 0:
+        elif task_running and stream_live and self.conn_fail_count == 0:
             sse_status = "connected"
         elif task_running:
             sse_status = "reconnecting"
@@ -135,6 +147,7 @@ class SSEListener:
             "conn_error": self.conn_error,
             "hibernated": self._hibernated,
             "task_running": task_running,
+            "stream_live": stream_live,
             "output_level": self.output_level,
             "max_reconnect_attempts": self._max_reconnect,
         }
@@ -182,11 +195,11 @@ class SSEListener:
 
         while True:
             resp = None
+            got_data = False
             try:
                 resp = await self.client.subscribe_events_raw(all_events=True)
 
                 buf = b""
-                got_data = False
                 while True:
                     chunk = await resp.content.read(1024 * 1024)
                     if not chunk:
@@ -194,6 +207,7 @@ class SSEListener:
                     if not got_data:
                         got_data = True
                         self.conn_error = None
+                        self._stream_live = True
                         was_hibernated = self._hibernated
                         self._hibernated = False
                         if self.conn_fail_count > 0:
@@ -215,20 +229,27 @@ class SSEListener:
                         await self._handle(evt)
 
             except asyncio.CancelledError:
+                self._stream_live = False
                 logger.info("SSE 监听已取消")
                 return
             except ContentTypeError as e:
+                self._stream_live = False
                 self.conn_fail_count += 1
                 backoff = min(max(backoff, 15) * 2, max_backoff)
                 hint = "（疑似 Cloudflare 验证页）" if "text/html" in e.content_type else ""
                 self.conn_error = f"{e} {hint}".strip()
                 logger.warning("SSE 连接异常: %s %s, %ds 后重连", e, hint, backoff)
             except Exception as e:
+                self._stream_live = False
                 self.conn_fail_count += 1
                 err_desc = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
                 self.conn_error = err_desc
                 logger.warning("SSE 断线: %s, %ds 后重连", err_desc, backoff)
             finally:
+                # 流结束（正常 EOF 或异常）后不再视为 live，直到下次读到数据
+                if got_data and not self._hibernated:
+                    # 循环将重连；短暂显示 reconnecting 更准确
+                    self._stream_live = False
                 if resp is not None:
                     resp.release()
 
