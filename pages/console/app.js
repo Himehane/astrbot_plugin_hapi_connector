@@ -2584,7 +2584,7 @@ function renderInteract() {
         <div class="field-label-row">
           <div class="field-label">指令关键词映射</div>
         </div>
-        <p class="field-help">关键词来自帮助命令表。可带参命令支持「关键词 + 参数」（如 <code>切换 2</code> → <code>/hapi sw 2</code>）。选 <code>/hapi to</code> 时可填发送消息（如 <code>cl</code> → <code>/hapi to 1 clear</code>）。仅当前窗口有交互中会话时生效。</p>
+        <p class="field-help">关键词来自帮助命令表。可带参命令支持「关键词 + 参数」。仅当前窗口有交互中会话时生效。</p>
         <div id="ix-kw-list" class="kw-map-list"></div>
         <div class="kw-map-toolbar">
           <button type="button" class="btn btn-sm" id="ix-kw-add">添加映射</button>
