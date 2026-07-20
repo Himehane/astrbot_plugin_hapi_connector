@@ -37,22 +37,25 @@ except ImportError:  # pragma: no cover
 
 try:
     from . import font_manager
-except ImportError:  # pragma: no cover — 未部署时 WebUI 其它接口仍可用
-    class _FontManagerStub:
-        def font_status(self):
-            return {"sans": None, "mono": None, "user_font": None}
-        def installable_items(self):
-            return []
-        def bundled_dir(self):
-            from pathlib import Path
-            return Path(__file__).resolve().parent / "assets" / "fonts"
-        def resolve_font_path(self, *a, **k):
-            return None
-        def ensure_default_fonts(self):
-            return {}
-        def load_image_font(self, *a, **k):
-            raise RuntimeError("font_manager 不可用")
-    font_manager = _FontManagerStub()  # type: ignore
+except ImportError:  # pragma: no cover — 脚本直跑 / 未作为包部署
+    try:
+        import font_manager  # type: ignore
+    except ImportError:
+        class _FontManagerStub:
+            def font_status(self):
+                return {"sans": None, "mono": None, "user_font": None}
+            def installable_items(self):
+                return []
+            def bundled_dir(self):
+                from pathlib import Path
+                return Path(__file__).resolve().parent / "assets" / "fonts"
+            def resolve_font_path(self, *a, **k):
+                return None
+            def ensure_default_fonts(self):
+                return {}
+            def load_image_font(self, *a, **k):
+                raise RuntimeError("font_manager 不可用")
+        font_manager = _FontManagerStub()  # type: ignore
 
 
 RENDER_MODES = ("text", "card")
@@ -604,33 +607,52 @@ def sample_payload(kind: str) -> dict[str, Any]:
         }
     return {
         "title": "Session 列表",
-        "subtitle": "当前窗口 · 3 个",
+        "subtitle": "当前窗口 · 3 个 · 思考 1 / 运行 1 / 关闭 1",
+        "layout": "session_list",
         "rows": [
-            {"type": "section", "label": "· /home/dev/proj-auth", "detail": "2 个"},
+            {"type": "section", "label": "…/dev/proj-auth", "full_path": "/home/dev/proj-auth", "detail": "2", "count": 2},
             {
                 "type": "session",
                 "index": 1,
                 "sid_short": "a1b2c3d4",
                 "label": "重构鉴权中间件",
-                "detail": "思考中 | claude:opus | <<当前",
+                "detail": "思考中 · claude:opus · 当前",
+                "status": "思考中",
+                "status_key": "thinking",
+                "flavor": "claude",
+                "model": "opus",
+                "pending": 0,
+                "is_current": True,
             },
             {
                 "type": "session",
                 "index": 2,
                 "sid_short": "e5f6g7h8",
                 "label": "补 session 列表单测",
-                "detail": "已关闭 | claude:sonnet",
+                "detail": "已关闭 · claude:sonnet",
+                "status": "已关闭",
+                "status_key": "closed",
+                "flavor": "claude",
+                "model": "sonnet",
+                "pending": 0,
+                "is_current": False,
             },
-            {"type": "section", "label": "· /home/dev/docs", "detail": "1 个"},
+            {"type": "section", "label": "…/dev/docs", "full_path": "/home/dev/docs", "detail": "1", "count": 1},
             {
                 "type": "session",
                 "index": 3,
                 "sid_short": "i9j0k1l2",
                 "label": "API 文档生成",
-                "detail": "运行中 | codex:default",
+                "detail": "运行中 · codex:default",
+                "status": "运行中",
+                "status_key": "active",
+                "flavor": "codex",
+                "model": "default",
+                "pending": 1,
+                "is_current": False,
             },
         ],
-        "footer": "/hapi sw <序号或ID前缀>  切换    > 消息  快捷发送",
+        "footer": "sw <序号|ID> 切换   ·   > 消息 快捷发送   ·   list all 全局",
     }
 
 
@@ -1135,7 +1157,267 @@ def _render_with_pillow(
 ) -> tuple[bytes, int, int]:
     if kind == "message":
         return _draw_message_png(data, style)
+    if kind == "session_list" or data.get("layout") == "session_list":
+        return _draw_session_list_png(data, style)
     return _draw_struct_png(kind, data, style, formula_mode=formula_mode)
+
+
+def _mix_rgb(
+    a: tuple[int, int, int], b: tuple[int, int, int], t: float
+) -> tuple[int, int, int]:
+    t = max(0.0, min(1.0, t))
+    return (
+        int(a[0] + (b[0] - a[0]) * t),
+        int(a[1] + (b[1] - a[1]) * t),
+        int(a[2] + (b[2] - a[2]) * t),
+    )
+
+
+def _status_color(
+    status_key: str,
+    accent: tuple[int, int, int],
+    muted: tuple[int, int, int],
+    fg: tuple[int, int, int],
+) -> tuple[int, int, int]:
+    sk = (status_key or "").lower()
+    if sk in ("thinking", "think"):
+        return accent
+    if sk in ("active", "running", "run"):
+        return (46, 125, 72)  # green-ish, readable on light/dark-ish
+    if sk in ("closed", "idle", "inactive"):
+        return muted
+    return fg
+
+
+def _draw_session_list_png(
+    data: dict[str, Any],
+    style: CardStyle,
+) -> tuple[bytes, int, int]:
+    """会话列表专用版式：分组头 + 卡片行 + 状态色点 + 当前高亮，不照抄文本列表。"""
+    scale = style.font_scale
+    dense = style.density == "compact"
+    pad = style.padding
+    width = style.width
+    content_w = width - pad * 2
+
+    title_size = max(15, int(22 * scale))
+    sub_size = max(11, int(12.5 * scale))
+    body_size = max(12, int(14.5 * scale))
+    meta_size = max(10, int(11.5 * scale))
+    foot_size = max(10, int(11.5 * scale))
+    idx_size = max(11, int(12 * scale))
+
+    row_pad_y = 8 if dense else 11
+    row_pad_x = 10 if dense else 12
+    section_gap = 10 if dense else 14
+    row_gap = 6 if dense else 8
+
+    tmp = Image.new("RGB", (width, 100), _hex_to_rgb(style.bg))
+    d0 = ImageDraw.Draw(tmp)
+    font_title = _load_font(title_size, False, style)
+    font_sub = _load_font(sub_size, style.mono, style)
+    font_body = _load_font(body_size, False, style)
+    font_meta = _load_font(meta_size, style.mono, style)
+    font_foot = _load_font(foot_size, style.mono, style)
+    font_idx = _load_font(idx_size, True, style)
+
+    title = str(data.get("title") or "Session 列表")
+    subtitle = str(data.get("subtitle") or "")
+    rows = list(data.get("rows") or [])
+    footer = str(data.get("footer") or "")
+
+    bg = _hex_to_rgb(style.bg)
+    fg = _hex_to_rgb(style.fg)
+    accent = _hex_to_rgb(style.accent)
+    muted = _hex_to_rgb(style.muted)
+    border = _hex_to_rgb(style.border)
+    # 行底：略深/浅于背景，保证对比
+    row_bg = _mix_rgb(bg, fg, 0.04)
+    row_bg_cur = _mix_rgb(bg, accent, 0.12)
+    section_bg = _mix_rgb(bg, accent, 0.06)
+
+    idx_box_w = max(36, int(40 * scale))
+    # 预估高度
+    y = pad
+    y += _text_size(d0, title, font_title)[1] + 6
+    if subtitle:
+        for _ in _wrap_text(d0, subtitle, font_sub, content_w):
+            y += _text_size(d0, "测", font_sub)[1] + 2
+        y += 6
+    y += 10  # bar
+    for row in rows:
+        rtype = str(row.get("type") or "row")
+        if rtype == "section":
+            y += section_gap + 22 * scale
+            continue
+        label = str(row.get("label") or "")
+        # 标题可能折行
+        title_lines = _wrap_text(d0, label, font_body, content_w - idx_box_w - row_pad_x * 2 - 8)
+        meta_h = _text_size(d0, "测", font_meta)[1] + 2
+        y += row_pad_y * 2 + sum(
+            _text_size(d0, ln or " ", font_body)[1] + 2 for ln in title_lines
+        ) + meta_h + row_gap
+    if footer:
+        y += 20 + _text_size(d0, "测", font_foot)[1] * 2
+    if style.show_brand:
+        y += 12 + _text_size(d0, "hapi", font_foot)[1]
+    y += pad
+    height = min(max(int(y), 140), 4500)
+
+    img = Image.new("RGB", (width, height), bg)
+    draw = ImageDraw.Draw(img)
+    _draw_rounded_rect(
+        draw,
+        (1, 1, width - 2, height - 2),
+        radius=style.radius,
+        fill=bg,
+        outline=border,
+        width=2,
+    )
+
+    y = pad
+    draw.text((pad, y), title, font=font_title, fill=fg)
+    y += _text_size(draw, title, font_title)[1] + 6
+    if subtitle:
+        for line in _wrap_text(draw, subtitle, font_sub, content_w):
+            draw.text((pad, y), line, font=font_sub, fill=muted)
+            y += _text_size(draw, line or " ", font_sub)[1] + 2
+        y += 6
+    draw.rectangle((pad, y, pad + min(140, content_w // 3), y + 3), fill=accent)
+    y += 12
+
+    for row in rows:
+        rtype = str(row.get("type") or "row")
+        if rtype == "section":
+            y += max(4, section_gap // 2)
+            label = str(row.get("label") or "")
+            count = row.get("count")
+            if count is None:
+                detail = str(row.get("detail") or "").strip()
+                count_txt = detail if detail else ""
+            else:
+                count_txt = f"{count}"
+            # 分组条
+            sec_h = max(24, int(26 * scale))
+            _draw_rounded_rect(
+                draw,
+                (pad, y, width - pad, y + sec_h),
+                radius=6,
+                fill=section_bg,
+                outline=None,
+            )
+            # 左侧色条
+            draw.rectangle((pad, y + 4, pad + 3, y + sec_h - 4), fill=accent)
+            tx = pad + 12
+            ty = y + (sec_h - _text_size(draw, "测", font_meta)[1]) // 2
+            for line in _wrap_text(draw, label, font_meta, content_w - 80)[:1]:
+                draw.text((tx, ty), line, font=font_meta, fill=accent)
+            if count_txt:
+                badge = f"{count_txt} 个" if not str(count_txt).endswith("个") else str(count_txt)
+                bw, bh = _text_size(draw, badge, font_meta)
+                bx = width - pad - bw - 10
+                by = y + (sec_h - bh) // 2
+                draw.text((bx, by), badge, font=font_meta, fill=muted)
+            y += sec_h + 6
+            continue
+
+        label = str(row.get("label") or "")
+        idx = row.get("index") or 0
+        sid = str(row.get("sid_short") or "")
+        status = str(row.get("status") or "")
+        status_key = str(row.get("status_key") or "")
+        flavor = str(row.get("flavor") or "")
+        model = str(row.get("model") or "")
+        pending = int(row.get("pending") or 0)
+        is_current = bool(row.get("is_current"))
+        # 兼容旧 payload：从 detail 拼 meta
+        if not status and row.get("detail"):
+            status = str(row.get("detail"))
+
+        title_max_w = content_w - idx_box_w - row_pad_x * 2 - 8
+        title_lines = _wrap_text(draw, label, font_body, title_max_w) or [""]
+        meta_bits = []
+        if status:
+            meta_bits.append(status)
+        if flavor or model:
+            meta_bits.append(f"{flavor}:{model}" if flavor else model)
+        if pending:
+            meta_bits.append(f"待审 {pending}")
+        if is_current:
+            meta_bits.append("当前")
+        if not meta_bits and row.get("detail"):
+            meta_bits.append(str(row.get("detail")))
+        meta_line = "  ·  ".join(meta_bits)
+        meta_h = _text_size(draw, meta_line or "测", font_meta)[1]
+        title_h = sum(_text_size(draw, ln or " ", font_body)[1] + 2 for ln in title_lines)
+        row_h = row_pad_y * 2 + title_h + 4 + meta_h
+
+        fill = row_bg_cur if is_current else row_bg
+        outline = accent if is_current else border
+        _draw_rounded_rect(
+            draw,
+            (pad, y, width - pad, y + row_h),
+            radius=8,
+            fill=fill,
+            outline=outline,
+            width=2 if is_current else 1,
+        )
+        if is_current:
+            draw.rectangle((pad + 2, y + 6, pad + 5, y + row_h - 6), fill=accent)
+
+        # 序号块
+        idx_txt = str(idx) if idx else "·"
+        iw, ih = _text_size(draw, idx_txt, font_idx)
+        ix = pad + row_pad_x + (idx_box_w - iw) // 2
+        iy = y + row_pad_y
+        # 序号底
+        _draw_rounded_rect(
+            draw,
+            (pad + row_pad_x, y + row_pad_y - 2, pad + row_pad_x + idx_box_w, y + row_pad_y + ih + 6),
+            radius=6,
+            fill=_mix_rgb(fill, accent, 0.18 if is_current else 0.10),
+            outline=None,
+        )
+        draw.text((ix, iy + 2), idx_txt, font=font_idx, fill=accent if is_current else muted)
+
+        tx = pad + row_pad_x + idx_box_w + 10
+        ty = y + row_pad_y
+        for line in title_lines:
+            draw.text((tx, ty), line, font=font_body, fill=fg)
+            ty += _text_size(draw, line or " ", font_body)[1] + 2
+
+        # 状态色点 + meta
+        sc = _status_color(status_key, accent, muted, fg)
+        my = ty + 2
+        dot_r = 3
+        draw.ellipse((tx, my + meta_h // 2 - dot_r, tx + dot_r * 2, my + meta_h // 2 + dot_r), fill=sc)
+        draw.text((tx + 12, my), meta_line, font=font_meta, fill=muted)
+
+        # 右上角 sid
+        if sid:
+            sw, sh = _text_size(draw, sid, font_meta)
+            draw.text((width - pad - row_pad_x - sw, y + row_pad_y), sid, font=font_meta, fill=muted)
+
+        y += row_h + row_gap
+
+    if footer:
+        y += 6
+        draw.line((pad, y, width - pad, y), fill=border, width=1)
+        y += 10
+        for line in _wrap_text(draw, footer, font_foot, content_w):
+            draw.text((pad, y), line, font=font_foot, fill=accent)
+            y += _text_size(draw, line or " ", font_foot)[1] + 2
+
+    if style.show_brand:
+        brand = "hapi connector"
+        bw, bh = _text_size(draw, brand, font_foot)
+        draw.text(
+            (width - pad - bw, height - pad - bh), brand, font=font_foot, fill=muted
+        )
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return buf.getvalue(), width, height
 
 
 def _draw_struct_png(
@@ -1177,21 +1459,18 @@ def _draw_struct_png(
             y += _text_size(d0, "测", font_sub)[1] + 2
         y += 8
     y += 2 + line_gap
+
     def _row_head(row: dict) -> str:
         rtype = str(row.get("type") or "row")
         label = str(row.get("label") or "")
         detail = str(row.get("detail") or "")
         if rtype == "section":
-            # 与文本列表一致：📁 path (n)
             if detail:
-                return f"{label} ({detail})" if not detail.startswith("(") else f"{label} {detail}"
+                return f"{label}  ·  {detail}" if not str(detail).startswith("(") else f"{label} {detail}"
             return label
         idx = row.get("index") or 0
-        sid = str(row.get("sid_short") or "")
-        if idx and sid:
-            return f"[{idx} | {sid}] {label}"
         if idx:
-            return f"[{idx}] {label}"
+            return f"{idx}.  {label}"
         return label
 
     for row in rows:
@@ -1219,6 +1498,7 @@ def _draw_struct_png(
     accent = _hex_to_rgb(style.accent)
     muted = _hex_to_rgb(style.muted)
     border = _hex_to_rgb(style.border)
+    row_bg = _mix_rgb(bg, fg, 0.04)
 
     img = Image.new("RGB", (width, height), bg)
     draw = ImageDraw.Draw(img)
@@ -1252,14 +1532,31 @@ def _draw_struct_png(
                 y += _text_size(draw, line or " ", font_sub)[1] + 2
             y += row_gap // 2
             continue
-        for line in _wrap_text(draw, head, font_body, content_w):
-            draw.text((pad, y), line, font=font_body, fill=fg)
-            y += _text_size(draw, line or " ", font_body)[1] + 2
-        if detail:
-            for line in _wrap_text(draw, detail, font_sub, content_w - 12):
-                draw.text((pad + 12, y), line, font=font_sub, fill=muted)
-                y += _text_size(draw, line or " ", font_sub)[1] + 2
-        y += row_gap
+        # 普通行：浅底条
+        head_lines = _wrap_text(draw, head, font_body, content_w - 16)
+        detail_lines = (
+            _wrap_text(draw, detail, font_sub, content_w - 20) if detail else []
+        )
+        block_h = (
+            10
+            + sum(_text_size(draw, ln or " ", font_body)[1] + 2 for ln in head_lines)
+            + sum(_text_size(draw, ln or " ", font_sub)[1] + 2 for ln in detail_lines)
+        )
+        _draw_rounded_rect(
+            draw,
+            (pad, y, width - pad, y + block_h),
+            radius=6,
+            fill=row_bg,
+            outline=None,
+        )
+        yy = y + 6
+        for line in head_lines:
+            draw.text((pad + 10, yy), line, font=font_body, fill=fg)
+            yy += _text_size(draw, line or " ", font_body)[1] + 2
+        for line in detail_lines:
+            draw.text((pad + 14, yy), line, font=font_sub, fill=muted)
+            yy += _text_size(draw, line or " ", font_sub)[1] + 2
+        y += block_h + row_gap
 
     if footer:
         y += 4

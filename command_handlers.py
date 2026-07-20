@@ -137,13 +137,29 @@ class CommandHandlers:
                 normalized_scope = parts[1].strip() if len(parts) > 1 else ""
 
         scope_head = normalized_scope.split(None, 1)[0] if normalized_scope else ""
-        if scope_head == "all":
-            text = await self.plugin._format_bind_status_text(event)
-            yield event.plain_result(text)
-            return
-
         await self.plugin._refresh_sessions()
         machine_hint = await self.plugin._machine_status_hint()
+
+        if scope_head == "all":
+            # 全局列表：文本走 bind status；卡片走 path 分组 + 全局序号（与 list 同引擎）
+            text = await self.plugin._format_bind_status_text(event)
+            if machine_hint:
+                text += "\n\n" + machine_hint
+            from . import output_present
+
+            current_sid = self.state_mgr.effective_sid(event)
+            payload = output_present.build_session_list_payload(
+                self.sessions_cache,
+                current_sid,
+                all_sessions=self.sessions_cache,
+                header=f"全局 · 共 {len(self.sessions_cache)} 个",
+                scope="all",
+            )
+            async for result in output_present.present(
+                self.plugin, event, "session_list", payload, text
+            ):
+                yield result
+            return
 
         visible_sessions = self.state_mgr.visible_sessions_for_window(event, self.sessions_cache)
         if not visible_sessions:
@@ -170,7 +186,10 @@ class CommandHandlers:
         payload = output_present.build_session_list_payload(
             visible_sessions,
             current_sid,
+            all_sessions=self.sessions_cache,
             header=f"当前窗口 · {len(visible_sessions)} 个",
+            header_current_window=event.unified_msg_origin,
+            scope="window",
         )
         async for result in output_present.present(
             self.plugin, event, "session_list", payload, text

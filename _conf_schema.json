@@ -132,10 +132,10 @@
     "hint": "off=关闭。detect/always 暂未接引擎，公式仍按源码文本显示"
   },
   "render_kinds": {
-    "description": "允许出卡的消息类型（逗号分隔）",
+    "description": "允许出卡的消息类型",
     "type": "string",
     "default": "session_list,pending,status,permission,message",
-    "hint": "可选：session_list,pending,status,permission,routes,message。message=Agent 对话推送也渲染为卡片"
+    "hint": "插件 WebUI「交互优化 / 设置」里勾选保存。可选值：session_list,pending,status,permission,routes,message（message=Agent 对话）"
   },
   "card_style_preset": {
     "description": "推送卡片样式预设",
@@ -198,7 +198,7 @@
     "description": "卡片字体文件路径",
     "type": "string",
     "default": "",
-    "hint": "可选。绝对路径或相对插件根的 .ttf/.otf/.ttc。留空用 assets/fonts 或系统 CJK；都没有则回退纯文本"
+    "hint": "可选。WebUI 下拉选择扫描到的字体，或填绝对/相对插件根的 .ttf/.otf/.ttc。留空则用扫描结果；都没有则回退纯文本"
   }
 }
 

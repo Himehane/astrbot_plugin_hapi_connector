@@ -2316,3 +2316,25 @@ input[type="range"] {
   font-family: var(--font-ui);
   line-height: 1.4;
 }
+
+.btn.is-busy { opacity: 0.7; pointer-events: none; }
+#ix-install-log {
+  max-height: 220px;
+  overflow: auto;
+  font-family: var(--font);
+  font-size: 11px;
+  white-space: pre-wrap;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+
+.font-scan-locs {
+  margin: 6px 0 0;
+  padding-left: 1.2em;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.font-scan-locs code { font-size: 11px; }

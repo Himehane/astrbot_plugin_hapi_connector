@@ -38,7 +38,7 @@ except Exception:
 
 @register("astrbot_plugin_hapi_connector", "LiJinHao999",
           "连接 HAPI，随时随地用 Claude / Codex / Cursor / Grok / Kimi / OpenCode / Pi vibe coding",
-          "3.1.0")
+          "3.1.1")
 class HapiConnectorPlugin(Star):
 
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -91,6 +91,8 @@ class HapiConnectorPlugin(Star):
             self.sessions_cache,
             lambda text, sid: self.notification_mgr.push_notification(text, sid, self.sessions_cache)
         )
+        # 供 SSE 推送呈现（对话/结构卡）读取 config 与 notification_mgr
+        self.sse_listener.plugin = self
 
         # 待审批管理器
         self.pending_mgr = PendingManager(self.sse_listener)

@@ -7,7 +7,7 @@
  * 页面：概览 / 会话 / 交互 / 命令帮助 / 设置
  */
 
-import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.3";
+import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.6";
 
 /* ---------- constants ---------- */
 
@@ -156,9 +156,9 @@ const SETTINGS = [
       },
       {
         key: "render_kinds",
-        label: "出卡类型（逗号分隔）",
-        type: "text",
-        help: "如 session_list,pending,status,permission,message。message=Agent 对话。也可在「交互优化」里勾选保存。",
+        label: "以下类型渲成卡片",
+        type: "kind_checks",
+        help: "与「交互优化」同源。勾选后保存即生效；Agent 对话请勾选「Agent 对话」。",
         showIf: { key: "render_mode", eq: "card" },
       },
     ],
@@ -1447,9 +1447,9 @@ function sampleDomRows(kind) {
     ];
   }
   return [
-    { i: 1, a: "claude", b: "重构鉴权中间件 · thinking" },
-    { i: 2, a: "claude", b: "补 session 列表单测 · idle" },
-    { i: 3, a: "codex", b: "API 文档生成 · active" },
+    { i: 1, a: "重构鉴权中间件", b: "思考中 · claude:opus · 当前" },
+    { i: 2, a: "补 session 列表单测", b: "已关闭 · claude:sonnet" },
+    { i: 3, a: "API 文档生成", b: "运行中 · codex:default · 待审 1" },
   ];
 }
 
@@ -1519,10 +1519,14 @@ function collectRenderPatchFromForm() {
   let kinds = kindBoxes.filter((el) => el.checked).map((el) => el.value);
   const modeRadio = document.querySelector('input[name="ix-rmode"]:checked');
   const render_mode = normalizeRenderMode(modeRadio?.value || $("#ix-rmode")?.value || "text");
-  // 面板隐藏时 checkbox 可能未勾选：沿用已保存 kinds，避免误清空 message
+  // 面板隐藏时 checkbox 未渲染/未勾：沿用已保存 kinds，避免误清空 message
   if (render_mode === "card" && !kinds.length) {
-    const prev = state.data?.config?.render_kinds_list || String(state.data?.config?.render_kinds || "").split(",");
-    kinds = (Array.isArray(prev) ? prev : []).map((x) => String(x).trim()).filter(Boolean);
+    const prev =
+      state.data?.config?.render_kinds_list ||
+      String(state.data?.config?.render_kinds || "").split(",");
+    kinds = (Array.isArray(prev) ? prev : [])
+      .map((x) => String(x).trim())
+      .filter(Boolean);
   }
   if (render_mode === "card" && !kinds.length) {
     kinds = ["session_list", "pending", "status", "permission", "message"];
@@ -1532,12 +1536,30 @@ function collectRenderPatchFromForm() {
     DEFAULT_CARD_CSS_FALLBACK;
   let css = $("#ix-css")?.value ?? "";
   if (css.trim() === String(defaultCss).trim()) css = "";
+
+  let fontPath = "";
+  const sel = $("#ix-font-select")?.value || "";
+  if (sel === "__custom__") {
+    fontPath = ($("#ix-font-path")?.value || "").trim();
+  } else if (sel) {
+    fontPath = sel;
+  } else {
+    fontPath = "";
+  }
+
   return {
     render_mode,
-    formula_mode: $("#ix-fmode")?.value || "off",
-    render_kinds: render_mode === "card" ? kinds.join(",") : String(state.data?.config?.render_kinds || kinds.join(",") || "session_list,pending,message"),
+    formula_mode: "off",
+    render_kinds:
+      render_mode === "card"
+        ? kinds.join(",") || "session_list,pending,status,permission,message"
+        : String(
+            state.data?.config?.render_kinds ||
+              kinds.join(",") ||
+              "session_list,pending,status,permission,message",
+          ),
     card_custom_css: css,
-    card_font_path: ($("#ix-font-path")?.value || "").trim(),
+    card_font_path: fontPath,
   };
 }
 
@@ -1667,33 +1689,29 @@ function renderInteract() {
           </div>
 
           <div class="field">
-            <div class="field-label">当前字体</div>
-            <div class="font-status ${fontOk ? "is-ok" : "is-bad"}" style="margin:0">
-              <dl class="font-status-kv">
-                <dt>正文</dt>
-                <dd>${fontOk
-                  ? `<span class="tag tag-ok">${esc(fonts.sans_source_label || fonts.sans_source || "已找到")}</span>
-                     <span class="mono break">${esc(fonts.sans_name || fonts.sans || "—")}</span>
-                     ${fonts.sans ? `<div class="font-path mono break">${esc(fonts.sans)}</div>` : ""}`
-                  : `<span class="tag tag-muted">未找到</span> <span class="muted">出卡将回退纯文本</span>`}</dd>
-                <dt>等宽</dt>
-                <dd>${fonts.mono
-                  ? `<span class="tag tag-muted">${esc(fonts.mono_source_label || fonts.mono_source || "—")}</span>
-                     <span class="mono break">${esc(fonts.mono_name || fonts.mono)}</span>
-                     ${fonts.mono ? `<div class="font-path mono break">${esc(fonts.mono)}</div>` : ""}`
-                  : `<span class="muted">—</span>`}</dd>
-                ${fonts.user_font
-                  ? `<dt>配置</dt><dd class="mono break">${esc(fonts.user_font_name || fonts.user_font)}
-                       <div class="font-path mono break">${esc(fonts.user_font)}</div></dd>`
-                  : ""}
-              </dl>
+            <div class="field-label">卡片字体</div>
+            <p class="field-help">在下列位置扫描到的字体；选中即写入 <code>card_font_path</code>。无可用字体时出卡回退纯文本。</p>
+            <ul class="font-scan-locs">
+              ${(fonts.scan_locations || [
+                { label: "插件目录", path: fonts.bundled_dir || "assets/fonts", hint: "插件包内 assets/fonts/" },
+                { label: "系统常见路径", path: null, hint: "Linux Noto/文泉驿、macOS PingFang、Windows 雅黑 等" },
+              ]).map((loc) => `<li><strong>${esc(loc.label)}</strong>${loc.path ? ` · <code class="mono">${esc(loc.path)}</code>` : ""}
+                ${loc.hint ? `<span class="muted"> — ${esc(loc.hint)}</span>` : ""}</li>`).join("")}
+            </ul>
+            <select id="ix-font-select" class="ctrl" style="margin-top:8px">
+              <option value="">不指定（用扫描到的可用字体；都没有则回退文本）</option>
+              ${(fonts.fonts || []).map((f) => {
+                const cur = (rs.card_font_path || "").replace(/\\\\/g, "/");
+                const fp = String(f.path || "").replace(/\\\\/g, "/");
+                const sel = cur && (cur === fp || cur.endsWith("/" + f.name) || cur === f.name);
+                return `<option value="${attr(f.path)}" ${sel ? "selected" : ""}>${esc(f.label || f.name)} · ${f.kb || "?"}KB</option>`;
+              }).join("")}
+              <option value="__custom__" ${rs.card_font_path && !(fonts.fonts || []).some((f) => f.path === rs.card_font_path) ? "selected" : ""}>自定义路径…</option>
+            </select>
+            <div id="ix-font-custom-wrap" style="margin-top:8px" ${rs.card_font_path && !(fonts.fonts || []).some((f) => f.path === rs.card_font_path) ? "" : "hidden"}>
+              <input id="ix-font-path" class="ctrl" type="text" value="${attr(rs.card_font_path)}" placeholder="绝对路径或相对插件根，如 assets/fonts/xxx.otf" />
             </div>
-          </div>
-
-          <div class="field">
-            <div class="field-label">字体路径（可选）</div>
-            <p class="field-help">绝对路径或相对插件根的 .ttf/.otf/.ttc。留空：assets/fonts → 系统已装 CJK。都没有则回退文本。</p>
-            <input id="ix-font-path" class="ctrl" type="text" value="${attr(rs.card_font_path)}" placeholder="assets/fonts/NotoSansSC-Regular.otf" />
+            ${!(fonts.fonts || []).length ? `<p class="field-help" style="margin-top:6px">未扫到字体。可点下方安装 Noto 到插件目录，或填自定义路径。</p>` : ""}
           </div>
 
           <div class="field">
@@ -1810,9 +1828,24 @@ function renderInteract() {
   $("#ix-reset-style") &&
     ($("#ix-reset-style").onclick = () => {
       if ($("#ix-css")) $("#ix-css").value = rs.default_css || DEFAULT_CARD_CSS_FALLBACK;
+      if ($("#ix-font-select")) $("#ix-font-select").value = "";
       if ($("#ix-font-path")) $("#ix-font-path").value = "";
+      if ($("#ix-font-custom-wrap")) $("#ix-font-custom-wrap").hidden = true;
       bindPaint();
     });
+
+
+  // 字体下拉：选「自定义」时显示路径框
+  const fontSel = $("#ix-font-select");
+  const fontCustom = $("#ix-font-custom-wrap");
+  if (fontSel) {
+    fontSel.onchange = () => {
+      if (fontCustom) fontCustom.hidden = fontSel.value !== "__custom__";
+      if (fontSel.value && fontSel.value !== "__custom__" && $("#ix-font-path")) {
+        $("#ix-font-path").value = fontSel.value;
+      }
+    };
+  }
 
   $("#ix-install-selected") &&
     ($("#ix-install-selected").onclick = async () => {
@@ -2171,6 +2204,16 @@ function renderHelp() {
 
 /* ---------- settings ---------- */
 
+function parseKindsDraft(d) {
+  if (Array.isArray(d.render_kinds_list) && d.render_kinds_list.length) {
+    return d.render_kinds_list.map((x) => String(x).trim()).filter(Boolean);
+  }
+  return String(d.render_kinds || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function fieldControl(f, d) {
   if (f.type === "enum_cards") {
     return `<div class="enum-cards">${f.options
@@ -2181,6 +2224,17 @@ function fieldControl(f, d) {
         <div class="d">${esc(o.desc)}</div>
       </label>`,
       )
+      .join("")}</div>`;
+  }
+  if (f.type === "kind_checks") {
+    const on = new Set(parseKindsDraft(d));
+    return `<div class="chk-grid" data-kind-checks="${attr(f.key)}">${Object.keys(RENDER_KIND_LABELS)
+      .map((k) => {
+        const checked = on.has(k);
+        return `<label class="chk"><input type="checkbox" data-settings-kind value="${k}" ${
+          checked ? "checked" : ""
+        }/> ${esc(RENDER_KIND_LABELS[k])}</label>`;
+      })
       .join("")}</div>`;
   }
   if (f.type === "bool") {
@@ -2280,6 +2334,14 @@ function renderSettings() {
 
   $$("#settings-form input").forEach((input) => {
     input.onchange = () => {
+      if (input.dataset.settingsKind != null) {
+        const kinds = [...document.querySelectorAll("[data-settings-kind]")]
+          .filter((el) => el.checked)
+          .map((el) => el.value);
+        state.draft.render_kinds = kinds.join(",") || "session_list,pending,message";
+        state.draft.render_kinds_list = kinds;
+        return;
+      }
       if (input.type === "checkbox") {
         state.draft[input.name] = input.checked;
         const sw = input.closest(".switch");
@@ -2292,7 +2354,12 @@ function renderSettings() {
       } else if (input.type === "radio") state.draft[input.name] = input.value;
       else if (input.type === "number") state.draft[input.name] = Number(input.value);
       else state.draft[input.name] = input.value;
-      if (input.name === "auto_approve_enabled" || input.name === "output_level" || input.name === "remind_pending") {
+      if (
+        input.name === "auto_approve_enabled" ||
+        input.name === "output_level" ||
+        input.name === "remind_pending" ||
+        input.name === "render_mode"
+      ) {
         renderSettings();
       }
     };
@@ -2668,6 +2735,13 @@ function wireLiveMutations() {
 async function saveSettings() {
   const prev = state.data.config;
   const draft = state.draft;
+  // 设置页出卡类型勾选 → 同步到 draft 字符串
+  const kindBoxes = [...document.querySelectorAll("[data-settings-kind]")];
+  if (kindBoxes.length) {
+    const kinds = kindBoxes.filter((el) => el.checked).map((el) => el.value);
+    draft.render_kinds = kinds.join(",") || "session_list,pending,message";
+    draft.render_kinds_list = kinds;
+  }
   const patch = {};
   for (const f of allSettingsFields()) {
     if (f.sensitive) continue;

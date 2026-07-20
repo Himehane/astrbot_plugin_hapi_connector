@@ -129,25 +129,42 @@ class NotificationManager:
         for umo in targets:
             if self.should_skip_duplicate(umo, session_id, body):
                 continue
+            chain = None
             try:
                 img = Comp.Image.fromFileSystem(image_path)
                 parts = [img]
                 if caption:
                     parts.append(Comp.Plain(str(caption)))
-                # 兼容多种 MessageChain 构造方式
-                chain = None
-                try:
-                    chain = MessageChain(parts)
-                except TypeError:
+                # 兼容多种 MessageChain 构造 / 字段写法
+                last_err = None
+                for builder in (
+                    lambda: MessageChain(parts),
+                    lambda: MessageChain(chain=parts),
+                    lambda: MessageChain(message_chain=parts),
+                ):
+                    try:
+                        chain = builder()
+                        break
+                    except TypeError as te:
+                        last_err = te
+                    except Exception as te:
+                        last_err = te
+                if chain is None:
                     chain = MessageChain()
                     try:
                         chain.chain = list(parts)
                     except Exception:
-                        chain = MessageChain().message(caption or "[hapi card]")
+                        try:
+                            chain.message_chain = list(parts)  # type: ignore[attr-defined]
+                        except Exception as e2:
+                            logger.warning(
+                                "MessageChain 构造失败，仅发 caption: %s / %s", last_err, e2
+                            )
+                            chain = MessageChain().message(caption or "[hapi card]")
                 await self.context.send_message(umo, chain)
             except Exception as e:
                 cached_event = self._event_cache.get(umo)
-                if cached_event:
+                if cached_event and chain is not None:
                     try:
                         await cached_event.send(chain)
                     except Exception as e2:

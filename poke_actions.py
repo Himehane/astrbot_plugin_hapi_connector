@@ -188,7 +188,11 @@ async def _act_list(plugin, event, tag: str) -> AsyncIterator[Any]:
         header_current_window=event.unified_msg_origin,
     )
     payload = output_present.build_session_list_payload(
-        visible, current_sid, header=f"{tag} · {len(visible)} 个"
+        visible,
+        current_sid,
+        all_sessions=plugin.sessions_cache,
+        header=f"{tag} · {len(visible)} 个",
+        header_current_window=event.unified_msg_origin,
     )
     async for result in output_present.present(
         plugin, event, "session_list", payload, f"{tag}\n{text}"

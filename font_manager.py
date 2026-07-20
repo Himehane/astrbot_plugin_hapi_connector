@@ -1,12 +1,8 @@
 """可移植 CJK 字体解析（不自动下载、不往插件里塞大字体）。
 
-原则：
-1. 插件体积保持轻量——**不**在运行时强行下载字体到缓存。
-2. 解析顺序（显式 > 随包 > 环境兜底）：
-   a. 配置 `card_font_path`（用户指定的 ttf/otf/ttc）
-   b. 插件目录 `assets/fonts/*`（发布者可选放入，默认只有 README）
-   c. 常见系统路径（各 OS 若已装 Noto / 雅黑 / PingFang 等则用，没有就跳过）
-3. 全部找不到时返回 None / 抛错，调用方**回退纯文本**，绝不出方块字。
+- WebUI 扫描并列出：插件 `assets/fonts/` + 系统常见 CJK 路径。
+- 用户可在下拉框选一项，或填自定义 `card_font_path`。
+- 未指定且扫描为空时返回 None，调用方回退纯文本（绝不出方块字）。
 """
 
 from __future__ import annotations
@@ -259,68 +255,130 @@ def load_image_font(
 
 def _source_label(src: str | None) -> str:
     return {
-        "user": "配置路径",
+        "user": "自定义路径",
         "bundled": "插件 assets/fonts",
-        "system": "系统字体",
+        "plugin": "插件 assets/fonts",
+        "system": "系统",
     }.get(src or "", "未找到")
-
-
-def font_status(
-    *, user_path: str | None = None, allow_download: bool = False
-) -> dict[str, Any]:
-    """WebUI / meta 用：路径 + 来源，方便面板展示「当前用了哪套字体」。"""
-    _ = allow_download
-    sans_path, sans_src = resolve_font_path_with_source(
-        mono=False, user_path=user_path
-    )
-    mono_path, mono_src = resolve_font_path_with_source(
-        mono=True, user_path=user_path
-    )
-    # mono 找不到时 load 会回落 sans；状态里也体现这一点
-    if mono_path is None and sans_path is not None:
-        mono_path, mono_src = sans_path, sans_src
-
-    user = resolve_user_font(user_path)
-    ok = sans_path is not None
-    return {
-        "ok": ok,
-        "bundled_dir": str(_BUNDLED_DIR),
-        "sans": str(sans_path) if sans_path else None,
-        "sans_name": sans_path.name if sans_path else None,
-        "sans_source": sans_src,
-        "sans_source_label": _source_label(sans_src),
-        "mono": str(mono_path) if mono_path else None,
-        "mono_name": mono_path.name if mono_path else None,
-        "mono_source": mono_src,
-        "mono_source_label": _source_label(mono_src),
-        "user_font": str(user) if user else None,
-        "user_font_name": user.name if user else None,
-        "active_label": (
-            f"{_source_label(sans_src)} · {sans_path.name}" if sans_path else "未找到中文字体"
-        ),
-        "downloaded": False,
-        "auto_download": False,
-        "error": None
-        if ok
-        else (
-            "未找到可用中文字体。"
-            f"请将字体放到 {_BUNDLED_DIR}，或配置 card_font_path。"
-            "未配置时出卡会回退纯文本。"
-        ),
-        "hint": (
-            f"解析顺序：card_font_path → {_BUNDLED_DIR} → 系统 CJK。"
-            "不会自动下载。"
-        ),
-    }
 
 
 def clear_font_cache_meta() -> None:
     _load_truetype.cache_clear()
 
 
+def _font_entry(path: Path, where: str, where_label: str) -> dict[str, Any] | None:
+    try:
+        if not path.is_file() or path.stat().st_size <= 1024:
+            return None
+    except OSError:
+        return None
+    if path.suffix.lower() not in (".ttf", ".otf", ".ttc", ".otc"):
+        return None
+    return {
+        "path": str(path),
+        "name": path.name,
+        "where": where,
+        "where_label": where_label,
+        "label": f"{path.name}  ·  {where_label}",
+        "kb": max(1, path.stat().st_size // 1024),
+    }
+
+
+def list_available_fonts() -> dict[str, Any]:
+    """扫描可选字体，供 WebUI 下拉框。
+
+    检测位置（仅列出扫到的文件，不做「优先级」话术）：
+    1. 插件目录 assets/fonts/
+    2. 本机常见 CJK 系统路径（Linux / macOS / Windows 若干固定路径）
+    """
+    seen: set[str] = set()
+    items: list[dict[str, Any]] = []
+
+    def add(path: Path | str, where: str, where_label: str) -> None:
+        p = Path(path)
+        key = str(p)
+        if key in seen:
+            return
+        ent = _font_entry(p, where, where_label)
+        if ent is None:
+            return
+        seen.add(key)
+        items.append(ent)
+
+    # 1) 插件 assets/fonts
+    if _BUNDLED_DIR.is_dir():
+        try:
+            for p in sorted(_BUNDLED_DIR.iterdir(), key=lambda x: x.name.lower()):
+                add(p, "plugin", "插件 assets/fonts")
+        except OSError:
+            pass
+
+    # 2) 系统常见路径
+    for p in list(_SYSTEM_SANS) + list(_SYSTEM_MONO):
+        add(p, "system", "系统")
+
+    return {
+        "scan_locations": [
+            {
+                "id": "plugin",
+                "label": "插件目录",
+                "path": str(_BUNDLED_DIR),
+                "hint": "把 .ttf/.otf/.ttc 放这里，或点下方安装 Noto",
+            },
+            {
+                "id": "system",
+                "label": "系统常见路径",
+                "path": None,
+                "hint": "Linux Noto/文泉驿、macOS PingFang、Windows 雅黑/黑体等固定路径",
+            },
+        ],
+        "fonts": items,
+        "count": len(items),
+    }
+
+
+def font_status(
+    *, user_path: str | None = None, allow_download: bool = False
+) -> dict[str, Any]:
+    """WebUI / meta：当前生效字体 + 扫描列表。"""
+    _ = allow_download
+    scanned = list_available_fonts()
+    user = resolve_user_font(user_path)
+    active, src = resolve_font_path_with_source(mono=False, user_path=user_path)
+    ok = active is not None
+    return {
+        "ok": ok,
+        "bundled_dir": str(_BUNDLED_DIR),
+        "active": str(active) if active else None,
+        "active_name": active.name if active else None,
+        "active_where": src,
+        "active_where_label": _source_label(src),
+        "user_font": str(user) if user else None,
+        "user_font_name": user.name if user else None,
+        # 兼容旧字段
+        "sans": str(active) if active else None,
+        "sans_name": active.name if active else None,
+        "sans_source": src,
+        "sans_source_label": _source_label(src),
+        "mono": None,
+        "mono_name": None,
+        "error": None
+        if ok
+        else (
+            "未找到可用中文字体。"
+            f"可在下拉框选择，或把字体放到 {_BUNDLED_DIR}，或填自定义路径。"
+        ),
+        "scan_locations": scanned["scan_locations"],
+        "fonts": scanned["fonts"],
+        "count": scanned["count"],
+    }
+
+
 # ──── 可选：用户显式安装到插件目录（非自动） ────
 
 # 仅 Noto Sans SC 一份，足够画中文；不塞 16MB mono
+# 路径已实测 HTTP 200（notofonts/noto-cjk 仓库 SubsetOTF/SC，约 8.3MB OTF）
+# 旧路径 Sans/OTF/SimplifiedChinese/... 已 404，勿再用
 _FONT_PACK = {
     "id": "noto_sans_sc",
     "label": "中文字体 Noto Sans SC",
@@ -328,8 +386,9 @@ _FONT_PACK = {
     "approx_mb": 8,
     "license": "SIL OFL",
     "urls": [
-        "https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf",
-        "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf",
+        "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf",
+        "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf",
+        "https://github.com/notofonts/noto-cjk/raw/main/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf",
     ],
     "min_bytes": 1_000_000,
 }
@@ -374,48 +433,80 @@ def installable_items() -> list[dict[str, Any]]:
     ]
 
 
-def download_font_to_bundled(*, force: bool = False) -> dict[str, Any]:
-    """用户勾选后：把 Noto Sans SC 下到 assets/fonts/。"""
+def download_font_to_bundled(
+    *, force: bool = False, progress: list[str] | None = None
+) -> dict[str, Any]:
+    """用户勾选后：把 Noto Sans SC 流式下载到 assets/fonts/。"""
     import urllib.request
 
+    log = progress if progress is not None else []
     _BUNDLED_DIR.mkdir(parents=True, exist_ok=True)
     dest = _BUNDLED_DIR / _FONT_PACK["filename"]
     if dest.is_file() and dest.stat().st_size >= _FONT_PACK["min_bytes"] and not force:
         clear_font_cache_meta()
+        msg = f"已存在 {dest.name}（{dest.stat().st_size // 1024} KB），跳过"
+        log.append(msg)
         return {
             "ok": True,
             "skipped": True,
             "path": str(dest),
             "bytes": dest.stat().st_size,
-            "message": f"已存在 {dest.name}，跳过下载",
+            "message": msg,
+            "log": list(log),
         }
 
     tmp = dest.with_suffix(dest.suffix + ".part")
     last_err: str | None = None
     for url in _FONT_PACK["urls"]:
         try:
+            log.append(f"开始下载: {url}")
             logger.info("用户请求下载字体: %s → %s", url, dest)
             req = urllib.request.Request(
                 url,
                 headers={"User-Agent": "astrbot-plugin-hapi-connector/font-install"},
             )
             with urllib.request.urlopen(req, timeout=180) as resp:
-                data = resp.read()
+                total = resp.headers.get("Content-Length")
+                total_n = int(total) if total and str(total).isdigit() else 0
+                if total_n:
+                    log.append(f"大小约 {total_n // 1024} KB")
+                chunks: list[bytes] = []
+                got = 0
+                last_pct = -1
+                while True:
+                    block = resp.read(64 * 1024)
+                    if not block:
+                        break
+                    chunks.append(block)
+                    got += len(block)
+                    if total_n > 0:
+                        pct = min(100, got * 100 // total_n)
+                        if pct >= last_pct + 10 or pct == 100:
+                            log.append(f"进度 {pct}%（{got // 1024} KB）")
+                            last_pct = pct
+                    elif got and got % (512 * 1024) < 64 * 1024:
+                        log.append(f"已下载 {got // 1024} KB…")
+                data = b"".join(chunks)
             if len(data) < int(_FONT_PACK["min_bytes"]):
                 last_err = f"体积异常 {len(data)} B from {url}"
+                log.append(last_err)
                 continue
             tmp.write_bytes(data)
             tmp.replace(dest)
             clear_font_cache_meta()
+            msg = f"已保存到 {dest}（{dest.stat().st_size // 1024} KB）"
+            log.append(msg)
             return {
                 "ok": True,
                 "skipped": False,
                 "path": str(dest),
                 "bytes": dest.stat().st_size,
-                "message": f"已下载到 {dest}",
+                "message": msg,
+                "log": list(log),
             }
         except Exception as e:
             last_err = str(e)
+            log.append(f"失败: {e}")
             logger.warning("字体下载失败 (%s): %s", url, e)
             try:
                 if tmp.exists():
@@ -428,15 +519,56 @@ def download_font_to_bundled(*, force: bool = False) -> dict[str, Any]:
         "path": str(dest),
         "error": last_err or "下载失败",
         "message": f"字体下载失败: {last_err}",
+        "log": list(log),
     }
 
 
-def install_pip_package(spec: str) -> dict[str, Any]:
-    """用户勾选后：pip install 指定包。"""
+def _package_importable(mod_name: str) -> tuple[bool, str | None]:
+    try:
+        mod = __import__(mod_name)
+        ver = getattr(mod, "__version__", None)
+        return True, str(ver) if ver else None
+    except ImportError:
+        return False, None
+
+
+def install_pip_package(
+    spec: str,
+    *,
+    progress: list[str] | None = None,
+    import_name: str | None = None,
+) -> dict[str, Any]:
+    """用户勾选后：python -m pip install 指定包。"""
     import subprocess
     import sys
 
-    cmd = [sys.executable, "-m", "pip", "install", "--upgrade", spec]
+    log = progress if progress is not None else []
+    mod = import_name or spec.split(">=", 1)[0].split("==", 1)[0].split("[", 1)[0].strip()
+    # Pillow 的 import 名是 PIL
+    if mod.lower() == "pillow":
+        mod = "PIL"
+
+    ok_imp, ver = _package_importable(mod)
+    if ok_imp:
+        msg = f"已可 import {mod}" + (f"（v{ver}）" if ver else "") + "，跳过 pip"
+        log.append(msg)
+        return {
+            "ok": True,
+            "skipped": True,
+            "message": msg,
+            "log": list(log),
+        }
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "--disable-pip-version-check",
+        spec,
+    ]
+    log.append("执行: " + " ".join(cmd))
     try:
         proc = subprocess.run(
             cmd,
@@ -445,28 +577,62 @@ def install_pip_package(spec: str) -> dict[str, Any]:
             timeout=300,
             check=False,
         )
-        out = (proc.stdout or "")[-2000:]
-        err = (proc.stderr or "")[-2000:]
+        out = proc.stdout or ""
+        err = proc.stderr or ""
+        combined = (out + "\n" + err).strip()
+        tail_lines = combined.splitlines()[-40:] if combined else []
+        log.extend(tail_lines)
+
+        # 无 pip 模块时给出明确提示
+        if proc.returncode != 0 and "No module named pip" in combined:
+            msg = (
+                f"当前 Python（{sys.executable}）没有 pip。"
+                f"请在 AstrBot 运行环境里执行: {sys.executable} -m ensurepip && "
+                f"{sys.executable} -m pip install {spec}"
+            )
+            log.append(msg)
+            return {
+                "ok": False,
+                "cmd": " ".join(cmd),
+                "returncode": proc.returncode,
+                "message": msg,
+                "log": list(log),
+            }
+
         ok = proc.returncode == 0
+        # 装完再验一次 import
+        if ok:
+            ok_imp2, ver2 = _package_importable(mod)
+            if not ok_imp2:
+                ok = False
+                log.append(f"pip 成功但 import {mod} 仍失败，可能装到了别的环境")
+            elif ver2:
+                log.append(f"import {mod} ok · v{ver2}")
+
+        msg = f"{'已安装' if ok else '安装失败'} {spec}（exit {proc.returncode}）"
+        log.append(msg)
         return {
             "ok": ok,
             "cmd": " ".join(cmd),
             "returncode": proc.returncode,
-            "stdout_tail": out,
-            "stderr_tail": err,
-            "message": f"{'已安装' if ok else '安装失败'}: {spec}",
+            "stdout_tail": out[-3000:],
+            "stderr_tail": err[-3000:],
+            "message": msg,
+            "log": list(log),
         }
     except Exception as e:
+        log.append(f"pip 执行失败: {e}")
         return {
             "ok": False,
             "cmd": " ".join(cmd),
             "error": str(e),
             "message": f"pip 执行失败: {e}",
+            "log": list(log),
         }
 
 
 def install_selected(ids: list[str], *, force_font: bool = False) -> dict[str, Any]:
-    """按勾选 id 安装；可多选，逐项执行。"""
+    """按勾选 id 安装；可多选，逐项执行。返回 log 便于 WebUI 展示进度。"""
     wanted = [str(x).strip() for x in (ids or []) if str(x).strip()]
     allowed = {x["id"] for x in installable_items()}
     unknown = [x for x in wanted if x not in allowed]
@@ -475,23 +641,42 @@ def install_selected(ids: list[str], *, force_font: bool = False) -> dict[str, A
             "ok": False,
             "error": f"未知选项: {', '.join(unknown)}",
             "results": [],
+            "log": [f"未知选项: {', '.join(unknown)}"],
         }
     if not wanted:
-        return {"ok": False, "error": "未勾选任何项", "results": []}
+        return {
+            "ok": False,
+            "error": "未勾选任何项",
+            "results": [],
+            "log": ["未勾选任何项"],
+        }
+
+    import sys
 
     results: list[dict[str, Any]] = []
+    all_log: list[str] = [
+        f"运行环境 Python: {sys.executable}",
+        f"插件字体目录: {_BUNDLED_DIR}",
+    ]
     for item_id in wanted:
+        all_log.append(f"—— {item_id} ——")
+        item_log: list[str] = []
         if item_id == "font_noto_sc":
-            r = download_font_to_bundled(force=force_font)
+            r = download_font_to_bundled(force=force_font, progress=item_log)
             results.append({"id": item_id, **r})
         elif item_id == "dep_pillow":
-            r = install_pip_package("Pillow>=10.0,<12")
+            r = install_pip_package("Pillow>=10.0,<12", progress=item_log)
             results.append({"id": item_id, **r})
+        else:
+            continue
+        all_log.extend(item_log)
 
     all_ok = all(r.get("ok") or r.get("skipped") for r in results)
     return {
         "ok": all_ok,
         "results": results,
         "items": installable_items(),
-        "message": "所选项目已处理" if all_ok else "部分项目失败，见 results",
+        "log": all_log,
+        "message": "所选项目已处理" if all_ok else "部分项目失败，见 log",
+        "output": "\n".join(all_log),
     }

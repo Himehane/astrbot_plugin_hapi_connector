@@ -3,10 +3,14 @@
 ## v3.1.1 — 推送呈现修正：自定义 CSS / 对话卡 / 可移植中文字体
 
 1. **自定义 CSS**：`card_custom_css` 完整可编辑；Playwright 完整生效，Pillow 识别 `--card-*` 变量（低延迟快路径）  
-2. **对话也出卡**：`render_kinds` 增加 `message`；SSE simple/detail/summary 的 Agent 消息与结构卡同一管线  
-3. **中文字体（轻量）**：`card_font_path` → `assets/fonts` → 系统已装 CJK；**不自动下载**；都没有则回退纯文本  
-4. **可选安装（多选勾选）**：WebUI 勾选「中文字体」和/或「Pillow」，点安装；字体进 `assets/fonts/`，Pillow 走 pip——**不含 Chromium**  
-5. **引擎**：Pillow 出卡（低延迟）；WebUI：CSS 编辑器、字体路径、对话出卡、实卡预览  
+2. **对话也出卡**：`render_kinds` 增加 `message`；SSE simple/detail/summary 的 Agent 消息与结构卡同一管线；`main` 注入 `sse_listener.plugin`  
+3. **`/hapi list all` 出卡**：与 `list` 共用结构卡引擎；全局 path 分组 + 序号  
+4. **Session 列表卡美化**：分组条、序号块、状态色点、当前高亮——**不再照抄文本列表**  
+5. **设置页出卡类型勾选**：`render_kinds` 从逗号输入改为多选勾选（与「交互优化」一致）  
+6. **中文字体（轻量）**：`card_font_path` → `assets/fonts` → 系统已装 CJK；**不自动下载**；都没有则回退纯文本  
+7. **可选安装（多选勾选）**：WebUI 勾选「中文字体」和/或「Pillow」，点安装；字体进 `assets/fonts/`，Pillow 走 pip——**不含 Chromium**  
+8. **引擎**：Pillow 出卡（低延迟）；WebUI：CSS 编辑器、字体路径、对话出卡、实卡预览  
+
 
 ## v3.1.0 — 推送呈现（可选卡片）+ 戳一戳可映射
 

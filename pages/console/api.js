@@ -68,6 +68,8 @@ export function createApi(bridge) {
   }
 
   return {
+    get,
+    post,
     meta: () => get("meta"),
     // fresh=true 时强制打 HAPI；默认走服务端缓存 TTL，不唤醒 SSE
     overview: (opts = {}) => get("overview", opts.fresh ? { fresh: 1 } : undefined),
@@ -90,8 +92,10 @@ export function createApi(bridge) {
         autologin: opts.autologin === false ? 0 : 1,
         ...(opts.path ? { path: opts.path } : {}),
       }),
-    /** 推送卡片：能力元数据 / 实卡预览 */
+    /** 推送卡片：能力元数据 / 实卡预览 / 勾选安装字体或依赖 */
     renderMeta: () => get("render/meta"),
     renderPreview: (body) => post("render/preview", body || {}),
+    /** body: { ids: ["font_noto_sc","dep_pillow"], force?: bool } */
+    renderInstall: (body) => post("render/install", body || {}),
   };
 }

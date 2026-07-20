@@ -876,7 +876,11 @@ class SSEListener:
         """Agent 对话推送：按 render_mode / render_kinds 尝试出卡，失败回退文本。"""
         plugin = self.plugin
         if plugin is None:
-            logger.warning("message card: sse_listener.plugin 未注入，回退文本")
+            # 兜底：从 notify 链路外拿不到 plugin 时只发文本
+            logger.warning(
+                "message card: sse_listener.plugin 未注入，回退文本 "
+                "（请确认 main 里 self.sse_listener.plugin = self 已执行并已重载插件）"
+            )
             await self._push_notification(fallback_text, session_id)
             return
         try:
@@ -888,9 +892,14 @@ class SSEListener:
                 title=title,
                 footer=footer,
             )
+            notif = getattr(plugin, "notification_mgr", None)
+            if notif is None:
+                logger.warning("message card: plugin.notification_mgr 缺失，回退文本")
+                await self._push_notification(fallback_text, session_id)
+                return
             await output_present.present_push(
                 plugin,
-                plugin.notification_mgr,
+                notif,
                 "message",
                 payload,
                 fallback_text,
@@ -898,7 +907,7 @@ class SSEListener:
                 self.sessions_cache,
             )
         except Exception as e:
-            logger.warning("message card push failed: %s", e)
+            logger.warning("message card push failed: %s", e, exc_info=True)
             await self._push_notification(fallback_text, session_id)
 
     async def load_existing_pending(self):

@@ -63,16 +63,17 @@ def build_session_list_payload(
     all_sessions: list[dict] | None = None,
     header_current_window: str | None = None,
     max_items: int = 40,
+    scope: str = "window",
 ) -> dict[str, Any]:
-    """与 formatters.format_session_list 对齐：
+    """结构卡用会话列表数据（信息与文本列表一致，版式独立美化）。
 
-    - 按 path（文件夹）分组
-    - 主行是 session 标题，不是 flavor
-    - 序号优先用全局 all_sessions 编号（兼容 list / list all / sw）
+    - 按 path 分组
+    - 主行是 session 标题
+    - 序号优先用全局 all_sessions（兼容 list / list all / sw）
+    - 字段拆开：status_key / flavor / model / pending / is_current，供卡片排版
     """
     from . import formatters
 
-    # 全局序号（与 /hapi list 文本、/hapi sw <n> 一致）
     index_by_sid: dict[str, int] = {}
     if all_sessions:
         for idx, session in enumerate(all_sessions, 1):
@@ -84,6 +85,7 @@ def build_session_list_payload(
     shown = 0
     truncated = 0
     current_path = None
+    n_thinking = n_active = n_closed = 0
 
     for local_idx, s in enumerate(sessions, 1):
         if shown >= max_items:
@@ -100,7 +102,7 @@ def build_session_list_payload(
         title = formatters.get_session_title(s)
         flavor = str(meta.get("flavor") or "?").strip().lower()
         model = s.get("modelMode") or "default"
-        pending = s.get("pendingRequestsCount") or 0
+        pending = int(s.get("pendingRequestsCount") or 0)
 
         if path != current_path:
             count = sum(
@@ -108,51 +110,86 @@ def build_session_list_payload(
                 for x in sessions
                 if (x.get("metadata") or {}).get("path", "(无路径)") == path
             )
-            # 卡片用纯文本分组（避免 Pillow 缺 emoji 字形出方块）
+            # 卡片分组：短路径优先展示末两段，完整 path 放 full_path
+            short_path = path
+            if path not in ("(无路径)",) and "/" in path:
+                parts = [p for p in path.split("/") if p]
+                if len(parts) > 2:
+                    short_path = "…/" + "/".join(parts[-2:])
             rows.append({
                 "type": "section",
-                "label": f"· {path}",
-                "detail": f"{count} 个",
+                "label": short_path,
+                "full_path": path,
+                "detail": f"{count}",
+                "count": count,
             })
             current_path = path
 
         if s.get("thinking"):
+            status_key = "thinking"
             status = "思考中"
+            n_thinking += 1
         elif s.get("active"):
+            status_key = "active"
             status = "运行中"
+            n_active += 1
         else:
+            status_key = "closed"
             status = "已关闭"
+            n_closed += 1
 
-        parts = [status, f"{flavor}:{model}"]
+        is_current = bool(current_sid and sid == current_sid)
+        # detail 仅作兼容/回退文本；真正出图用结构化字段
+        detail_bits = [status, f"{flavor}:{model}"]
         if pending:
-            parts.append(f"待审批 {pending}")
-        if current_sid and sid == current_sid:
-            parts.append("<<当前")
+            detail_bits.append(f"待审 {pending}")
+        if is_current:
+            detail_bits.append("当前")
 
         rows.append({
             "type": "session",
             "index": display_idx,
             "sid_short": sid_short,
-            "label": title,  # 主标题：会话名，不是 flavor
-            "detail": " | ".join(parts),
+            "label": title,
+            "detail": " · ".join(detail_bits),
+            "status": status,
+            "status_key": status_key,
+            "flavor": flavor,
+            "model": str(model),
+            "pending": pending,
+            "is_current": is_current,
+            "path": path,
         })
         shown += 1
 
-    subtitle_bits = []
-    if header_current_window:
+    scope_label = "全局" if scope == "all" else "当前窗口"
+    subtitle_bits = [f"{scope_label} · {len(sessions)} 个"]
+    if header and header not in subtitle_bits[0]:
+        # 调用方自定义 header 时优先
+        subtitle_bits = [header]
+    if header_current_window and scope != "all":
         win = header_current_window
-        if len(win) > 36:
-            win = win[:16] + "…" + win[-16:]
+        if len(win) > 28:
+            win = win[:12] + "…" + win[-12:]
         subtitle_bits.append(f"窗口 {win}")
-    subtitle_bits.append(header or f"共 {len(sessions)} 个")
+    stats = []
+    if n_thinking:
+        stats.append(f"思考 {n_thinking}")
+    if n_active:
+        stats.append(f"运行 {n_active}")
+    if n_closed:
+        stats.append(f"关闭 {n_closed}")
+    if stats:
+        subtitle_bits.append(" / ".join(stats))
     if truncated:
         subtitle_bits.append(f"另有 {truncated} 个未展示")
 
     return {
-        "title": "Session 列表",
+        "title": "Session 列表" if scope != "all" else "全部 Session",
         "subtitle": " · ".join(subtitle_bits),
         "rows": rows,
-        "footer": "/hapi sw <序号或ID前缀>  切换    > 消息  快捷发送",
+        "layout": "session_list",
+        "footer": "sw <序号|ID> 切换   ·   > 消息 快捷发送   ·   list all 全局",
     }
 
 
