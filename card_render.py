@@ -8,7 +8,7 @@
 
 可选依赖：
     pip install Pillow
-    pip install matplotlib  # formula_mode=detect：含公式时由 matplotlib 渲染
+    pip install matplotlib  # formula_mode=detect：每个公式单独紧凑出图，嵌进 Pillow 消息卡
 """
 
 from __future__ import annotations
@@ -60,7 +60,8 @@ except ImportError:  # pragma: no cover — 脚本直跑 / 未作为包部署
 
 
 RENDER_MODES = ("text", "card")
-# off=公式当普通字；detect=含公式时由 matplotlib 渲染；plain=含公式时只发文字
+# off=公式当普通字；detect=每个公式用 matplotlib 紧凑出图后嵌进 Pillow 消息卡；
+# plain=含公式时只发文字
 FORMULA_MODES = ("off", "detect", "plain")
 CARD_KINDS = (
     "session_list",
@@ -1072,220 +1073,171 @@ def _strip_math_delimiters(latex: str) -> str:
     return one
 
 
-def _sanitize_for_mathtext(latex: str) -> str:
-    """把常见 LaTeX 收成 matplotlib mathtext 更吃得下的子集。"""
-    s = _strip_math_delimiters(latex)
-    s = " ".join(s.split())
-    if not s:
-        return ""
-
-    # 间距 / 尺寸修饰：mathtext 常炸
-    for tok in (
-        r"\!",
-        r"\,",
-        r"\;",
-        r"\:",
-        r"\ ",
-        r"\displaystyle",
-        r"\textstyle",
-        r"\scriptstyle",
-        r"\scriptscriptstyle",
-        r"\nolimits",
-        r"\limits",
-    ):
-        s = s.replace(tok, " ")
-    # 残留 \quad/\qquad（块级已拆行后）收成空格
-    s = s.replace(r"\qquad", " ").replace(r"\quad", " ")
-
-    # \dfrac \tfrac → \frac
-    s = s.replace(r"\dfrac", r"\frac").replace(r"\tfrac", r"\frac")
-
-    # \Bigg / \Big / \big 修饰括号 → 普通或 \left\right
-    s = re.sub(r"\\[Bb]igg?\s*\\\{", r"\\{", s)
-    s = re.sub(r"\\[Bb]igg?\s*\\\}", r"\\}", s)
-    s = re.sub(r"\\[Bb]igg?\s*([()\[\]|./])", r"\1", s)
-    s = re.sub(r"\\[Bb]igg?\s*", "", s)
-
-    # \left\| \right\| 范数 → 单竖线（mathtext 对 \| 不稳）
-    s = s.replace(r"\left\|", r"\left|").replace(r"\right\|", r"\right|")
-    s = s.replace(r"\|", r"|")
-
-    # 运算符名
-    s = re.sub(r"\\max\b", r"\\mathrm{max}", s)
-    s = re.sub(r"\\min\b", r"\\mathrm{min}", s)
-    s = re.sub(r"\\arg\b", r"\\mathrm{arg}", s)
-    s = re.sub(r"\\sin\b", r"\\sin", s)  # 已支持，保持
-    s = re.sub(r"\\cos\b", r"\\cos", s)
-
-    # 近似关系：部分符号 mathtext 没有
-    repl = {
-        r"\gtrsim": r"\geq",
-        r"\lesssim": r"\leq",
-        r"\geqslant": r"\geq",
-        r"\leqslant": r"\leq",
-        r"\neq": r"\ne",
-        r"\rightarrow": r"\rightarrow",
-        r"\leftarrow": r"\leftarrow",
-        r"\Rightarrow": r"\Rightarrow",
-        r"\Leftarrow": r"\Leftarrow",
-        r"\leftrightarrow": r"\leftrightarrow",
-        r"\cdot": r"\cdot",
-        r"\times": r"\times",
-        r"\ast": r"*",
-        r"\circ": r"\circ",
-    }
-    for a, b in repl.items():
-        s = s.replace(a, b)
-
-    # \operatorname{foo} → \mathrm{foo}
-    s = re.sub(r"\\operatorname\{([^}]*)\}", r"\\mathrm{\1}", s)
-    # \text{foo} → \mathrm{foo}（mathtext 对 \text 支持有限）
-    s = re.sub(r"\\text\{([^}]*)\}", r"\\mathrm{\1}", s)
-    s = re.sub(r"\\textbf\{([^}]*)\}", r"\\mathbf{\1}", s)
-    s = re.sub(r"\\textit\{([^}]*)\}", r"\1", s)
-
-    # 百分比：mathtext 吃 \%，裸 % 会被当注释
-    s = s.replace(r"\%", r"\%")  # 保留
-    # 裸 %（非 \%）→ \%
-    s = re.sub(r"(?<!\\)%", r"\\%", s)
-
-    # 连续空白
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
-
-def _simplify_mathtext_levels(src: str) -> list[str]:
-    """从完整式子逐级降级，提高 mathtext 命中率。"""
-    levels: list[str] = []
-    base = _sanitize_for_mathtext(src)
-    if base:
-        levels.append(base)
-
-    def add(x: str) -> None:
-        x = re.sub(r"\s+", " ", (x or "").strip())
-        if x and x not in levels:
-            levels.append(x)
-
-    if base:
-        # 去 \left \right
-        add(re.sub(r"\\left\s*", "", base))
-        add(re.sub(r"\\right\s*", "", re.sub(r"\\left\s*", "", base)))
-        # \mathcal{X} → X 、 \mathbf{X} → X
-        v = re.sub(r"\\mathcal\{([^}]*)\}", r"\1", base)
-        v = re.sub(r"\\mathbf\{([^}]*)\}", r"\1", v)
-        v = re.sub(r"\\mathrm\{([^}]*)\}", r"\1", v)
-        v = re.sub(r"\\boldsymbol\{([^}]*)\}", r"\1", v)
-        add(v)
-        # 去 left/right + 去 math**
-        v2 = re.sub(r"\\left\s*|\\right\s*", "", v)
-        add(v2)
-        # 花括号函数式 \mathcal{F}\{a\} → F(a)
-        v3 = re.sub(r"\\mathcal\{([^}]*)\}\\\{([^}]*)\\\}", r"\1(\2)", base)
-        v3 = re.sub(r"\\\{", "(", v3)
-        v3 = re.sub(r"\\\}", ")", v3)
-        add(re.sub(r"\\left\s*|\\right\s*", "", v3))
-        # 极简：只留字母数字与基础符号
-        simple = re.sub(r"\\[a-zA-Z]+\{([^}]*)\}", r"\1", base)
-        simple = re.sub(r"\\[a-zA-Z]+", "", simple)
-        simple = re.sub(r"[{}]", "", simple)
-        add(simple)
-
-    return levels
-
-
-def _formula_to_mathtext(latex: str) -> list[str]:
-    """LaTeX → 多个 mathtext 候选（先完整后降级）。"""
+def _mathtext_candidates(latex: str) -> list[str]:
+    """生成 mathtext 候选。单个失败不影响其它公式。"""
     raw = _strip_math_delimiters(latex)
+    raw = " ".join((raw or "").split())
     if not raw:
         return []
     cands: list[str] = []
-    for level in _simplify_mathtext_levels(raw):
-        # 不写 \displaystyle：部分环境 mathtext 不认
-        cands.append(f"${level}$")
-        # begin 环境保留尝试
-        if level.startswith("\\begin"):
-            cands.append(f"${level}$")
-    # 去重保序
-    out: list[str] = []
-    seen: set[str] = set()
-    for c in cands:
-        if c not in seen:
-            seen.add(c)
-            out.append(c)
-    return out
+
+    def add(s: str) -> None:
+        s = re.sub(r"\s+", " ", (s or "").strip())
+        if s and s not in cands:
+            cands.append(s)
+
+    add(raw)
+
+    def normalize(s: str) -> str:
+        # 转置：^{\mathsf T} / ^{\mathrm T} / ^\mathsf{T} → ^{\top}
+        s = re.sub(
+            r"\^\{\\mathsf\s*T\}|\^\{\\mathrm\s*T\}|\^\{\\mathsf\{T\}\}|\^\{\\mathrm\{T\}\}",
+            r"^{\\top}",
+            s,
+        )
+        s = re.sub(r"\^\\mathsf\{T\}|\^\\mathrm\{T\}", r"^{\\top}", s)
+        # 字体命令
+        s = s.replace(r"\mathsf", r"\mathrm")
+        s = s.replace(r"\mathtt", r"\mathrm")
+        s = s.replace(r"\boldsymbol", r"\mathbf")
+        s = s.replace(r"\bm", r"\mathbf")
+        # \mathrm T（无花括号）→ \mathrm{T}
+        s = re.sub(r"\\mathrm\s+([A-Za-z])", r"\\mathrm{\1}", s)
+        s = re.sub(r"\\mathbf\s+([A-Za-z])", r"\\mathbf{\1}", s)
+        s = s.replace(r"\dfrac", r"\frac").replace(r"\tfrac", r"\frac")
+        s = s.replace(r"\gtrsim", r"\geq").replace(r"\lesssim", r"\leq")
+        s = s.replace(r"\geqslant", r"\geq").replace(r"\leqslant", r"\leq")
+        s = s.replace(r"\neq", r"\ne")
+        s = s.replace(r"\left\|", r"\left|").replace(r"\right\|", r"\right|")
+        s = s.replace(r"\|", r"|")
+        s = re.sub(r"(?<!\\)%", r"\\%", s)
+        return s
+
+    n1 = normalize(raw)
+    add(n1)
+
+    # 剥 Big 修饰与细间距
+    n2 = re.sub(r"\\[Bb]igg?\s*", "", n1)
+    for tok in (r"\!", r"\,", r"\;", r"\:", r"\quad", r"\qquad"):
+        n2 = n2.replace(tok, " ")
+    add(n2)
+
+    # 再简化：\left \right 去掉
+    n3 = re.sub(r"\\left\s*|\\right\s*", "", n2)
+    add(n3)
+
+    return cands
 
 
-def _latex_approx_plain(latex: str) -> str:
-    """mathtext 全失败时：源码收成可读近似，避免整段反斜杠糊脸。"""
-    s = _strip_math_delimiters(latex)
-    s = " ".join(s.split())
-    repl = [
-        (r"\\mathbf\{([^}]*)\}", r"\1"),
-        (r"\\mathrm\{([^}]*)\}", r"\1"),
-        (r"\\mathcal\{([^}]*)\}", r"\1"),
-        (r"\\boldsymbol\{([^}]*)\}", r"\1"),
-        (r"\\text\{([^}]*)\}", r"\1"),
-        (r"\\frac\{([^}]*)\}\{([^}]*)\}", r"(\1)/(\2)"),
-        (r"\\sqrt\{([^}]*)\}", r"√(\1)"),
-        (r"\\sum", "∑"),
-        (r"\\prod", "∏"),
-        (r"\\int", "∫"),
-        (r"\\infty", "∞"),
-        (r"\\pm", "±"),
-        (r"\\times", "×"),
-        (r"\\cdot", "·"),
-        (r"\\approx", "≈"),
-        (r"\\sim", "∼"),
-        (r"\\leq", "≤"),
-        (r"\\geq", "≥"),
-        (r"\\le", "≤"),
-        (r"\\ge", "≥"),
-        (r"\\ne", "≠"),
-        (r"\\neq", "≠"),
-        (r"\\rightarrow", "→"),
-        (r"\\leftarrow", "←"),
-        (r"\\Rightarrow", "⇒"),
-        (r"\\Leftarrow", "⇐"),
-        (r"\\leftrightarrow", "↔"),
-        (r"\\gtrsim", "≳"),
-        (r"\\lesssim", "≲"),
-        (r"\\lambda", "λ"),
-        (r"\\alpha", "α"),
-        (r"\\beta", "β"),
-        (r"\\gamma", "γ"),
-        (r"\\delta", "δ"),
-        (r"\\epsilon", "ε"),
-        (r"\\varepsilon", "ε"),
-        (r"\\theta", "θ"),
-        (r"\\pi", "π"),
-        (r"\\psi", "ψ"),
-        (r"\\Psi", "Ψ"),
-        (r"\\phi", "φ"),
-        (r"\\eta", "η"),
-        (r"\\Delta", "Δ"),
-        (r"\\left", ""),
-        (r"\\right", ""),
-        (r"\\big", ""),
-        (r"\\Big", ""),
-        (r"\\,", " "),
-        (r"\\;", " "),
-        (r"\\!", ""),
-        (r"\\quad", " "),
-        (r"\\qquad", "  "),
-        (r"\\ ", " "),
-        (r"\\%", "%"),
-        (r"\\_", "_"),
-        (r"\\\{", "{"),
-        (r"\\\}", "}"),
-        (r"\\\|", "‖"),
-        (r"\\\|", "|"),
-    ]
-    for pat, rep in repl:
-        s = re.sub(pat, rep, s)
-    s = re.sub(r"\\[a-zA-Z]+\*?", "", s)
-    s = re.sub(r"[{}]", "", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s or (latex or "").strip()
+def render_math_to_pil(
+    formula: str,
+    *,
+    fontsize: float = 18,
+    dpi: int = 200,
+    fg: str = "#14120f",
+    bg: str | None = None,
+    max_width_px: int = 0,
+) -> "Image.Image | None":
+    """单条公式 → 紧凑 PIL 图（gist 思路：极小画布 + tight bbox）。
+
+    失败返回 None；调用方只替换这一段，不拖垮整张消息卡。
+    formula 可不带外层 $。
+    """
+    if not matplotlib_available() or not _HAS_PILLOW:
+        return None
+    cands = _mathtext_candidates(formula)
+    if not cands:
+        return None
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return None
+
+    # 用 cm 字体更像 LaTeX；失败也不致命
+    try:
+        plt.rcParams["mathtext.fontset"] = "cm"
+    except Exception:
+        pass
+
+    last_err: Exception | None = None
+    for body in cands:
+        expr = body if body.startswith("$") else f"${body}$"
+        fig = None
+        try:
+            fig = plt.figure(figsize=(0.01, 0.01), dpi=dpi)
+            if bg:
+                fig.patch.set_facecolor(bg)
+            else:
+                fig.patch.set_alpha(0.0)
+            text = fig.text(0, 0, expr, fontsize=fontsize, color=fg)
+            # 先画一次拿 bbox
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+            bbox = text.get_window_extent(renderer=renderer)
+            pad_in = 0.04
+            width_in = max(0.15, bbox.width / float(dpi) + pad_in * 2)
+            height_in = max(0.12, bbox.height / float(dpi) + pad_in * 2)
+            fig.set_size_inches(width_in, height_in)
+            # 居中
+            text.set_position((0.5, 0.5))
+            text.set_ha("center")
+            text.set_va("center")
+
+            buf = io.BytesIO()
+            fig.savefig(
+                buf,
+                format="png",
+                dpi=dpi,
+                facecolor=bg if bg else "none",
+                edgecolor="none",
+                transparent=bg is None,
+                bbox_inches="tight",
+                pad_inches=0.02,
+            )
+            data = buf.getvalue()
+            if not data or len(data) < 32:
+                continue
+            im = Image.open(io.BytesIO(data))
+            # 有透明则贴到背景色上，方便 paste 到 RGB 卡
+            if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+                rgba = im.convert("RGBA")
+                if bg:
+                    base = Image.new("RGBA", rgba.size, (*_hex_to_rgb(bg), 255))
+                    base.alpha_composite(rgba)
+                    im = base.convert("RGB")
+                else:
+                    # 默认贴到近白，避免透明糊在深色卡上
+                    base = Image.new("RGBA", rgba.size, (247, 244, 234, 255))
+                    base.alpha_composite(rgba)
+                    im = base.convert("RGB")
+            else:
+                im = im.convert("RGB")
+
+            if max_width_px > 0 and im.width > max_width_px:
+                ratio = max_width_px / float(im.width)
+                nh = max(1, int(im.height * ratio))
+                resample = getattr(
+                    getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS
+                )
+                im = im.resize((max_width_px, nh), resample)
+            return im
+        except Exception as e:
+            last_err = e
+            continue
+        finally:
+            if fig is not None:
+                plt.close(fig)
+    if last_err is not None:
+        logger.debug(
+            "render_math_to_pil failed: %s · %s",
+            last_err,
+            (formula or "")[:80],
+        )
+    return None
 
 
 def _matplotlib_probe_font(path: Path | str | None) -> "Any | None":
@@ -1881,10 +1833,10 @@ def render_meta() -> dict[str, Any]:
         "formula_subset": {
             "supported": [
                 "plain：含公式时只发文字",
-                "detect：含公式时由 matplotlib 渲染",
+                "detect：每个公式用 matplotlib 紧凑出图，嵌进 Pillow 消息卡",
             ],
             "delimiters": ["$...$", "$$...$$", "\\(...\\)", "\\[...\\]", "\\begin{...}"],
-            "note": "detect 需 matplotlib；失败回退 Pillow 纯文。",
+            "note": "detect 需 matplotlib；单个公式失败只显示源码，不拖垮整张卡。",
             "matplotlib": matplotlib_available(),
         },
     }
@@ -2325,24 +2277,22 @@ def _render_with_pillow(
     *,
     formula_mode: str = "off",
 ) -> tuple[bytes, int, int, str]:
-    """返回 (png, w, h, engine)。engine: pillow | matplotlib。"""
+    """返回 (png, w, h, engine)。message+公式：pillow（公式段 matplotlib 嵌图）。"""
     if kind == "message":
         fmode = normalize_formula_mode(formula_mode)
         body = str((data or {}).get("body") or (data or {}).get("text") or "")
-        # 含公式时由 matplotlib 渲染；失败再回退 Pillow 纯文
-        if fmode == "detect" and text_has_formula(body):
-            if not matplotlib_available():
-                logger.warning(
-                    "formula_mode=detect 但未安装 matplotlib，回退 Pillow 纯文"
-                )
-            else:
-                whole = render_message_matplotlib_png(data or {}, style)
-                if whole is not None:
-                    png, w, h = whole
-                    return png, w, h, "matplotlib"
-                logger.warning("matplotlib 渲染失败，回退 Pillow 纯文")
-        png, w, h = _draw_message_png(data, style, formula_mode="off")
-        return png, w, h, "pillow"
+        use_math = (
+            fmode == "detect"
+            and text_has_formula(body)
+            and matplotlib_available()
+            and _HAS_PILLOW
+        )
+        if fmode == "detect" and text_has_formula(body) and not matplotlib_available():
+            logger.warning("formula_mode=detect 但未安装 matplotlib，公式当普通字")
+        png, w, h = _draw_message_png(
+            data, style, formula_mode="detect" if use_math else "off"
+        )
+        return png, w, h, "pillow+math" if use_math else "pillow"
     if kind == "session_list" or data.get("layout") == "session_list":
         png, w, h = _draw_session_list_png(data, style)
         return png, w, h, "pillow"
@@ -2980,14 +2930,52 @@ def _draw_struct_png(
     return buf.getvalue(), width, height
 
 
+def _parse_message_blocks_with_math(
+    text: str,
+    *,
+    style: CardStyle,
+    max_formula_w: int,
+    formula_fontsize: float,
+) -> list[dict[str, Any]]:
+    """正文：按公式定界切段 → 文本走 Markdown，公式段单独 matplotlib 紧凑出图。
+
+    单个公式失败只退回源码文本块，不拖垮整条消息。
+    """
+    segs = extract_formula_segments(text)
+    if not segs or all(k == "text" for k, _ in segs):
+        return _parse_md_blocks(text)
+
+    out: list[dict[str, Any]] = []
+    for kind, content in segs:
+        if kind == "text":
+            if content.strip():
+                out.extend(_parse_md_blocks(content))
+            continue
+        im = render_math_to_pil(
+            content,
+            fontsize=formula_fontsize,
+            dpi=200,
+            fg=style.fg or "#14120f",
+            bg=style.bg or "#f7f4ea",
+            max_width_px=max(80, max_formula_w - 8),
+        )
+        if im is not None:
+            out.append({"type": "formula_img", "image": im, "text": content})
+        else:
+            # 失败：源码当普通段，仍在同一张消息图里
+            out.append({"type": "p", "text": content})
+    return out or _parse_md_blocks(text)
+
+
 def _draw_message_png(
     data: dict[str, Any],
     style: CardStyle,
     *,
     formula_mode: str = "off",
 ) -> tuple[bytes, int, int]:
-    """Pillow 对话卡：Markdown 子集（公式当普通字）。"""
-    _ = formula_mode
+    """Pillow 对话卡：Markdown 子集；detect 时公式段嵌 matplotlib 紧凑图。"""
+    fmode = normalize_formula_mode(formula_mode)
+    use_math = fmode == "detect" and matplotlib_available() and _HAS_PILLOW
     scale = style.font_scale
     pad = style.padding
     width = style.width
@@ -3002,6 +2990,7 @@ def _draw_message_png(
     h1_size = max(18, int(22 * scale))
     h2_size = max(16, int(19 * scale))
     foot_size = max(12, int(13 * scale))
+    formula_fs = max(14.0, body_size * 1.05)
 
     tmp = Image.new("RGB", (width, 100), _hex_to_rgb(style.bg))
     d0 = ImageDraw.Draw(tmp)
@@ -3020,7 +3009,15 @@ def _draw_message_png(
     body = str(data.get("body") or data.get("text") or "")
     footer = str(data.get("footer") or "")
 
-    blocks = _parse_md_blocks(body)
+    if use_math and text_has_formula(body):
+        blocks = _parse_message_blocks_with_math(
+            body,
+            style=style,
+            max_formula_w=content_w,
+            formula_fontsize=formula_fs,
+        )
+    else:
+        blocks = _parse_md_blocks(body)
 
     def _table_col_widths(headers, rows) -> list[int]:
         n = max(1, len(headers))
@@ -3065,6 +3062,11 @@ def _draw_message_png(
 
     def measure_block(b) -> int:
         h = 0
+        if b["type"] == "formula_img":
+            im = b.get("image")
+            if im is not None:
+                return int(getattr(im, "height", 40)) + 16
+            return 48
         if b["type"] == "table":
             return _measure_table(b)
         if b["type"] == "code":
@@ -3142,6 +3144,38 @@ def _draw_message_png(
         if y > height - pad - 28:
             draw.text((pad, y), "...", font=font_body, fill=sub_fg)
             break
+        if b["type"] == "formula_img":
+            im = b.get("image")
+            if im is not None:
+                try:
+                    x0 = pad + max(0, (content_w - im.width) // 2)
+                    # 防止高度估算不足时贴图越界
+                    if y + im.height > height - pad:
+                        # 扩展画布
+                        new_h = min(4500, y + im.height + pad + 40)
+                        if new_h > height:
+                            bigger = Image.new("RGB", (width, new_h), bg)
+                            bigger.paste(img, (0, 0))
+                            img = bigger
+                            draw = ImageDraw.Draw(img)
+                            height = new_h
+                    img.paste(im, (x0, y))
+                    y += im.height + 12
+                except Exception:
+                    for line in _wrap_text(
+                        draw, str(b.get("text") or ""), font_body, content_w
+                    ):
+                        draw.text((pad, y), line, font=font_body, fill=fg)
+                        y += _text_size(draw, line or " ", font_body)[1] + line_extra
+                    y += 8
+            else:
+                for line in _wrap_text(
+                    draw, str(b.get("text") or ""), font_body, content_w
+                ):
+                    draw.text((pad, y), line, font=font_body, fill=fg)
+                    y += _text_size(draw, line or " ", font_body)[1] + line_extra
+                y += 8
+            continue
         if b["type"] == "code":
             lines = _wrap_text(draw, b["text"], font_code, content_w - 24) or [""]
             block_h = (
