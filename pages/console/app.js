@@ -1659,127 +1659,195 @@ function renderSessions() {
 
 /* ---------- interact ---------- */
 
-/** 图片 CSS 分栏：tab 只列这块用到的 :root 变量 */
-const CSS_PART_HELP = {
-  all: {
-    title: "全局",
+/** 图片 CSS：按区块拆成多份编辑，保存时拼回完整 card_custom_css */
+const CSS_PART_DEFS = [
+  {
+    id: "color",
+    label: "颜色",
     vars: [
-      ["--card-bg", "背景"],
-      ["--card-fg", "字色"],
-      ["--card-accent", "强调色"],
-      ["--card-muted", "次要字"],
-      ["--card-border", "边框"],
-      ["--card-code-bg", "代码底"],
-      ["--card-width", "宽度"],
-      ["--card-pad", "内边距"],
-      ["--card-radius", "圆角"],
-      ["--card-font-scale", "字号倍率"],
-      ["--card-title-size", "标题"],
-      ["--card-sub-size", "副标题"],
-      ["--card-body-size", "正文"],
-      ["--card-meta-size", "元信息"],
-      ["--card-foot-size", "页脚"],
+      "--card-bg",
+      "--card-fg",
+      "--card-accent",
+      "--card-muted",
+      "--card-border",
+      "--card-code-bg",
     ],
   },
-  session_list: {
-    title: "Session 列表",
+  {
+    id: "size",
+    label: "整体尺寸",
+    vars: ["--card-radius", "--card-pad", "--card-width", "--card-font-scale"],
+  },
+  {
+    id: "font",
+    label: "字号",
     vars: [
-      ["--card-idx-w", "序号宽"],
-      ["--card-idx-h", "序号高"],
-      ["--card-idx-font", "序号字号"],
-      ["--card-idx-radius", "序号圆角"],
-      ["--card-idx-top", "序号距行顶"],
-      ["--card-row-pad-y", "行上下留白"],
-      ["--card-row-pad-x", "行左右留白"],
-      ["--card-row-gap", "行间距"],
-      ["--card-section-gap", "分组间距"],
+      "--card-title-size",
+      "--card-sub-size",
+      "--card-body-size",
+      "--card-meta-size",
+      "--card-foot-size",
+      "--card-mono",
     ],
   },
-  pending: {
-    title: "待审批",
+  {
+    id: "status",
+    label: "状态徽章",
     vars: [
-      ["（颜色/字号）", "见全局"],
-      ["--card-row-pad-y", "行上下留白"],
-      ["--card-row-pad-x", "行左右留白"],
-      ["--card-row-gap", "行间距"],
+      "--card-badge-h",
+      "--card-badge-pad-x",
+      "--card-badge-font",
+      "--card-badge-dot",
     ],
   },
-  status: {
-    title: "状态",
+  {
+    id: "list",
+    label: "Session 列表",
     vars: [
-      ["--card-badge-h", "徽章高度"],
-      ["--card-badge-pad-x", "徽章左右内边距"],
-      ["--card-badge-font", "徽章字号"],
-      ["--card-badge-dot", "圆点大小"],
-      ["（颜色/字号）", "见全局"],
+      "--card-idx-w",
+      "--card-idx-h",
+      "--card-idx-font",
+      "--card-idx-radius",
+      "--card-idx-top",
+      "--card-section-gap",
     ],
   },
-  permission: {
-    title: "权限请求",
-    vars: [
-      ["（颜色/字号）", "见全局"],
-      ["--card-row-pad-y", "行上下留白"],
-      ["--card-row-pad-x", "行左右留白"],
-      ["--card-row-gap", "行间距"],
-    ],
+  {
+    id: "row",
+    label: "行距间距",
+    vars: ["--card-row-pad-y", "--card-row-pad-x", "--card-row-gap"],
   },
-  routes: {
-    title: "推送路由",
-    vars: [
-      ["（颜色/字号）", "见全局"],
-      ["--card-row-pad-y", "行上下留白"],
-      ["--card-row-pad-x", "行左右留白"],
-      ["--card-row-gap", "行间距"],
-    ],
-  },
-  message: {
-    title: "Agent 对话",
-    vars: [
-      ["--card-body-size", "正文"],
-      ["--card-title-size", "标题"],
-      ["--card-sub-size", "副标题"],
-      ["--card-code-bg", "代码底"],
-      ["--card-border", "边框"],
-      ["--card-muted", "次要字"],
-    ],
-  },
-  preview: {
-    title: "网页预览",
-    vars: [
-      [".card / .row …", "仅 DOM 预览，出图不读"],
-      [":root --card-*", "变量预览与出图共用"],
-    ],
-  },
-};
+  { id: "preview", label: "网页预览", mode: "tail" },
+];
 
-function paintCssPartHelp(partId) {
-  const part = CSS_PART_HELP[partId] || CSS_PART_HELP.all;
-  const host = $("#ix-css-part-help");
-  if (!host) return;
-  const rows = (part.vars || [])
-    .map(
-      ([k, d]) =>
-        `<div class="css-part-row"><code class="mono">${esc(k)}</code><span>${esc(d)}</span></div>`,
-    )
-    .join("");
-  host.innerHTML = `
-    <div class="css-part-title">${esc(part.title)}</div>
-    <div class="css-part-vars">${rows}</div>
-  `;
+function extractCssVars(css) {
+  const map = {};
+  const re = /(--card-[\w-]+)\s*:\s*([^;]+);/g;
+  let m;
+  while ((m = re.exec(String(css || "")))) {
+    map[m[1]] = m[2].trim();
+  }
+  return map;
+}
+
+function extractPreviewCss(css) {
+  const s = String(css || "");
+  const rootStart = s.indexOf(":root");
+  if (rootStart < 0) {
+    // 没有 :root 时整段当预览/选择器
+    return s.trim();
+  }
+  const brace = s.indexOf("{", rootStart);
+  if (brace < 0) return "";
+  let depth = 0;
+  for (let i = brace; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return s.slice(i + 1).trim();
+    }
+  }
+  return "";
+}
+
+function defaultCssText() {
+  return (
+    (state.meta && state.meta.render && state.meta.render.default_css) ||
+    DEFAULT_CARD_CSS_FALLBACK
+  );
+}
+
+function formatPartVars(def, varMap, fallbackMap) {
+  return def.vars
+    .map((name) => {
+      const val = varMap[name] ?? fallbackMap[name];
+      if (val == null || val === "") return null;
+      return `  ${name}: ${val};`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function splitCssToParts(css) {
+  const src = String(css || "").trim() || defaultCssText();
+  const vars = extractCssVars(src);
+  const fallback = extractCssVars(defaultCssText());
+  const parts = {};
+  for (const def of CSS_PART_DEFS) {
+    if (def.mode === "tail") {
+      const tail = extractPreviewCss(src);
+      parts[def.id] =
+        tail || extractPreviewCss(defaultCssText()) || "/* 仅网页预览用选择器 */";
+      continue;
+    }
+    parts[def.id] = formatPartVars(def, vars, fallback);
+  }
+  return parts;
+}
+
+function joinCssParts(parts) {
+  const fallback = extractCssVars(defaultCssText());
+  const lines = [];
+  for (const def of CSS_PART_DEFS) {
+    if (def.mode === "tail") continue;
+    lines.push(`  /* —— ${def.label} —— */`);
+    const raw = String(parts?.[def.id] || "");
+    const found = extractCssVars(raw);
+    for (const name of def.vars) {
+      const val = found[name] ?? fallback[name];
+      if (val == null || val === "") continue;
+      lines.push(`  ${name}: ${val};`);
+    }
+    lines.push("");
+  }
+  const preview = String(parts?.preview || "").trim() || extractPreviewCss(defaultCssText());
+  return `:root {\n${lines.join("\n").replace(/\n+$/, "")}\n}\n\n${preview}\n`;
+}
+
+function currentCssFromParts() {
+  flushCssPartEditor();
+  return joinCssParts(state._cssParts || splitCssToParts(defaultCssText()));
+}
+
+function flushCssPartEditor() {
+  const ta = $("#ix-css-part");
+  if (!ta || !state._cssParts) return;
+  const id = state._cssPartId || CSS_PART_DEFS[0].id;
+  state._cssParts[id] = ta.value;
+}
+
+function showCssPart(partId) {
+  const def = CSS_PART_DEFS.find((d) => d.id === partId) || CSS_PART_DEFS[0];
+  state._cssPartId = def.id;
+  if (!state._cssParts) state._cssParts = splitCssToParts(defaultCssText());
+  const ta = $("#ix-css-part");
+  if (ta) ta.value = state._cssParts[def.id] || "";
+  $$("#ix-css-tabs [data-css-part]").forEach((t) => {
+    t.classList.toggle("is-on", t.dataset.cssPart === def.id);
+  });
+  const hint = $("#ix-css-part-hint");
+  if (hint) {
+    hint.textContent =
+      def.mode === "tail"
+        ? "仅 DOM 预览读这里的选择器；聊天出图只认上面变量。"
+        : "只改本块变量；保存时自动拼成完整 CSS。";
+  }
 }
 
 function wireCssPartTabs() {
   const tabs = $$("#ix-css-tabs [data-css-part]");
   if (!tabs.length) return;
-  const current =
-    tabs.find((t) => t.classList.contains("is-on"))?.dataset.cssPart || "all";
-  paintCssPartHelp(current);
   tabs.forEach((tab) => {
     tab.onclick = () => {
-      tabs.forEach((t) => t.classList.toggle("is-on", t === tab));
-      paintCssPartHelp(tab.dataset.cssPart);
+      flushCssPartEditor();
+      showCssPart(tab.dataset.cssPart);
     };
   });
+  const cur =
+    tabs.find((t) => t.classList.contains("is-on"))?.dataset.cssPart ||
+    CSS_PART_DEFS[0].id;
+  showCssPart(cur);
 }
 
 function normalizeRenderMode(m) {
@@ -1837,6 +1905,7 @@ const DEFAULT_CARD_CSS_FALLBACK = `/* ==========================================
   --card-body-size: 16.5px;
   --card-meta-size: 13.5px;
   --card-foot-size: 13px;
+  --card-mono: 0;
 
   /* —— status 状态徽章 —— */
   --card-badge-h: 40px;
@@ -1896,8 +1965,8 @@ const FALLBACK_INSTALLABLE = [
   {
     id: "dep_matplotlib",
     group: "dep",
-    label: "matplotlib（公式内嵌）",
-    desc: "pip install matplotlib — Agent 消息公式渲成内嵌图",
+    label: "matplotlib（公式排版）",
+    desc: "pip install matplotlib — Agent 消息整图里的公式用它排版",
     installed: false,
   },
 ];
@@ -2430,10 +2499,8 @@ function collectRenderPatchFromForm() {
   if (render_mode === "card" && !kinds.length) {
     kinds = ["session_list", "pending", "status", "permission", "message"];
   }
-  const defaultCss =
-    (state.meta && state.meta.render && state.meta.render.default_css) ||
-    DEFAULT_CARD_CSS_FALLBACK;
-  let css = $("#ix-css")?.value ?? "";
+  const defaultCss = defaultCssText();
+  let css = currentCssFromParts();
   if (css.trim() === String(defaultCss).trim()) css = "";
 
   let fontPath = "";
@@ -2628,12 +2695,12 @@ function renderInteract() {
           </div>
 
           <div class="field" id="ix-fmode-wrap" ${rs.kinds.includes("message") ? "" : "hidden"}>
-            <div class="field-label">公式渲染（仅 Agent 对话）</div>
-            <select id="ix-fmode" class="ctrl" style="max-width:320px">
+            <div class="field-label">公式（仅 Agent 对话）</div>
+            <select id="ix-fmode" class="ctrl" style="max-width:360px">
               ${[
-                { value: "off", title: "关闭（当普通文字）" },
-                { value: "detect", title: "有公式则用 matplotlib 内嵌图" },
-                { value: "plain", title: "有公式则整段只发文字" },
+                { value: "off", title: "关闭" },
+                { value: "detect", title: "有公式时整条仍出图（matplotlib 排公式）" },
+                { value: "plain", title: "有公式时整条只发文字" },
               ]
                 .map(
                   (o) =>
@@ -2643,38 +2710,22 @@ function renderInteract() {
                 )
                 .join("")}
             </select>
-            ${
-              engine.matplotlib
-                ? `<p class="field-help" style="margin-top:6px">matplotlib 已就绪。</p>`
-                : `<p class="field-help" style="margin-top:6px">选「内嵌图」需安装 matplotlib（下方可选依赖勾选安装）。未装时公式按源码文字显示。</p>`
-            }
           </div>
 
           <div class="field">
             <div class="field-label">图片 CSS（当前生效）</div>
             <p class="field-help">
               ${rs.using_default_css ? "内置默认样式。" : "已保存的自定义样式。"}
-              点分栏看这块用哪些变量；改值在下方 <code>:root</code> 编辑器。
+              按区块拆开编辑，保存时拼成完整 CSS。
             </p>
             <div class="css-part-tabs" id="ix-css-tabs" role="tablist">
-              ${[
-                { id: "all", label: "全局" },
-                { id: "session_list", label: "Session 列表" },
-                { id: "pending", label: "待审批" },
-                { id: "status", label: "状态" },
-                { id: "permission", label: "权限" },
-                { id: "routes", label: "路由" },
-                { id: "message", label: "Agent 对话" },
-                { id: "preview", label: "网页预览" },
-              ]
-                .map(
-                  (t, i) =>
-                    `<button type="button" class="css-part-tab ${i === 0 ? "is-on" : ""}" data-css-part="${t.id}" role="tab">${esc(t.label)}</button>`,
-                )
-                .join("")}
+              ${CSS_PART_DEFS.map(
+                (t, i) =>
+                  `<button type="button" class="css-part-tab ${i === 0 ? "is-on" : ""}" data-css-part="${t.id}" role="tab">${esc(t.label)}</button>`,
+              ).join("")}
             </div>
-            <div class="css-part-panel" id="ix-css-part-help"></div>
-            <textarea id="ix-css" class="ctrl render-css-editor" rows="14" spellcheck="false">${esc(rs.effective_css)}</textarea>
+            <p class="field-help" id="ix-css-part-hint" style="margin:0 0 6px"></p>
+            <textarea id="ix-css-part" class="ctrl render-css-editor" rows="12" spellcheck="false"></textarea>
           </div>
 
           <div class="field">
@@ -2850,11 +2901,14 @@ function renderInteract() {
   );
 
 
+  state._cssParts = splitCssToParts(rs.effective_css || rs.default_css || DEFAULT_CARD_CSS_FALLBACK);
+  state._cssPartId = CSS_PART_DEFS[0].id;
   wireCssPartTabs();
 
   $("#ix-reset-style") &&
     ($("#ix-reset-style").onclick = () => {
-      if ($("#ix-css")) $("#ix-css").value = rs.default_css || DEFAULT_CARD_CSS_FALLBACK;
+      state._cssParts = splitCssToParts(rs.default_css || DEFAULT_CARD_CSS_FALLBACK);
+      showCssPart(state._cssPartId || CSS_PART_DEFS[0].id);
       if ($("#ix-font-select")) $("#ix-font-select").value = "";
       if ($("#ix-font-path")) $("#ix-font-path").value = "";
       if ($("#ix-font-custom-wrap")) $("#ix-font-custom-wrap").hidden = true;
