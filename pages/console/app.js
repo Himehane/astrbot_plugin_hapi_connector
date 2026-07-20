@@ -439,8 +439,16 @@ function createStore() {
       { id: "output_cycle", label: "切换推送级别", desc: "在 silence → simple → summary → detail 间循环", emoji: "📢" },
       { id: "none", label: "仅确认（无业务）", desc: "提示已收到戳一戳，不执行业务动作", emoji: "👋" },
     ],
-    cmd_keyword_maps: "[]",
-    cmd_keyword_maps_list: [],
+    cmd_keyword_maps: JSON.stringify([
+      { keywords: ["stop", "停"], command: "stop" },
+      { keywords: ["sw"], command: "sw" },
+      { keywords: ["cl"], command: "to", args: "/clear" },
+    ]),
+    cmd_keyword_maps_list: [
+      { keywords: ["stop", "停"], command: "stop", args: "" },
+      { keywords: ["sw"], command: "sw", args: "" },
+      { keywords: ["cl"], command: "to", args: "/clear" },
+    ],
     remind_pending: true,
     remind_interval: 180,
     auto_approve_enabled: false,
@@ -608,7 +616,7 @@ function createStore() {
           continue;
         }
         if (k === "cmd_keyword_maps" || k === "cmd_keyword_maps_list") {
-          const maps = Array.isArray(v)
+          const maps = (Array.isArray(v)
             ? v
             : typeof v === "string"
               ? (() => {
@@ -618,7 +626,15 @@ function createStore() {
                     return [];
                   }
                 })()
-              : [];
+              : []
+          ).map((m) => {
+            const entry = {
+              keywords: [...(m.keywords || [])],
+              command: m.command || "",
+            };
+            if (m.args) entry.args = m.args;
+            return entry;
+          });
           config.cmd_keyword_maps_list = maps;
           config.cmd_keyword_maps = JSON.stringify(maps);
           continue;
@@ -1061,26 +1077,40 @@ function renderOverview() {
   });
 }
 
-/** 终端粒子层：只挂一次，不挡点击 */
+/** 全局终端粒子 / CRT 层：只挂一次，不挡点击 */
 function ensureFxLayer() {
   if (document.getElementById("fx-layer")) return;
   const layer = document.createElement("div");
   layer.id = "fx-layer";
   layer.className = "fx-layer";
   layer.setAttribute("aria-hidden", "true");
-  const dots = Array.from({ length: 28 }, (_, i) => {
-    const left = ((i * 37) % 100) + (i % 5) * 0.3;
-    const delay = ((i * 0.47) % 8).toFixed(2);
-    const dur = (10 + (i % 7) * 1.4).toFixed(1);
-    const size = 1 + (i % 3);
-    return `<span class="fx-dot" style="--x:${left.toFixed(1)}%;--d:${delay}s;--t:${dur}s;--s:${size}px"></span>`;
+  const dots = Array.from({ length: 48 }, (_, i) => {
+    const left = ((i * 41 + (i % 7) * 3) % 100) + (i % 5) * 0.25;
+    const delay = ((i * 0.37) % 10).toFixed(2);
+    const dur = (8 + (i % 9) * 1.35).toFixed(1);
+    const size = 1 + (i % 4);
+    const dx = ((i % 9) - 4) * 6;
+    return `<span class="fx-dot" style="--x:${left.toFixed(1)}%;--d:${delay}s;--t:${dur}s;--s:${size}px;--dx:${dx}px"></span>`;
+  }).join("");
+  const blobs = Array.from({ length: 5 }, (_, i) => {
+    const x = 8 + ((i * 23) % 80);
+    const y = 10 + ((i * 31) % 70);
+    const s = 90 + (i % 4) * 36;
+    const d = (i * 1.7).toFixed(1);
+    const t = (14 + i * 2.4).toFixed(1);
+    const dx = (i % 2 === 0 ? 1 : -1) * (30 + i * 12);
+    const dy = (i % 2 === 0 ? -1 : 1) * (18 + i * 8);
+    return `<span class="fx-blob" style="--x:${x}%;--y:${y}%;--s:${s}px;--d:${d}s;--t:${t}s;--dx:${dx}px;--dy:${dy}px"></span>`;
   }).join("");
   layer.innerHTML = `
     <div class="fx-scan"></div>
+    <div class="fx-beam"></div>
     <div class="fx-vignette"></div>
-    <div class="fx-particles">${dots}</div>
+    <div class="fx-noise"></div>
+    <div class="fx-particles">${blobs}${dots}</div>
   `;
   document.body.prepend(layer);
+  document.body.classList.add("has-fx");
 }
 
 /* ---------- sessions (+ 推送路由) ---------- */
@@ -1772,20 +1802,26 @@ function paintKwMapList() {
   if (!host) return;
   const rows = Array.isArray(state._ixKwMaps) ? state._ixKwMaps : [];
   if (!rows.length) {
-    host.innerHTML = `<div class="empty-inline">还没有映射。点「添加映射」：填关键词，再选对应 /hapi 命令。</div>`;
+    host.innerHTML = `<div class="empty-inline">还没有映射。点「添加映射」：填关键词，再选对应 /hapi 命令；可带参命令可填固定参数。</div>`;
     return;
   }
   host.innerHTML = rows
     .map((row, i) => {
       const kws = Array.isArray(row.keywords) ? row.keywords.join("，") : "";
+      const args = row.args || "";
+      const takes = commandCatalog().commands?.find((c) => c.id === row.command)?.takes_arg;
       return `<div class="kw-map-row" data-idx="${i}">
         <label class="kw-map-field">
           <span class="kw-map-label">关键词</span>
-          <input type="text" class="ctrl js-kw-keys" data-idx="${i}" value="${attr(kws)}" placeholder="列表，会话列表（逗号分隔，可多个）" />
+          <input type="text" class="ctrl js-kw-keys" data-idx="${i}" value="${attr(kws)}" placeholder="stop，停（逗号分隔，可多个）" />
         </label>
         <label class="kw-map-field kw-map-cmd">
           <span class="kw-map-label">映射命令</span>
           ${cmdSelectHtml(row.command || "", i)}
+        </label>
+        <label class="kw-map-field kw-map-args" ${takes ? "" : "hidden"}>
+          <span class="kw-map-label">固定参数</span>
+          <input type="text" class="ctrl js-kw-args" data-idx="${i}" value="${attr(args)}" placeholder="如 /clear（可选）" />
         </label>
         <button type="button" class="btn btn-sm btn-danger js-kw-del" data-idx="${i}" title="删除">删</button>
       </div>`;
@@ -1807,6 +1843,15 @@ function paintKwMapList() {
       const i = Number(sel.dataset.idx);
       if (!state._ixKwMaps?.[i]) return;
       state._ixKwMaps[i].command = sel.value || "";
+      // 切换命令后重绘以显隐「固定参数」
+      paintKwMapList();
+    };
+  });
+  $$("#ix-kw-list .js-kw-args").forEach((inp) => {
+    inp.oninput = () => {
+      const i = Number(inp.dataset.idx);
+      if (!state._ixKwMaps?.[i]) return;
+      state._ixKwMaps[i].args = String(inp.value || "").trim();
     };
   });
   $$("#ix-kw-list .js-kw-del").forEach((btn) => {
@@ -1839,11 +1884,21 @@ function collectQuickOpsPatchFromForm() {
     if (!state._ixKwMaps?.[i]) return;
     state._ixKwMaps[i].command = sel.value || "";
   });
+  $$("#ix-kw-list .js-kw-args").forEach((inp) => {
+    const i = Number(inp.dataset.idx);
+    if (!state._ixKwMaps?.[i]) return;
+    state._ixKwMaps[i].args = String(inp.value || "").trim();
+  });
   const maps = (state._ixKwMaps || [])
-    .map((m) => ({
-      keywords: [...(m.keywords || [])].filter(Boolean),
-      command: String(m.command || "").trim().toLowerCase(),
-    }))
+    .map((m) => {
+      const entry = {
+        keywords: [...(m.keywords || [])].filter(Boolean),
+        command: String(m.command || "").trim().toLowerCase(),
+      };
+      const args = String(m.args || "").trim();
+      if (args) entry.args = args;
+      return entry;
+    })
     .filter((m) => m.keywords.length && m.command);
   return {
     poke_approve: pokeOn,
@@ -1894,7 +1949,7 @@ function sampleTitle(kind) {
 function sampleSub(kind) {
   return (
     {
-      session_list: "当前窗口可见 · 3",
+      session_list: "当前窗口 · 3 个 · 思考 1 / 运行 1 / 关闭 1",
       pending: "当前窗口 2 项 · 全局 3 项",
       status: "claude · a1b2c3d4 · 思考中",
       permission: "序号 1 · claude · auth-mw",
@@ -1918,7 +1973,7 @@ function sampleFooter(kind) {
   );
 }
 
-/** 按真实出卡结构生成 DOM 预览 body（message 是 markdown 正文，不是键值行） */
+/** 按真实出卡结构生成 DOM 预览 body */
 function sampleDomBody(kind) {
   if (kind === "message") {
     return `<div class="rpc-md">
@@ -1976,16 +2031,74 @@ function sampleDomBody(kind) {
       )
       .join("");
   }
-  // session_list
-  return [
-    { i: 1, a: "重构鉴权中间件", b: "思考中 · claude:opus · 当前" },
-    { i: 2, a: "补 session 列表单测", b: "已关闭 · claude:sonnet" },
-    { i: 3, a: "API 文档生成", b: "运行中 · codex:default · 待审 1" },
-  ]
-    .map(
-      (r) =>
-        `<div class="rpc-row"><div class="rpc-head">[${r.i}] ${esc(r.a)}</div><div class="rpc-detail">${esc(r.b)}</div></div>`,
-    )
+  // session_list：对齐真实卡（分组条 + 序号块 + 状态点 + sid）
+  const sessions = [
+    {
+      section: "…/dev/proj-auth",
+      count: 2,
+      items: [
+        {
+          i: 1,
+          title: "重构鉴权中间件",
+          status: "思考中",
+          sk: "thinking",
+          meta: "claude:opus · 当前",
+          sid: "a1b2c3d4",
+          cur: true,
+        },
+        {
+          i: 2,
+          title: "补 session 列表单测",
+          status: "已关闭",
+          sk: "closed",
+          meta: "claude:sonnet",
+          sid: "e5f6g7h8",
+          cur: false,
+        },
+      ],
+    },
+    {
+      section: "…/dev/docs",
+      count: 1,
+      items: [
+        {
+          i: 3,
+          title: "API 文档生成",
+          status: "运行中",
+          sk: "active",
+          meta: "codex:default · 待审 1",
+          sid: "i9j0k1l2",
+          cur: false,
+        },
+      ],
+    },
+  ];
+  return sessions
+    .map((g) => {
+      const rows = g.items
+        .map((s) => {
+          const curCls = s.cur ? " is-current" : "";
+          return `<div class="rpc-sess${curCls}">
+            <span class="rpc-idx">${s.i}</span>
+            <div class="rpc-sess-main">
+              <div class="rpc-sess-title">${esc(s.title)}</div>
+              <div class="rpc-sess-meta">
+                <span class="rpc-dot rpc-dot-${s.sk}"></span>
+                <span>${esc(s.status)} · ${esc(s.meta)}</span>
+              </div>
+            </div>
+            <span class="rpc-sid mono">${esc(s.sid)}</span>
+          </div>`;
+        })
+        .join("");
+      return `<div class="rpc-section">
+        <div class="rpc-section-head">
+          <span class="rpc-section-path">${esc(g.section)}</span>
+          <span class="rpc-section-count">${g.count} 个</span>
+        </div>
+        ${rows}
+      </div>`;
+    })
     .join("");
 }
 
@@ -2040,7 +2153,6 @@ function collectRenderPatchFromForm() {
   }
 
   const fmode =
-    document.querySelector('#ix-fmode-cards input[name="ix-fmode"]:checked')?.value ||
     $("#ix-fmode")?.value ||
     state.data?.config?.formula_mode ||
     "off";
@@ -2103,8 +2215,16 @@ function renderInteract() {
   state._ixKwMaps = kwMaps.map((m) => ({
     keywords: [...(m.keywords || [])],
     command: m.command || "",
+    args: m.args || "",
   }));
-  if (!state._ixKwMaps.length) state._ixKwMaps = [];
+  if (!state._ixKwMaps.length) {
+    // 与后端 DEFAULT_KEYWORD_MAPS 对齐
+    state._ixKwMaps = [
+      { keywords: ["stop", "停"], command: "stop", args: "" },
+      { keywords: ["sw"], command: "sw", args: "" },
+      { keywords: ["cl"], command: "to", args: "/clear" },
+    ];
+  }
 
   $("#view-interact").innerHTML = `
     <div class="card card-section">
@@ -2131,7 +2251,7 @@ function renderInteract() {
         <div class="field-label-row">
           <div class="field-label">戳一戳映射动作</div>
         </div>
-        <p class="field-help">一戳执行的安全快捷指令。默认「批准待审」；前几项对应聊天里的 /hapi 命令。</p>
+        <p class="field-help">默认一键批准。</p>
         <div class="poke-action-grid" id="ix-poke-actions">
           ${(cfg.poke_actions || [])
             .map((a) => {
@@ -2155,7 +2275,7 @@ function renderInteract() {
         <div class="field-label-row">
           <div class="field-label">快捷发送前缀</div>
         </div>
-        <p class="field-help">插件默认不接管所有消息。发送到 HAPI 需使用 <code>/hapi to</code> 或快捷发送前缀；带前缀的消息会发往当前窗口活跃的 HAPI 会话。</p>
+        <p class="field-help">插件默认不接管所有消息。发送到 HAPI 需使用 <code>/hapi to</code> 或快捷发送前缀；带此前缀的消息会发往当前窗口连接的 HAPI 会话。</p>
         <input id="ix-prefix" class="ctrl" type="text" value="${attr(cfg.quick_prefix)}" style="max-width:220px" />
       </div>
 
@@ -2163,7 +2283,7 @@ function renderInteract() {
         <div class="field-label-row">
           <div class="field-label">指令关键词映射</div>
         </div>
-        <p class="field-help">关键词来自帮助命令表。无参命令须<strong>整句相等</strong>；可带参命令允许「关键词 + 参数」（如 <code>切换 2</code> → <code>/hapi sw 2</code>）。仅当前窗口有交互中会话时生效。</p>
+        <p class="field-help">关键词来自帮助命令表。可带参命令支持「关键词 + 参数」，也可填<strong>固定参数</strong>（如 <code>cl</code> → <code>/hapi to /clear</code>）。默认含 stop/停、sw、cl。仅当前窗口有交互中会话时生效。</p>
         <div id="ix-kw-list" class="kw-map-list"></div>
         <div class="kw-map-toolbar">
           <button type="button" class="btn btn-sm" id="ix-kw-add">添加映射</button>
@@ -2213,34 +2333,35 @@ function renderInteract() {
           </div>
 
           <div class="field">
-            <div class="field-label">公式渲染（$$…$$ / $…$）</div>
-            <p class="field-help">Agent 消息里的 LaTeX 公式。推荐「检测到再渲染」：有公式才出图嵌入，没有就当普通正文。当前引擎尚未接通时，公式仍按源码显示，选项会先落盘。</p>
-            <div class="enum-cards" id="ix-fmode-cards">
+            <div class="field-label">公式渲染</div>
+            <select id="ix-fmode" class="ctrl" style="max-width:280px">
               ${[
-                { value: "off", title: "关闭", desc: "公式当普通文字，照常出卡。" },
-                { value: "detect", title: "检测到再渲染", desc: "有 $$…$$ / $…$ 时尽量渲成小图嵌进卡片（引擎未接时仍显示源码）。" },
-                { value: "plain", title: "有公式则只发文字", desc: "识别到公式时放弃出卡，整段按纯文本推送。" },
+                { value: "off", title: "关闭（当普通文字出卡）" },
+                { value: "detect", title: "渲染为内嵌图片" },
+                { value: "plain", title: "有公式则只发文字" },
               ]
                 .map(
-                  (o) => `<label class="enum-card">
-                <input type="radio" name="ix-fmode" value="${o.value}" ${
-                    (rs.formula_mode || "off") === o.value ? "checked" : ""
-                  } />
-                <div class="t">${esc(o.title)}</div>
-                <div class="d">${esc(o.desc)}</div>
-              </label>`,
+                  (o) =>
+                    `<option value="${o.value}" ${
+                      (rs.formula_mode || "off") === o.value ? "selected" : ""
+                    }>${esc(o.title)}</option>`,
                 )
                 .join("")}
-            </div>
+            </select>
           </div>
 
           <div class="field">
             <div class="field-label">卡片 CSS（当前生效）</div>
             <p class="field-help css-help">
               ${rs.using_default_css ? "现在用的是内置默认样式。" : "现在用的是你保存过的自定义样式。"}
-              <br /><strong>怎么改：</strong>
-              <br />· <code>:root</code> 里的 <code>--card-*</code> — 颜色、字号、徽章、序号框、行距。改这里，聊天出的图会跟着变。
-              <br />· <code>.card</code> / <code>.row</code> 等选择器 — 只给左侧网页预览看，出图不会读它们。
+              <br /><strong>改 :root 里的变量，聊天出图会跟着变：</strong>
+              <br />· <code>--card-bg / fg / accent / muted / border / code-bg</code> — 背景、字色、强调色、次要字、边框、代码底
+              <br />· <code>--card-width / pad / radius / font-scale</code> — 宽度、内边距、圆角、整体字号倍率
+              <br />· <code>--card-title-size / sub-size / body-size / meta-size / foot-size</code> — 标题 / 副标题 / 正文 / 元信息 / 页脚字号
+              <br />· <code>--card-badge-h / pad-x / font / dot</code> — 状态徽章高、左右内边距、字号、圆点
+              <br />· <code>--card-idx-w / h / font / radius / top</code> — 列表序号框宽高、字号、圆角、距行顶
+              <br />· <code>--card-row-pad-y / pad-x / gap / section-gap</code> — 行内上下/左右留白、行距、分组间距
+              <br />· <code>.card</code> / <code>.row</code> 等选择器只影响左侧网页预览，出图不读。
             </p>
             <textarea id="ix-css" class="ctrl render-css-editor" rows="14" spellcheck="false">${esc(rs.effective_css)}</textarea>
           </div>
@@ -2347,7 +2468,7 @@ function renderInteract() {
   paintKwMapList();
   $("#ix-kw-add") && ($("#ix-kw-add").onclick = () => {
     if (!Array.isArray(state._ixKwMaps)) state._ixKwMaps = [];
-    state._ixKwMaps.push({ keywords: [], command: "" });
+    state._ixKwMaps.push({ keywords: [], command: "", args: "" });
     paintKwMapList();
   });
 
@@ -2373,6 +2494,7 @@ function renderInteract() {
           state._ixKwMaps = patch.cmd_keyword_maps_list.map((m) => ({
             keywords: [...(m.keywords || [])],
             command: m.command || "",
+            args: m.args || "",
           }));
         }
         await refresh({ silent: true });
@@ -3353,6 +3475,7 @@ async function saveSettings() {
 }
 
 function bindShell() {
+  ensureFxLayer();
   $$("#nav .side-link").forEach((b) => {
     b.onclick = () => go(b.dataset.page);
   });
@@ -3377,6 +3500,7 @@ function bindShell() {
 }
 
 async function boot() {
+  ensureFxLayer();
   bindShell();
 
   if (hasBridge()) {

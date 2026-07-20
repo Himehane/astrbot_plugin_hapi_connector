@@ -2,17 +2,29 @@
 
 数据源：
 - 命令目录 / 文案：formatters.HELP_COMMANDS（export_command_catalog）
-- 是否可带参：command_handlers.CommandHandlers.ROUTE_TAKES_ARG（与路由表同源）
+- 是否可带参：hapi_routes.ROUTE_TAKES_ARG（与路由表同源）
 
 匹配：
 - 无参命令：整句严格匹配关键词
 - 可带参命令：关键词整句，或「关键词 + 空白 + 参数」
+- 映射可带固定 args（如 cl → to + /clear）；有固定 args 时仅整句匹配关键词
 """
 
 from __future__ import annotations
 
 import json
 from typing import Any
+
+# 默认映射（schema / 空配置时使用）
+DEFAULT_KEYWORD_MAPS: list[dict[str, Any]] = [
+    {"keywords": ["stop", "停"], "command": "stop", "args": ""},
+    {"keywords": ["sw"], "command": "sw", "args": ""},
+    {"keywords": ["cl"], "command": "to", "args": "/clear"},
+]
+
+
+def default_maps_storage() -> str:
+    return maps_to_storage(DEFAULT_KEYWORD_MAPS)
 
 
 def _takes_arg_map() -> dict[str, bool]:
@@ -22,7 +34,10 @@ def _takes_arg_map() -> dict[str, bool]:
 
 
 def export_command_catalog() -> dict[str, Any]:
-    """可映射命令目录：主题 + 命令（usage/summary 来自 HELP_*，takes_arg 来自路由表）。"""
+    """可映射命令目录：主题 + 命令（usage/summary 来自 HELP_*，takes_arg 来自路由表）。
+
+    路由表里有、帮助表未单独列出的别名（如 stop）也会补进目录。
+    """
     from . import formatters
 
     help_data = formatters.export_help_data()
@@ -55,11 +70,29 @@ def export_command_catalog() -> dict[str, Any]:
                 "takes_arg": bool(takes[cmd_id]),
             }
         )
+    # 路由别名补全（如 stop → 与 abort 同表）
+    for cmd_id, takes_arg in takes.items():
+        if cmd_id in seen:
+            continue
+        # 跳过中文别名当主 id 已有时
+        if not cmd_id.isascii():
+            continue
+        commands.append(
+            {
+                "id": cmd_id,
+                "topic": "session",
+                "usage": f"/hapi {cmd_id}",
+                "summary": f"（路由别名）/hapi {cmd_id}",
+                "takes_arg": bool(takes_arg),
+            }
+        )
+        seen.add(cmd_id)
     return {"topics": topics, "commands": commands}
 
 
 def _catalog_ids() -> set[str]:
-    return {c["id"] for c in export_command_catalog().get("commands") or []}
+    """合法 command id = 路由表全部键（含别名）。"""
+    return set(_takes_arg_map().keys())
 
 
 def normalize_maps(raw: Any) -> list[dict[str, Any]]:
@@ -69,7 +102,7 @@ def normalize_maps(raw: Any) -> list[dict[str, Any]]:
     - list[dict]
     - JSON 字符串
     - 空 / 非法 → []
-    每项：{keywords: [str], command: str}
+    每项：{keywords: [str], command: str, args?: str}
     """
     data = raw
     if data is None or data == "":
@@ -105,7 +138,12 @@ def normalize_maps(raw: Any) -> list[dict[str, Any]]:
                 keywords.append(t)
         if not keywords:
             continue
-        out.append({"keywords": keywords, "command": cmd})
+        # 固定参数（可带参命令可配置，如 to → /clear）
+        args = str(item.get("args") or item.get("argument") or "").strip()
+        entry: dict[str, Any] = {"keywords": keywords, "command": cmd}
+        if args:
+            entry["args"] = args
+        out.append(entry)
     return out
 
 
@@ -121,7 +159,8 @@ def find_mapped_command(
     """匹配关键词 → (command_id, argument)。
 
     - 无参：仅整句 == 关键词
-    - 可带参：整句 == 关键词（arg 空），或 关键词 + 空白 + 参数
+    - 可带参且无固定 args：整句 == 关键词（arg 空），或 关键词 + 空白 + 用户参数
+    - 有固定 args：仅整句 == 关键词时生效，argument = 固定 args
     多关键词时按长度从长到短优先。
     """
     msg = str(text or "").strip()
@@ -129,24 +168,25 @@ def find_mapped_command(
         return None
 
     takes = _takes_arg_map()
-    # (kw_len, kw, cmd)
-    candidates: list[tuple[int, str, str]] = []
+    # (kw_len, kw, cmd, fixed_args)
+    candidates: list[tuple[int, str, str, str]] = []
     for item in normalize_maps(maps):
         cmd = str(item["command"])
+        fixed = str(item.get("args") or "").strip()
         for kw in item.get("keywords") or []:
             k = str(kw or "").strip()
             if k:
-                candidates.append((len(k), k, cmd))
+                candidates.append((len(k), k, cmd, fixed))
     candidates.sort(key=lambda x: (-x[0], x[1]))
 
-    for _, kw, cmd in candidates:
+    for _, kw, cmd, fixed in candidates:
         takes_arg = bool(takes.get(cmd, False))
+        if msg == kw:
+            return cmd, fixed
+        # 有固定参数的映射只做整句匹配，避免 cl xxx 误拼进 /clear
+        if fixed:
+            continue
         if takes_arg:
-            if msg == kw:
-                return cmd, ""
             if msg.startswith(kw) and len(msg) > len(kw) and msg[len(kw)].isspace():
                 return cmd, msg[len(kw) :].strip()
-        else:
-            if msg == kw:
-                return cmd, ""
     return None

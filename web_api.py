@@ -1024,7 +1024,7 @@ def public_config(plugin) -> dict[str, Any]:
         "quick_prefix": ">",
         "poke_approve": True,
         "poke_action": "approve",
-        "cmd_keyword_maps": "[]",
+        "cmd_keyword_maps": None,  # 下面用 keyword_maps 默认填充
         "remind_pending": True,
         "remind_interval": 180,
         "auto_approve_enabled": False,
@@ -1097,14 +1097,29 @@ def public_config(plugin) -> dict[str, Any]:
         out["poke_actions"] = []
 
     try:
-        from .keyword_maps import maps_to_storage, normalize_maps
+        from .keyword_maps import (
+            DEFAULT_KEYWORD_MAPS,
+            maps_to_storage,
+            normalize_maps,
+        )
 
-        maps = normalize_maps(out.get("cmd_keyword_maps"))
+        raw_maps = out.get("cmd_keyword_maps")
+        maps = normalize_maps(raw_maps)
+        # 未配置或仍是空数组：使用内置默认（stop/停、sw、cl→to /clear）
+        if not maps and (
+            raw_maps is None
+            or (isinstance(raw_maps, str) and raw_maps.strip() in ("", "[]"))
+            or raw_maps == []
+        ):
+            maps = normalize_maps(DEFAULT_KEYWORD_MAPS)
         out["cmd_keyword_maps"] = maps_to_storage(maps)
         out["cmd_keyword_maps_list"] = maps
     except Exception:
-        out["cmd_keyword_maps"] = "[]"
-        out["cmd_keyword_maps_list"] = []
+        from .keyword_maps import DEFAULT_KEYWORD_MAPS, maps_to_storage, normalize_maps
+
+        maps = normalize_maps(DEFAULT_KEYWORD_MAPS)
+        out["cmd_keyword_maps"] = maps_to_storage(maps)
+        out["cmd_keyword_maps_list"] = maps
 
     out["access_token"] = token  # 明文（面板内使用）
     out["access_token_configured"] = bool(token.strip())
@@ -1401,9 +1416,11 @@ def apply_runtime_config(plugin, patch: dict) -> None:
 
         plugin._poke_action = normalize_poke_action(patch["poke_action"])
     if "cmd_keyword_maps" in patch:
-        from .keyword_maps import normalize_maps
+        from .keyword_maps import DEFAULT_KEYWORD_MAPS, normalize_maps
 
-        plugin._cmd_keyword_maps = normalize_maps(patch["cmd_keyword_maps"])
+        maps = normalize_maps(patch["cmd_keyword_maps"])
+        # 保存空数组表示清空；运行时仍允许空
+        plugin._cmd_keyword_maps = maps
     if "remind_pending" in patch:
         sse._remind_enabled = patch["remind_pending"]
     if "remind_interval" in patch:

@@ -86,8 +86,8 @@
   "cmd_keyword_maps": {
     "description": "指令关键词映射（JSON）",
     "type": "string",
-    "default": "[]",
-    "hint": "整句严格匹配关键词后执行对应 /hapi 子命令。推荐在 WebUI「交互优化」配置，例如 [{\"keywords\":[\"列表\"],\"command\":\"list\"}]"
+    "default": "[{\"keywords\":[\"stop\",\"停\"],\"command\":\"stop\"},{\"keywords\":[\"sw\"],\"command\":\"sw\"},{\"keywords\":[\"cl\"],\"command\":\"to\",\"args\":\"/clear\"}]",
+    "hint": "关键词映射 /hapi 子命令。可设固定 args（如 cl→to /clear）。推荐在 WebUI「交互优化」配置"
   },
   "remind_pending": {
     "description": "待审批请求超时重复提醒",
@@ -135,7 +135,7 @@
     "type": "string",
     "default": "off",
     "options": ["off", "detect", "plain"],
-    "hint": "off=公式当普通文字出卡；detect=有 $$/$ 时尽量渲成小图嵌进卡（引擎未接时仍源码）；plain=识别到公式则只发纯文字"
+    "hint": "off=公式当普通文字出卡；detect=渲染为内嵌图片；plain=有公式则只发纯文字"
   },
   "render_kinds": {
     "description": "允许出卡的消息类型",

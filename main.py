@@ -109,10 +109,17 @@ class HapiConnectorPlugin(Star):
 
         self._poke_action = normalize_poke_action(self.config.get("poke_action", "approve"))
 
-        # 指令关键词映射（整句严格匹配 → /hapi 子命令）
-        from .keyword_maps import normalize_maps
+        # 指令关键词映射（默认 stop/停、sw、cl→to /clear）
+        from .keyword_maps import DEFAULT_KEYWORD_MAPS, normalize_maps
 
-        self._cmd_keyword_maps = normalize_maps(self.config.get("cmd_keyword_maps", "[]"))
+        raw_kw = self.config.get("cmd_keyword_maps", None)
+        maps = normalize_maps(raw_kw)
+        if not maps and (
+            raw_kw is None
+            or (isinstance(raw_kw, str) and str(raw_kw).strip() in ("", "[]"))
+        ):
+            maps = normalize_maps(DEFAULT_KEYWORD_MAPS)
+        self._cmd_keyword_maps = maps
 
         # summary 模式消息条数
         self._summary_msg_count = self.config.get("summary_msg_count", 5)

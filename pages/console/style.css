@@ -64,7 +64,7 @@ body {
   position: relative;
 }
 
-/* ---------- 终端粒子 / 扫描特效（不挡交互） ---------- */
+/* ---------- 全局终端粒子 / CRT 扫描（不挡交互） ---------- */
 .fx-layer {
   position: fixed;
   inset: 0;
@@ -73,6 +73,7 @@ body {
   overflow: hidden;
 }
 
+/* 细扫描线 + 缓慢漂移 */
 .fx-scan {
   position: absolute;
   inset: 0;
@@ -80,10 +81,30 @@ body {
     0deg,
     transparent 0,
     transparent 2px,
-    rgba(26, 127, 75, 0.018) 2px,
-    rgba(26, 127, 75, 0.018) 3px
+    rgba(26, 127, 75, 0.035) 2px,
+    rgba(26, 127, 75, 0.035) 3px
   );
-  animation: fx-scan-drift 12s linear infinite;
+  animation: fx-scan-drift 10s linear infinite;
+  opacity: 0.9;
+}
+
+/* 横向磷光扫过 */
+.fx-beam {
+  position: absolute;
+  left: -20%;
+  width: 140%;
+  height: 18%;
+  top: -20%;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in srgb, var(--cursor) 8%, transparent) 45%,
+    color-mix(in srgb, var(--cursor) 14%, transparent) 50%,
+    color-mix(in srgb, var(--cursor) 8%, transparent) 55%,
+    transparent 100%
+  );
+  filter: blur(0.5px);
+  animation: fx-beam-sweep 7.5s ease-in-out infinite;
   opacity: 0.85;
 }
 
@@ -91,8 +112,21 @@ body {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 80% 60% at 50% 40%, transparent 40%, rgba(28, 25, 20, 0.06) 100%),
-    linear-gradient(180deg, rgba(26, 127, 75, 0.03), transparent 28%, transparent 72%, rgba(26, 127, 75, 0.04));
+    radial-gradient(ellipse 75% 55% at 50% 38%, transparent 35%, rgba(28, 25, 20, 0.09) 100%),
+    linear-gradient(180deg, rgba(26, 127, 75, 0.05), transparent 22%, transparent 78%, rgba(26, 127, 75, 0.06)),
+    radial-gradient(circle at 8% 12%, color-mix(in srgb, var(--cursor) 12%, transparent), transparent 28%),
+    radial-gradient(circle at 92% 88%, color-mix(in srgb, var(--cursor) 10%, transparent), transparent 30%);
+}
+
+/* 轻微噪点 */
+.fx-noise {
+  position: absolute;
+  inset: -20%;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  animation: fx-noise-shift 0.9s steps(2) infinite;
+  mix-blend-mode: multiply;
 }
 
 .fx-particles {
@@ -103,30 +137,51 @@ body {
 .fx-dot {
   position: absolute;
   left: var(--x, 50%);
-  bottom: -8px;
+  bottom: -12px;
   width: var(--s, 2px);
   height: var(--s, 2px);
-  border-radius: 1px;
+  border-radius: 50%;
   background: var(--cursor);
   opacity: 0;
-  box-shadow: 0 0 6px color-mix(in srgb, var(--cursor) 55%, transparent);
+  box-shadow:
+    0 0 4px color-mix(in srgb, var(--cursor) 80%, transparent),
+    0 0 12px color-mix(in srgb, var(--cursor) 45%, transparent);
   animation: fx-rise var(--t, 12s) linear infinite;
+  animation-delay: var(--d, 0s);
+}
+
+/* 较大的磷光团 */
+.fx-blob {
+  position: absolute;
+  left: var(--x, 40%);
+  top: var(--y, 30%);
+  width: var(--s, 120px);
+  height: var(--s, 120px);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--cursor) 22%, transparent) 0%,
+    transparent 70%
+  );
+  filter: blur(2px);
+  opacity: 0.55;
+  animation: fx-blob-drift var(--t, 16s) ease-in-out infinite;
   animation-delay: var(--d, 0s);
 }
 
 @keyframes fx-rise {
   0% {
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: translate3d(0, 0, 0) scale(0.7);
     opacity: 0;
   }
-  8% {
-    opacity: 0.55;
+  6% {
+    opacity: 0.75;
   }
-  70% {
-    opacity: 0.25;
+  55% {
+    opacity: 0.4;
   }
   100% {
-    transform: translate3d(12px, -110vh, 0) scale(0.6);
+    transform: translate3d(var(--dx, 18px), -115vh, 0) scale(0.45);
     opacity: 0;
   }
 }
@@ -136,44 +191,156 @@ body {
     background-position: 0 0;
   }
   100% {
-    background-position: 0 48px;
+    background-position: 0 64px;
   }
 }
 
-/* 卡片终端感：磷光边 + 轻微噪点 */
-.card-fx {
-  position: relative;
-  overflow: hidden;
+@keyframes fx-beam-sweep {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  8% {
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateY(620%);
+    opacity: 0;
+  }
 }
 
-.card-fx > * {
-  position: relative;
-  z-index: 1;
+@keyframes fx-blob-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(var(--dx, 40px), var(--dy, -28px), 0) scale(1.15);
+  }
 }
 
-.card-fx::before {
+@keyframes fx-noise-shift {
+  0% {
+    transform: translate(0, 0);
+  }
+  100% {
+    transform: translate(-2%, 1%);
+  }
+}
+
+/* 卡片终端感：磷光边 + 顶光 */
+.card,
+.card-fx,
+.table-card,
+.win-pane,
+.metric,
+.settings-section,
+.route-panel {
+  position: relative;
+}
+
+.card::before,
+.card-fx::before,
+.table-card::before,
+.win-pane::before,
+.settings-section::before {
   content: "";
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
   width: 2px;
-  background: linear-gradient(180deg, transparent, var(--cursor), transparent);
-  opacity: 0.55;
+  background: linear-gradient(180deg, transparent 4%, var(--cursor) 40%, var(--cursor) 60%, transparent 96%);
+  opacity: 0.45;
   pointer-events: none;
   z-index: 2;
+  border-radius: var(--radius) 0 0 var(--radius);
 }
 
+.card > *,
+.card-fx > *,
+.table-card > *,
+.win-pane > *,
+.settings-section > * {
+  position: relative;
+  z-index: 1;
+}
+
+.card::after,
 .card-fx::after {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 0;
+  border-radius: inherit;
   background:
-    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--cursor) 10%, transparent), transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, var(--cursor) 4%, transparent), transparent 30%);
-  opacity: 0.9;
+    radial-gradient(circle at 10% 0%, color-mix(in srgb, var(--cursor) 11%, transparent), transparent 40%),
+    linear-gradient(180deg, color-mix(in srgb, var(--cursor) 5%, transparent), transparent 28%);
+  opacity: 0.95;
+}
+
+.sidebar {
+  box-shadow:
+    inset -1px 0 0 color-mix(in srgb, var(--cursor) 12%, transparent),
+    4px 0 24px rgba(28, 25, 20, 0.04);
+}
+
+.sidebar-brand .brand-mark {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--cursor) 35%, transparent),
+    0 0 14px color-mix(in srgb, var(--cursor) 35%, transparent);
+}
+
+.side-link.is-active {
+  box-shadow: inset 3px 0 0 var(--cursor);
+}
+
+.btn-primary {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 20%, transparent);
+}
+
+.btn-primary:hover {
+  box-shadow: 0 0 12px color-mix(in srgb, var(--cursor) 25%, transparent);
+}
+
+.metric.ok,
+.metric.warn,
+.metric.danger {
+  overflow: hidden;
+}
+
+.metric.ok::after,
+.metric.warn::after,
+.metric.danger::after {
+  content: "";
+  position: absolute;
+  right: -12px;
+  top: -12px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  opacity: 0.32;
+  pointer-events: none;
+}
+
+.metric.ok::after {
+  background: radial-gradient(circle, var(--cursor), transparent 70%);
+}
+
+.metric.warn::after {
+  background: radial-gradient(circle, var(--amber), transparent 70%);
+}
+
+.metric.danger::after {
+  background: radial-gradient(circle, var(--danger), transparent 70%);
+}
+
+.topnav {
+  border-bottom-color: color-mix(in srgb, var(--cursor) 18%, var(--line-strong));
 }
 
 .sidebar-footer.ok .status-dot,
@@ -187,7 +354,9 @@ body {
     box-shadow: 0 0 0 2px var(--cursor-dim);
   }
   50% {
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--cursor) 25%, transparent), 0 0 10px color-mix(in srgb, var(--cursor) 40%, transparent);
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--cursor) 25%, transparent),
+      0 0 12px color-mix(in srgb, var(--cursor) 45%, transparent);
   }
 }
 
@@ -217,12 +386,18 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .fx-scan,
+  .fx-beam,
   .fx-dot,
+  .fx-blob,
+  .fx-noise,
   .sidebar-footer.ok .status-dot,
   .conn-chip.ok .dot {
     animation: none !important;
   }
-  .fx-dot {
+  .fx-dot,
+  .fx-blob,
+  .fx-beam,
+  .fx-noise {
     display: none;
   }
 }
@@ -2440,6 +2615,119 @@ select.ctrl-sm {
   font-size: 0.92em;
 }
 
+/* session_list 预览：对齐真实卡 */
+.rpc-section {
+  margin-bottom: 10px;
+}
+
+.rpc-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 12px 7px 14px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--rpc-accent, #1a7f4b) 10%, var(--rpc-bg, #faf8f2));
+  border-left: 4px solid var(--rpc-accent, #1a7f4b);
+  font-size: 0.88em;
+}
+
+.rpc-section-path {
+  font-weight: 600;
+  color: var(--rpc-accent, #1a7f4b);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rpc-section-count {
+  color: var(--rpc-muted, #6b665a);
+  flex-shrink: 0;
+  font-size: 0.95em;
+}
+
+.rpc-sess {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--rpc-fg, #1c1914) 12%, transparent);
+  background: color-mix(in srgb, var(--rpc-fg, #1c1914) 4%, var(--rpc-bg, #faf8f2));
+}
+
+.rpc-sess.is-current {
+  border-color: var(--rpc-accent, #1a7f4b);
+  background: color-mix(in srgb, var(--rpc-accent, #1a7f4b) 12%, var(--rpc-bg, #faf8f2));
+  box-shadow: inset 3px 0 0 var(--rpc-accent, #1a7f4b);
+}
+
+.rpc-idx {
+  display: inline-grid;
+  place-items: center;
+  min-width: 32px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.85em;
+  font-family: var(--font);
+  color: var(--rpc-accent, #1a7f4b);
+  background: color-mix(in srgb, var(--rpc-accent, #1a7f4b) 14%, transparent);
+}
+
+.rpc-sess-main {
+  min-width: 0;
+}
+
+.rpc-sess-title {
+  font-weight: 600;
+  font-size: 0.98em;
+  line-height: 1.35;
+  margin-bottom: 4px;
+}
+
+.rpc-sess-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.86em;
+  color: var(--rpc-muted, #6b665a);
+  line-height: 1.4;
+}
+
+.rpc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  /* 略偏下，对齐 meta 视觉中线 */
+  transform: translateY(1px);
+  background: var(--rpc-muted, #6b665a);
+}
+
+.rpc-dot-thinking {
+  background: var(--rpc-accent, #1a7f4b);
+}
+
+.rpc-dot-active {
+  background: #2e7d48;
+}
+
+.rpc-dot-closed {
+  background: var(--rpc-muted, #6b665a);
+}
+
+.rpc-sid {
+  font-size: 0.78em;
+  color: var(--rpc-muted, #6b665a);
+  padding-top: 2px;
+}
+
 /* Agent 消息：markdown 正文示意（对齐真实 message 卡，不是键值行） */
 .rpc-md {
   font-size: 0.98em;
@@ -2745,13 +3033,18 @@ input[type="range"] {
 
 .kw-map-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 0.9fr) auto;
   gap: 10px;
   align-items: end;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-2);
+}
+
+.kw-map-args input {
+  font-family: var(--font);
+  font-size: 12px;
 }
 
 .kw-map-field {

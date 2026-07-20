@@ -1930,18 +1930,18 @@ def _draw_session_list_png(
             draw.text((tx, ty), line, font=font_body, fill=fg)
             ty += _text_size(draw, line or " ", font_body)[1] + 3
 
-        # 状态色点 + meta（点与文字行垂直居中，略偏下避免视觉偏上）
+        # 状态色点 + meta（点再往下一点，避免视觉偏上）
         sc = _status_color(status_key, accent, muted, fg)
         my = ty + 3
         dot_r = 4
-        # 点中心对齐 meta 文字视觉中线（Pillow 基线偏上，+2 往下挪一点）
         try:
             mb = draw.textbbox((0, 0), meta_line or "测", font=font_meta)
             m_th = mb[3] - mb[1]
             m_toff = mb[1]
         except Exception:
             m_th, m_toff = meta_h, 0
-        cy = my - m_toff + m_th // 2 + 2
+        # Pillow 基线偏上；+6 对齐下对齐 meta 行视觉中线
+        cy = my - m_toff + m_th // 2 + 6
         draw.ellipse((tx, cy - dot_r, tx + dot_r * 2, cy + dot_r), fill=sc)
         draw.text((tx + 14, my), meta_line, font=font_meta, fill=sub_fg)
 
