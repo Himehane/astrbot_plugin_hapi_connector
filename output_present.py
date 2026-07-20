@@ -189,7 +189,8 @@ def build_session_list_payload(
         "subtitle": " · ".join(subtitle_bits),
         "rows": rows,
         "layout": "session_list",
-        "footer": "sw <序号|ID> 切换   ·   > 消息 快捷发送   ·   list all 全局",
+        # 出卡不跟 footer 文字；操作提示只在纯文本回退里（format_session_list）
+        "footer": "",
     }
 
 
@@ -418,17 +419,157 @@ def build_message_payload(
     *,
     label: str,
     body: str,
-    title: str = "Agent 消息",
+    title: str = "",
     footer: str = "",
+    session_title: str = "",
 ) -> dict[str, Any]:
-    # 卡片路径：无 emoji；副标题压成单行便于排版
-    sub = _strip_emoji(label or "")
-    sub = " · ".join(p.strip() for p in sub.splitlines() if p.strip())
+    """对话卡 payload。
+
+    - title：会话标题（对话名），缺省时从 label 首行 / session_title 取
+    - subtitle：路径 · flavor · sid 等元信息（label 其余行）
+    - footer：默认空；不再附 output=simple 等尾注（避免图片后再冒出一条文本）
+    """
+    lines = [
+        p.strip()
+        for p in _strip_emoji(label or "").splitlines()
+        if p.strip()
+    ]
+    conv_title = _strip_emoji(session_title or title or "")
+    if not conv_title and lines:
+        conv_title = lines[0]
+        lines = lines[1:]
+    elif conv_title and lines and lines[0] == conv_title:
+        # session_title 与 label 首行重复时去掉，避免副标题再塞一遍
+        lines = lines[1:]
+    if not conv_title:
+        conv_title = "对话"
+    sub = " · ".join(lines)
+    # 在副标题前加轻量类型提示，放在开头而不是 footer
+    if sub:
+        sub = f"Agent 消息 · {sub}"
+    else:
+        sub = "Agent 消息"
     return {
-        "title": _strip_emoji(title) or "Agent 消息",
+        "title": conv_title,
         "subtitle": sub,
         "body": _strip_emoji(body or ""),
         "footer": _strip_emoji(footer or ""),
+    }
+
+
+def build_permission_payload(
+    *,
+    label: str,
+    detail: str,
+    total: int,
+    session_total: int,
+    index: int,
+    kind: str = "permission",
+    req: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """权限请求 / 问题请求结构卡。
+
+    kind: "permission" | "question"
+    """
+    from . import formatters
+
+    clean_label = _strip_emoji(label or "")
+    label_lines = [p.strip() for p in clean_label.splitlines() if p.strip()]
+    sess_title = label_lines[0] if label_lines else ""
+    meta = " · ".join(label_lines[1:]) if len(label_lines) > 1 else ""
+
+    is_q = kind == "question" or (
+        req is not None and formatters.is_question_request(req)
+    )
+    title = "问题请求" if is_q else "权限请求"
+    sub_bits = []
+    if index:
+        sub_bits.append(f"序号 {index}")
+    if sess_title:
+        sub_bits.append(sess_title)
+    if meta:
+        sub_bits.append(meta)
+    subtitle = " · ".join(sub_bits) if sub_bits else (sess_title or "")
+
+    rows: list[dict[str, Any]] = []
+    if is_q and req is not None:
+        args = req.get("arguments") or {}
+        questions = args.get("questions", []) if isinstance(args, dict) else []
+        if not questions:
+            rows.append({
+                "type": "row",
+                "index": 0,
+                "label": "问题",
+                "detail": _strip_emoji(str(detail or ""))[:200] or "(无内容)",
+            })
+        for qi, q in enumerate(questions):
+            header = q.get("header") or q.get("id") or f"问题 {qi + 1}"
+            qtext = str(q.get("question") or "").strip()
+            rows.append({
+                "type": "section",
+                "label": _strip_emoji(str(header)),
+                "detail": "",
+                "count": 0,
+            })
+            if qtext:
+                rows.append({
+                    "type": "row",
+                    "index": 0,
+                    "label": _strip_emoji(qtext)[:120],
+                    "detail": "",
+                })
+            for oi, opt in enumerate(q.get("options") or [], 1):
+                olabel = str(opt.get("label") or f"选项 {oi}")
+                odesc = str(opt.get("description") or "").strip()
+                rows.append({
+                    "type": "row",
+                    "index": oi,
+                    "label": _strip_emoji(olabel)[:80],
+                    "detail": _strip_emoji(odesc)[:120] if odesc else "",
+                })
+        footer = "/hapi answer  交互回答    /hapi answer <序号>"
+    else:
+        tool_detail = _strip_emoji(str(detail or ""))
+        # detail 形如 "Bash: npm test" → 拆开
+        if ":" in tool_detail:
+            tool, _, rest = tool_detail.partition(":")
+            rows.append({
+                "type": "row",
+                "index": 0,
+                "label": "工具",
+                "detail": tool.strip()[:60] or "?",
+            })
+            if rest.strip():
+                rows.append({
+                    "type": "row",
+                    "index": 0,
+                    "label": "详情",
+                    "detail": rest.strip()[:200],
+                })
+        else:
+            rows.append({
+                "type": "row",
+                "index": 0,
+                "label": "请求",
+                "detail": tool_detail[:200] or "(无详情)",
+            })
+        footer = (
+            "/hapi a  全部批准    /hapi allow <序号>  单项\n"
+            "/hapi deny  全部拒绝    /hapi pending  列表"
+        )
+
+    rows.append({
+        "type": "row",
+        "index": 0,
+        "label": "待审批",
+        "detail": f"全局 {total} · 本会话 {session_total} · 本条序号 {index}",
+    })
+
+    return {
+        "title": title,
+        "subtitle": subtitle,
+        "rows": rows,
+        "footer": footer,
     }
 
 
@@ -476,7 +617,11 @@ async def present(
     data: dict[str, Any],
     fallback_text: str,
 ) -> AsyncIterator:
-    """yield 一条 event 结果：优先图片卡，否则纯文本。"""
+    """yield 一条 event 结果：优先图片卡，否则纯文本。
+
+    出卡成功时只发图，不另附 footer 文本（避免「操作提示」再冒一条消息）。
+    footer 若有内容，由卡片引擎画在图内底部。
+    """
     result = try_render_png(plugin, kind, data)
     if result is None:
         yield event.plain_result(fallback_text)
@@ -487,17 +632,11 @@ async def present(
         path = write_temp_png(result.png or b"")
         if hasattr(event, "image_result"):
             yield event.image_result(path)
-            footer = (data or {}).get("footer")
-            if footer:
-                yield event.plain_result(str(footer))
             return
 
         import astrbot.api.message_components as Comp
 
         chain = [Comp.Image.fromFileSystem(path)]
-        footer = (data or {}).get("footer")
-        if footer:
-            chain.append(Comp.Plain(str(footer)))
         if hasattr(event, "chain_result"):
             yield event.chain_result(chain)
         else:
@@ -533,13 +672,13 @@ async def present_push(
     path = None
     try:
         path = write_temp_png(result.png)
-        footer = str((data or {}).get("footer") or "")
+        # 只发图：footer 已画在卡内，不再 caption 再冒一条文字
         logger.info("card push kind=%s path=%s sid=%s", kind, path, (session_id or "")[:8])
         await notification_mgr.push_image_notification(
             path,
             session_id,
             sessions_cache,
-            caption=footer,
+            caption="",
             dedupe_key=f"card:{kind}:{session_id}:{hash(fallback_text) & 0xFFFFFFFF:x}",
         )
         return True
