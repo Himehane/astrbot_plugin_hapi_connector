@@ -7,7 +7,7 @@
  * 页面：概览 / 会话 / 交互 / 命令帮助 / 设置
  */
 
-import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.9";
+import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.10";
 
 /* ---------- constants ---------- */
 
@@ -1697,7 +1697,7 @@ function renderInteract() {
 
           <div class="field">
             <div class="field-label">卡片 CSS（当前生效）</div>
-            <p class="field-help">${rs.using_default_css ? "当前为内置默认样式，可直接改。" : "当前为已保存的自定义 CSS。"} 变量：<code>--card-bg / --card-fg / --card-accent</code> 等。</p>
+            <p class="field-help">${rs.using_default_css ? "当前为内置默认。" : "当前为已保存的自定义 CSS。"} Pillow 出卡<strong>只读 :root 里的 --card-* 变量</strong>（色、圆角、内边距、字号倍率等），<strong>读不了</strong>选择器/布局（徽章大小、序号框位置、.row 间距等是代码画的，改 CSS 类无效）。</p>
             <textarea id="ix-css" class="ctrl render-css-editor" rows="14" spellcheck="false">${esc(rs.effective_css)}</textarea>
           </div>
 

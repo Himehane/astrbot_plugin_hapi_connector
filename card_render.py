@@ -229,6 +229,24 @@ body {
 }
 .md strong { font-weight: 700; }
 .md em { font-style: italic; }
+.md table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.55em 0;
+  font-size: 0.92em;
+}
+.md th, .md td {
+  border: 1px solid var(--card-border);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+.md th {
+  background: var(--card-code-bg);
+  font-weight: 700;
+  color: var(--card-fg);
+}
 """
 
 
@@ -1239,7 +1257,7 @@ def _draw_status_png(
     sub_size = max(13, int(14.5 * scale))
     label_size = max(13, int(14 * scale))
     value_size = max(14, int(16 * scale))
-    badge_size = max(13, int(14 * scale))
+    badge_size = max(15, int(16.5 * scale))
     foot_size = max(12, int(13 * scale))
 
     tmp = Image.new("RGB", (width, 100), _hex_to_rgb(style.bg))
@@ -1271,6 +1289,8 @@ def _draw_status_png(
     label_w = max(72, int(88 * scale))
     row_h_base = max(36, int(40 * scale))
     row_gap = 8
+    # 状态徽章：略大，易点读
+    badge_h = max(36, int(40 * scale))
 
     # 预估高度
     y = pad
@@ -1280,7 +1300,7 @@ def _draw_status_png(
             y += _text_size(d0, "测", font_sub)[1] + 3
         y += 6
     if status:
-        y += max(28, int(30 * scale)) + 12
+        y += badge_h + 14
     y += 8
     for row in rows:
         detail = str(row.get("detail") or "")
@@ -1318,23 +1338,22 @@ def _draw_status_png(
         y += 6
 
     if status:
-        badge_h = max(28, int(30 * scale))
         bw, bh = _text_size(draw, status, font_badge)
-        badge_w = bw + 28
+        badge_w = max(bw + 40, int(120 * scale))
         _draw_rounded_rect(
             draw,
             (pad, y, pad + badge_w, y + badge_h),
             radius=badge_h // 2,
             fill=badge_bg,
             outline=sc,
-            width=1,
+            width=2,
         )
-        # 色点
-        cr = 5
+        # 色点 + 文字在徽章内垂直居中
+        cr = 6
         cy = y + badge_h // 2
-        draw.ellipse((pad + 12, cy - cr, pad + 12 + cr * 2, cy + cr), fill=sc)
+        draw.ellipse((pad + 14, cy - cr, pad + 14 + cr * 2, cy + cr), fill=sc)
         draw.text(
-            (pad + 12 + cr * 2 + 8, y + (badge_h - bh) // 2),
+            (pad + 14 + cr * 2 + 10, y + (badge_h - bh) // 2),
             status,
             font=font_badge,
             fill=sc,
@@ -1572,19 +1591,38 @@ def _draw_session_list_png(
         if is_current:
             draw.rectangle((pad + 2, y + 6, pad + 6, y + row_h - 6), fill=accent)
 
-        # 序号块
+        # 序号块：固定方块，数字水平+垂直居中（贴行顶略靠上）
         idx_txt = str(idx) if idx else "-"
-        iw, ih = _text_size(draw, idx_txt, font_idx)
-        ix = pad + row_pad_x + (idx_box_w - iw) // 2
-        iy = y + row_pad_y
+        try:
+            bbox = draw.textbbox((0, 0), idx_txt, font=font_idx)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            toff_x, toff_y = bbox[0], bbox[1]
+        except Exception:
+            tw, th = _text_size(draw, idx_txt, font_idx)
+            toff_x, toff_y = 0, 0
+        idx_box_h = max(th + 14, int(28 * scale), idx_box_w - 6)
+        idx_box_top = y + max(6, row_pad_y - 2)
+        idx_box_left = pad + row_pad_x
         _draw_rounded_rect(
             draw,
-            (pad + row_pad_x, y + row_pad_y - 2, pad + row_pad_x + idx_box_w, y + row_pad_y + ih + 8),
-            radius=6,
+            (
+                idx_box_left,
+                idx_box_top,
+                idx_box_left + idx_box_w,
+                idx_box_top + idx_box_h,
+            ),
+            radius=7,
             fill=_mix_rgb(fill, accent, 0.22 if is_current else 0.12),
             outline=None,
         )
-        draw.text((ix, iy + 2), idx_txt, font=font_idx, fill=accent if is_current else sub_fg)
+        ix = idx_box_left + (idx_box_w - tw) // 2 - toff_x
+        iy = idx_box_top + (idx_box_h - th) // 2 - toff_y
+        draw.text(
+            (ix, iy),
+            idx_txt,
+            font=font_idx,
+            fill=accent if is_current else sub_fg,
+        )
 
         tx = pad + row_pad_x + idx_box_w + 12
         ty = y + row_pad_y
