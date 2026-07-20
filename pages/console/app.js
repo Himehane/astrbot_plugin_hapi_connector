@@ -1596,36 +1596,6 @@ function renderInteract() {
           ? ""
           : `<div class="alert-inline">出卡需要 Pillow。可在下方勾选安装，或手动 <code>pip install Pillow</code>。未安装时配置可保存，运行时回退纯文本。</div>`
       }
-      <div class="font-status ${fontOk ? "is-ok" : "is-bad"}">
-        <div class="font-status-title">当前字体</div>
-        <dl class="font-status-kv">
-          <dt>正文</dt>
-          <dd>${fontOk
-            ? `<span class="tag tag-ok">${esc(fonts.sans_source_label || fonts.sans_source || "已找到")}</span>
-               <span class="mono break">${esc(fonts.sans_name || fonts.sans || "—")}</span>
-               ${fonts.sans && fonts.sans_name && fonts.sans !== fonts.sans_name
-                 ? `<div class="font-path mono break">${esc(fonts.sans)}</div>`
-                 : fonts.sans
-                   ? `<div class="font-path mono break">${esc(fonts.sans)}</div>`
-                   : ""}`
-            : `<span class="tag tag-muted">未找到</span> <span class="muted">出卡将回退纯文本</span>`}</dd>
-          <dt>等宽</dt>
-          <dd>${fonts.mono
-            ? `<span class="tag tag-muted">${esc(fonts.mono_source_label || fonts.mono_source || "—")}</span>
-               <span class="mono break">${esc(fonts.mono_name || fonts.mono)}</span>
-               ${fonts.mono_name && fonts.mono !== fonts.mono_name
-                 ? `<div class="font-path mono break">${esc(fonts.mono)}</div>`
-                 : fonts.mono && !fonts.mono_name
-                   ? `<div class="font-path mono break">${esc(fonts.mono)}</div>`
-                   : ""}`
-            : `<span class="muted">—</span>`}</dd>
-          ${fonts.user_font
-            ? `<dt>配置路径</dt><dd class="mono break">${esc(fonts.user_font_name || fonts.user_font)}
-                 <div class="font-path mono break">${esc(fonts.user_font)}</div></dd>`
-            : ""}
-        </dl>
-        <p class="font-status-hint">${esc(fonts.hint || "解析顺序：配置路径 → assets/fonts → 系统字体")}</p>
-      </div>
 
       <div class="render-layout">
         <div class="render-form">
@@ -1655,6 +1625,30 @@ function renderInteract() {
             <div class="field-label">卡片 CSS（当前生效）</div>
             <p class="field-help">${rs.using_default_css ? "当前为内置默认样式，可直接改。" : "当前为已保存的自定义 CSS。"} 变量：<code>--card-bg / --card-fg / --card-accent</code> 等。</p>
             <textarea id="ix-css" class="ctrl render-css-editor" rows="14" spellcheck="false">${esc(rs.effective_css)}</textarea>
+          </div>
+
+          <div class="field">
+            <div class="field-label">当前字体</div>
+            <div class="font-status ${fontOk ? "is-ok" : "is-bad"}" style="margin:0">
+              <dl class="font-status-kv">
+                <dt>正文</dt>
+                <dd>${fontOk
+                  ? `<span class="tag tag-ok">${esc(fonts.sans_source_label || fonts.sans_source || "已找到")}</span>
+                     <span class="mono break">${esc(fonts.sans_name || fonts.sans || "—")}</span>
+                     ${fonts.sans ? `<div class="font-path mono break">${esc(fonts.sans)}</div>` : ""}`
+                  : `<span class="tag tag-muted">未找到</span> <span class="muted">出卡将回退纯文本</span>`}</dd>
+                <dt>等宽</dt>
+                <dd>${fonts.mono
+                  ? `<span class="tag tag-muted">${esc(fonts.mono_source_label || fonts.mono_source || "—")}</span>
+                     <span class="mono break">${esc(fonts.mono_name || fonts.mono)}</span>
+                     ${fonts.mono ? `<div class="font-path mono break">${esc(fonts.mono)}</div>` : ""}`
+                  : `<span class="muted">—</span>`}</dd>
+                ${fonts.user_font
+                  ? `<dt>配置</dt><dd class="mono break">${esc(fonts.user_font_name || fonts.user_font)}
+                       <div class="font-path mono break">${esc(fonts.user_font)}</div></dd>`
+                  : ""}
+              </dl>
+            </div>
           </div>
 
           <div class="field">
