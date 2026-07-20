@@ -109,6 +109,11 @@ class HapiConnectorPlugin(Star):
 
         self._poke_action = normalize_poke_action(self.config.get("poke_action", "approve"))
 
+        # 指令关键词映射（整句严格匹配 → /hapi 子命令）
+        from .keyword_maps import normalize_maps
+
+        self._cmd_keyword_maps = normalize_maps(self.config.get("cmd_keyword_maps", "[]"))
+
         # summary 模式消息条数
         self._summary_msg_count = self.config.get("summary_msg_count", 5)
 
@@ -488,6 +493,57 @@ class HapiConnectorPlugin(Star):
             return subtype == "poke" and bool(self_id) and target_id == self_id
         except Exception:
             return False
+
+    # ──── 指令关键词映射（整句严格匹配） ────
+
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=11)
+    async def keyword_map_handler(self, event: AstrMessageEvent):
+        """关键词映射 → /hapi 子命令。
+
+        - 仅管理员
+        - 仅当当前窗口存在「交互中」会话（active / thinking）时生效（类似 LLM 工具动态注册）
+        - 无参命令整句严格匹配；可带参命令允许「关键词 + 参数」
+        """
+        raw = (event.message_str or "").strip()
+        if not raw:
+            return
+        maps = getattr(self, "_cmd_keyword_maps", None)
+        if not maps:
+            return
+        if not self._is_admin(event):
+            return
+        if not self._window_has_interactive_session(event):
+            return
+        from .keyword_maps import find_mapped_command
+
+        hit = find_mapped_command(maps, raw)
+        if not hit:
+            return
+        cmd, argument = hit
+        remainder = f"{cmd} {argument}".strip() if argument else cmd
+        self.notification_mgr._event_cache[event.unified_msg_origin] = event
+        async for result in self.cmd_handlers.cmd_hapi_router(event, remainder):
+            yield result
+        event.stop_event()
+
+    def _window_has_interactive_session(self, event: AstrMessageEvent) -> bool:
+        """当前窗口是否有交互中的 HAPI session（active 或 thinking）。"""
+        try:
+            visible = self.state_mgr.visible_sessions_for_window(event, self.sessions_cache)
+        except Exception:
+            visible = []
+        for s in visible or []:
+            if not isinstance(s, dict):
+                continue
+            if s.get("thinking"):
+                return True
+            if s.get("active"):
+                return True
+            # 部分缓存字段可能用 status / state
+            st = str(s.get("status") or s.get("state") or "").lower()
+            if st in ("active", "thinking", "running", "busy"):
+                return True
+        return False
 
     # ──── 快捷前缀处理器 ────
 

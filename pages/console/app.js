@@ -138,17 +138,11 @@ const SETTINGS = [
         showIf: { key: "output_level", eq: "summary" },
       },
       {
-        key: "default_notification_window",
-        label: "配置级默认推送窗口 ID",
-        type: "text",
-        help: "多数用聊天 /hapi bind 设默认推送窗口。这里是配置里的窗口 ID；不确定请留空。",
-      },
-      {
         key: "render_mode",
         label: "推送渲染模式",
         type: "enum_cards",
         need: true,
-        help: "纯文本=原样文字；出卡=下方类型渲成图片（需 Pillow）。与「交互优化」同源，保存后持久生效。",
+        help: "纯文本=原样文字；出卡=下方类型渲成图片（需 Pillow）。保存后持久生效。",
         options: [
           { value: "text", title: "纯文本", desc: "全部文字推送。" },
           { value: "card", title: "出卡", desc: "勾选类型渲成卡片；含 Agent 对话。" },
@@ -158,7 +152,7 @@ const SETTINGS = [
         key: "render_kinds",
         label: "以下类型渲成卡片",
         type: "kind_checks",
-        help: "与「交互优化」同源。勾选后保存即生效；Agent 对话请勾选「Agent 对话」。",
+        help: "",
         showIf: { key: "render_mode", eq: "card" },
       },
     ],
@@ -173,7 +167,7 @@ const SETTINGS = [
         key: "remind_pending",
         label: "待审批超时提醒",
         type: "bool",
-        help: "一直没处理时按间隔再提醒，避免 AI 干等。",
+        help: "防止缓存失效",
         boolLabels: ["关闭", "开启"],
       },
       {
@@ -250,21 +244,21 @@ const HELP_COMMANDS = [
   { topic: "approve", usage: "/hapi answer [序号]", summary: "回答 question 请求", example: "/hapi answer 1", home: true },
   { topic: "approve", usage: "/hapi deny [序号]", summary: "拒绝请求", example: "/hapi deny 3", home: true },
   { topic: "approve", usage: "戳一戳机器人", summary: "执行 WebUI 配置的快捷动作（默认批准待审；可改为 list/stop 等，仅 QQ NapCat）", example: null, home: false },
-  { topic: "push", usage: "/hapi bind [<flavor>]", summary: "设置当前聊天为默认推送窗口；带 flavor（如 claude/codex）时只对对应 agent 生效", example: "/hapi bind claude", home: true },
-  { topic: "push", usage: "/hapi bind status", summary: "查看默认推送窗口、flavor 推送窗口和 session 绑定状态", example: null, home: true },
+  { topic: "push", usage: "/hapi bind [<flavor>]", summary: "设置当前聊天为默认推送窗口；带 flavor（如 claude/codex）时只对对应 agent 生效", example: "/hapi bind claude", home: false },
+  { topic: "push", usage: "/hapi bind status", summary: "查看默认推送窗口、flavor 推送窗口和 session 绑定状态", example: null, home: false },
   { topic: "push", usage: "/hapi routes", summary: "查看当前生效的会话推送路由", example: null, home: false },
-  { topic: "push", usage: "/hapi bind reset", summary: "清空会话路由和窗口状态，保留默认推送窗口和 flavor 推送窗口", example: null, home: true },
-  { topic: "files", usage: "/hapi files [路径]", summary: "浏览远端目录", example: "/hapi files src", home: true },
+  { topic: "push", usage: "/hapi bind reset", summary: "清空会话路由和窗口状态，保留默认推送窗口和 flavor 推送窗口", example: null, home: false },
+  { topic: "files", usage: "/hapi files [路径]", summary: "浏览远端目录", example: "/hapi files src", home: false },
   { topic: "files", usage: "/hapi files -l [路径]", summary: "浏览目录并显示文件大小", example: "/hapi files -l .", home: false },
-  { topic: "files", usage: "/hapi find <关键词>", summary: "搜索远端文件", example: "/hapi find config", home: true },
-  { topic: "files", usage: "/hapi download <路径>", summary: "下载远端文件到聊天（别名: /hapi dl）", example: "/hapi dl logs/app.log", home: true },
-  { topic: "files", usage: "/hapi upload [cancel]", summary: "上传文件到当前 session，支持快捷前缀附件", example: "/hapi upload", home: true },
-  { topic: "config", usage: "/hapi perm [模式]", summary: "查看或切换权限模式", example: null, home: true },
-  { topic: "config", usage: "/hapi plan", summary: "切换 Plan 模式（toggle）。Claude 切换 permissionMode，Codex 切换 collaborationMode", example: null, home: true },
-  { topic: "config", usage: "/hapi model [模式]", summary: "查看或切换当前使用的模型（Claude / Gemini）", example: null, home: true },
-  { topic: "config", usage: "/hapi effort [值]", summary: "查看或切换推理强度。Claude：auto/medium/high/max；Codex：none/minimal/low/medium/high/xhigh", example: "/hapi effort high", home: true },
-  { topic: "config", usage: "/hapi output [级别]", summary: "查看或切换推送级别 silence/simple/summary/detail", example: "/hapi output summary", home: true },
-  { topic: "config", usage: "/hapi remote", summary: "切换当前 session 到 remote 托管模式", example: null, home: true },
+  { topic: "files", usage: "/hapi find <关键词>", summary: "搜索远端文件", example: "/hapi find config", home: false },
+  { topic: "files", usage: "/hapi download <路径>", summary: "下载远端文件到聊天（别名: /hapi dl）", example: "/hapi dl logs/app.log", home: false },
+  { topic: "files", usage: "/hapi upload [cancel]", summary: "上传文件到当前 session，支持快捷前缀附件", example: "/hapi upload", home: false },
+  { topic: "config", usage: "/hapi perm [模式]", summary: "查看或切换权限模式", example: null, home: false },
+  { topic: "config", usage: "/hapi plan", summary: "切换 Plan 模式（toggle）。Claude 切换 permissionMode，Codex 切换 collaborationMode", example: null, home: false },
+  { topic: "config", usage: "/hapi model [模式]", summary: "查看或切换当前使用的模型（Claude / Gemini）", example: null, home: false },
+  { topic: "config", usage: "/hapi effort [值]", summary: "查看或切换推理强度。Claude：auto/medium/high/max；Codex：none/minimal/low/medium/high/xhigh", example: "/hapi effort high", home: false },
+  { topic: "config", usage: "/hapi output [级别]", summary: "查看或切换推送级别 silence/simple/summary/detail", example: "/hapi output summary", home: false },
+  { topic: "config", usage: "/hapi remote", summary: "切换当前 session 到 remote 托管模式", example: null, home: false },
   { topic: "config", usage: "/hapi help [主题]", summary: "查看帮助，可选主题：会话/对话/审批/通知/文件/配置/全部", example: "/hapi help 文件", home: false },
 ];
 
@@ -437,14 +431,16 @@ function createStore() {
     poke_approve: true,
     poke_action: "approve",
     poke_actions: [
-      { id: "approve", label: "批准待审", desc: "批准当前窗口可见的非 question 权限请求", emoji: "✅" },
-      { id: "pending", label: "查看待审", desc: "列出当前窗口待审批请求", emoji: "📋" },
-      { id: "list", label: "会话列表", desc: "列出当前窗口可见的 session", emoji: "☰" },
-      { id: "status", label: "当前状态", desc: "查看当前绑定 session 状态", emoji: "◎" },
-      { id: "stop", label: "中止当前", desc: "中止（abort）当前窗口生效中的 session", emoji: "⏹" },
-      { id: "output_cycle", label: "切换推送级别", desc: "在 silence→simple→summary→detail 间循环", emoji: "📢" },
-      { id: "none", label: "仅确认（无业务）", desc: "提示已收到戳一戳，不执行业务", emoji: "👋" },
+      { id: "approve", label: "批准待审", desc: "批准当前窗口可见的非 question 权限请求", cmd: "/hapi a", emoji: "✅" },
+      { id: "pending", label: "查看待审", desc: "列出当前窗口待审批请求", cmd: "/hapi pending", emoji: "📋" },
+      { id: "list", label: "会话列表", desc: "列出当前窗口可见的 session", cmd: "/hapi list", emoji: "☰" },
+      { id: "status", label: "当前状态", desc: "查看当前绑定 session 状态", cmd: "/hapi s", emoji: "◎" },
+      { id: "stop", label: "中止当前", desc: "中止当前窗口生效中的 session", cmd: "/hapi abort", emoji: "⏹" },
+      { id: "output_cycle", label: "切换推送级别", desc: "在 silence → simple → summary → detail 间循环", emoji: "📢" },
+      { id: "none", label: "仅确认（无业务）", desc: "提示已收到戳一戳，不执行业务动作", emoji: "👋" },
     ],
+    cmd_keyword_maps: "[]",
+    cmd_keyword_maps_list: [],
     remind_pending: true,
     remind_interval: 180,
     auto_approve_enabled: false,
@@ -611,6 +607,22 @@ function createStore() {
           config.cf_access_enabled = Boolean(String(v || "").trim());
           continue;
         }
+        if (k === "cmd_keyword_maps" || k === "cmd_keyword_maps_list") {
+          const maps = Array.isArray(v)
+            ? v
+            : typeof v === "string"
+              ? (() => {
+                  try {
+                    return JSON.parse(v || "[]");
+                  } catch (_) {
+                    return [];
+                  }
+                })()
+              : [];
+          config.cmd_keyword_maps_list = maps;
+          config.cmd_keyword_maps = JSON.stringify(maps);
+          continue;
+        }
         config[k] = v;
       }
     },
@@ -642,11 +654,74 @@ const state = {
 };
 
 function ruleText() {
-  return `绑定会话优先；否则按 Agent 类型推送到对应推送窗口，未设置则推送到默认推送窗口。「按推送设置」= 不单独绑定。`;
+  return "";
+}
+
+/* ---------- 会话页：可见推送窗口（本页列表/下拉，localStorage） ---------- */
+
+const WIN_VIS_KEY = "hapi_console_hidden_windows";
+
+function loadHiddenWindows() {
+  try {
+    const raw = localStorage.getItem(WIN_VIS_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return new Set();
+    return new Set(arr.map((x) => String(x || "").trim()).filter(Boolean));
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function saveHiddenWindows(hiddenSet) {
+  try {
+    localStorage.setItem(WIN_VIS_KEY, JSON.stringify([...hiddenSet]));
+  } catch (_) {
+    /* ignore quota */
+  }
+}
+
+/** 本页下拉/左侧是否显示该窗口。keep 里的 umo 始终保留（当前已选值）。 */
+function isWindowShown(umo, keep = null) {
+  if (!umo) return true;
+  const u = String(umo);
+  if (keep && (keep === u || (keep instanceof Set && keep.has(u)))) return true;
+  return !loadHiddenWindows().has(u);
+}
+
+/** 合并 window_options + columns，去重，供管理弹窗 / 下拉用 */
+function allKnownWindows() {
+  const map = new Map();
+  for (const w of state.data?.window_options || []) {
+    if (w?.umo) map.set(String(w.umo), { umo: String(w.umo), title: w.title || wTitle(w.umo) });
+  }
+  for (const col of state.data?.columns || []) {
+    if (!col?.umo) continue;
+    const u = String(col.umo);
+    if (!map.has(u)) map.set(u, { umo: u, title: col.title || wTitle(u) });
+  }
+  return [...map.values()].sort((a, b) => String(a.title).localeCompare(String(b.title), "zh"));
+}
+
+/** 本页下拉选项（隐藏的不出现；keep 里的已选值强制保留） */
+function visibleWindowOptions(keepUmos = []) {
+  const keep = new Set((keepUmos || []).filter(Boolean).map(String));
+  return allKnownWindows().filter((w) => isWindowShown(w.umo, keep));
+}
+
+function groupWindowsByBot(wins) {
+  const groups = new Map();
+  for (const w of wins) {
+    const { platform } = parseUmo(w.umo);
+    const bot = platform || "其它";
+    if (!groups.has(bot)) groups.set(bot, []);
+    groups.get(bot).push(w);
+  }
+  return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], "zh"));
 }
 
 function bindSelect(s) {
-  const opts = state.data.window_options
+  const opts = visibleWindowOptions([s.bound_umo])
     .map(
       (w) =>
         `<option value="${attr(w.umo)}" ${s.bound_umo === w.umo ? "selected" : ""}>${esc(w.title)}</option>`,
@@ -763,17 +838,31 @@ function renderOverview() {
   if (!state.data) return;
   renderTopConn();
   renderAlert();
+  ensureFxLayer();
 
   const c = state.data.connection || {};
   const m = state.data.metrics || {};
   const cfg = state.data.config || {};
+  const def = state.data.defaults || { primary: null, flavor: {}, writable: false };
+  const winOptsList = Array.isArray(state.data.window_options) ? state.data.window_options : [];
   const ok = connIsOk(c);
   const label = connLabel(c);
+  const primaryTitle = def.primary ? wTitle(def.primary) : "未设置";
+  const routeWritable = def.writable !== false;
 
   const levelOpts = OUTPUT_LEVELS.map(
     (o) =>
       `<option value="${o.value}" ${cfg.output_level === o.value ? "selected" : ""}>${esc(o.title)}</option>`,
   ).join("");
+
+  const primarySelectOpts =
+    `<option value="">未设置</option>` +
+    winOptsList
+      .map(
+        (w) =>
+          `<option value="${attr(w.umo)}" ${def.primary === w.umo ? "selected" : ""}>${esc(w.title || wTitle(w.umo))}</option>`,
+      )
+      .join("");
 
   $("#view-overview").innerHTML = `
     <div class="metric-grid">
@@ -803,7 +892,7 @@ function renderOverview() {
       </div>
     </div>
 
-    <div class="card">
+    <div class="card card-fx">
       <div class="card-head">
         <div>
           <h2>常用设置</h2>
@@ -840,9 +929,7 @@ function renderOverview() {
             <span class="switch-text">${cfg.auto_approve_enabled ? "开启托管" : "关闭"}</span>
           </label>
         </div>
-        ${
-          cfg.auto_approve_enabled
-            ? `<label class="qs-field">
+        <label class="qs-field">
           <span class="qs-label">托管开始</span>
           <input id="qs-auto-start" class="ctrl" type="time" value="${attr(cfg.auto_approve_start || "23:00")}" />
         </label>
@@ -852,14 +939,16 @@ function renderOverview() {
         </label>
         <div class="qs-field qs-note">
           <span class="qs-label">说明</span>
-          <span class="qs-note-text">时段内权限请求将自动批准，可跨午夜（如 23:00–07:00）</span>
-        </div>`
-            : ""
-        }
+          <span class="qs-note-text">${
+            cfg.auto_approve_enabled
+              ? "时段内权限请求将自动批准，可跨午夜（如 23:00–07:00）"
+              : "时间始终可改；开启托管后，该时段内权限请求将自动批准"
+          }</span>
+        </div>
       </div>
     </div>
 
-    <div class="card">
+    <div class="card card-fx">
       <div class="card-head">
         <div>
           <h2>连接信息</h2>
@@ -881,8 +970,18 @@ function renderOverview() {
         }</dd>
         <dt>插件 SSE</dt><dd>${esc(label)}${c.stream_live ? " · 流活跃" : ""}${c.task_running === false ? " · 任务未运行" : ""}</dd>
         <dt>推送级别</dt><dd>${esc(cfg.output_level || "—")}</dd>
-        <dt>代理</dt><dd>${esc(cfg.proxy_url || "无")}</dd>
-        <dt>CF Access</dt><dd>${cfg.cf_access_enabled ? "已启用" : "未启用"}</dd>
+        <dt>默认推送窗口</dt>
+        <dd class="kv-stack">
+          <div class="primary-now mono break">${esc(primaryTitle)}</div>
+          <select id="qs-primary" class="ctrl ctrl-sm" ${routeWritable ? "" : "disabled"} title="${attr(def.writable_reason || "")}">${primarySelectOpts}</select>
+          ${
+            !winOptsList.length
+              ? `<span class="muted xs">尚无聊天窗口记录，请先在聊天里 /hapi bind</span>`
+              : !routeWritable
+                ? `<span class="muted xs">${esc(def.writable_reason || "当前不可改")}</span>`
+                : `<span class="muted xs">与「会话管理」中的默认推送窗口同步</span>`
+          }
+        </dd>
         ${c.conn_error ? `<dt>最近错误</dt><dd>${esc(c.conn_error)}</dd>` : ""}
       </dl>
     </div>
@@ -914,12 +1013,32 @@ function renderOverview() {
     });
   $("#qs-auto") &&
     ($("#qs-auto").onchange = () => {
-      applyQuick({ auto_approve_enabled: $("#qs-auto").checked });
+      const on = $("#qs-auto").checked;
+      const txt = $("#qs-auto").closest(".switch")?.querySelector(".switch-text");
+      if (txt) txt.textContent = on ? "开启托管" : "关闭";
+      applyQuick({ auto_approve_enabled: on });
     });
   $("#qs-auto-start") &&
     ($("#qs-auto-start").onchange = () => applyQuick({ auto_approve_start: $("#qs-auto-start").value || "23:00" }));
   $("#qs-auto-end") &&
     ($("#qs-auto-end").onchange = () => applyQuick({ auto_approve_end: $("#qs-auto-end").value || "07:00" }));
+
+  $("#qs-primary") &&
+    ($("#qs-primary").onchange = async () => {
+      const umo = $("#qs-primary").value || null;
+      try {
+        if (liveMode && api) {
+          const res = await api.setPrimaryRoute(umo);
+          toast(res?.message || "已更新默认推送窗口");
+        } else {
+          store.setDefault("primary", umo);
+          toast("已更新默认推送窗口");
+        }
+        await refresh({ silent: true, repaint: true });
+      } catch (e) {
+        toast("更新失败: " + (e.message || e));
+      }
+    });
 
   $$("#view-overview [data-go]").forEach((b) => {
     b.onclick = () => go(b.dataset.go);
@@ -942,19 +1061,45 @@ function renderOverview() {
   });
 }
 
+/** 终端粒子层：只挂一次，不挡点击 */
+function ensureFxLayer() {
+  if (document.getElementById("fx-layer")) return;
+  const layer = document.createElement("div");
+  layer.id = "fx-layer";
+  layer.className = "fx-layer";
+  layer.setAttribute("aria-hidden", "true");
+  const dots = Array.from({ length: 28 }, (_, i) => {
+    const left = ((i * 37) % 100) + (i % 5) * 0.3;
+    const delay = ((i * 0.47) % 8).toFixed(2);
+    const dur = (10 + (i % 7) * 1.4).toFixed(1);
+    const size = 1 + (i % 3);
+    return `<span class="fx-dot" style="--x:${left.toFixed(1)}%;--d:${delay}s;--t:${dur}s;--s:${size}px"></span>`;
+  }).join("");
+  layer.innerHTML = `
+    <div class="fx-scan"></div>
+    <div class="fx-vignette"></div>
+    <div class="fx-particles">${dots}</div>
+  `;
+  document.body.prepend(layer);
+}
+
 /* ---------- sessions (+ 推送路由) ---------- */
 function renderRoutePanel() {
   const def = state.data?.defaults || { primary: null, flavor: {}, writable: false };
   const flavorMap = def.flavor && typeof def.flavor === "object" ? def.flavor : {};
-  const opts = Array.isArray(state.data?.window_options) ? state.data.window_options : [];
-  const winOpts = (selected) =>
-    `<option value="">未设置</option>` +
-    opts
-      .map(
-        (w) =>
-          `<option value="${attr(w.umo)}" ${selected === w.umo ? "selected" : ""}>${esc(w.title)}</option>`,
-      )
-      .join("");
+  const allOpts = allKnownWindows();
+  const winOpts = (selected) => {
+    const list = visibleWindowOptions([selected]);
+    return (
+      `<option value="">未设置</option>` +
+      list
+        .map(
+          (w) =>
+            `<option value="${attr(w.umo)}" ${selected === w.umo ? "selected" : ""}>${esc(w.title)}</option>`,
+        )
+        .join("")
+    );
+  };
 
   const flavorCells = FLAVOR_ROUTE_KEYS.map(
     (f) => `<label class="route-cell">
@@ -964,7 +1109,8 @@ function renderRoutePanel() {
   ).join("");
 
   const routeWritable = def.writable !== false;
-  const routeHint = def.writable_reason || (opts.length ? "" : "尚无聊天窗口记录，请先在聊天里 /hapi bind");
+  const routeHint =
+    def.writable_reason || (allOpts.length ? "" : "尚无聊天窗口记录，请先在聊天里 /hapi bind");
   const subExtra = routeWritable
     ? ""
     : routeHint
@@ -976,7 +1122,7 @@ function renderRoutePanel() {
       <div class="route-panel-head">
         <div>
           <div class="route-panel-title">推送设置</div>
-          <p class="route-panel-sub">表内「按推送设置」时：优先按 Agent 类型；未设置则用默认推送窗口${subExtra}</p>
+          <p class="route-panel-sub">优先按 Agent 类型推送消息；未设置则推送到默认推送窗口${subExtra}</p>
         </div>
       </div>
       <div class="route-row">
@@ -1049,8 +1195,12 @@ function filteredSessions() {
 }
 
 function renderWindowList() {
-  const cols = state.data.columns;
-  if (!state.focusWindow) state.focusWindow = cols[0]?.umo || "__none__";
+  const allCols = state.data.columns || [];
+  // 未投递列始终保留；有 umo 的按可见性过滤
+  const cols = allCols.filter((col) => !col.umo || isWindowShown(col.umo));
+  if (!state.focusWindow || !cols.some((c) => (c.umo || "__none__") === state.focusWindow)) {
+    state.focusWindow = cols[0]?.umo || (cols[0] ? "__none__" : allCols[0]?.umo || "__none__");
+  }
 
   $("#window-list").innerHTML = cols
     .map((col) => {
@@ -1060,7 +1210,7 @@ function renderWindowList() {
       if (col.is_primary) {
         tags.push(`<span class="tag tag-muted">默认推送窗口</span>`);
       }
-      for (const f of col.flavors) {
+      for (const f of col.flavors || []) {
         tags.push(`<span class="tag tag-layer-flavor_default">${esc(f)} 推送窗口</span>`);
       }
       return `<button type="button" data-win="${attr(key)}" class="win-item ${on ? "is-on" : ""}">
@@ -1080,7 +1230,118 @@ function renderWindowList() {
       renderSessions();
     };
   });
-  $("#rule-footnote").innerHTML = ruleText();
+
+  const btnVis = $("#btn-win-vis");
+  if (btnVis) {
+    const hiddenN = loadHiddenWindows().size;
+    btnVis.textContent = hiddenN ? `管理可见窗口（已藏 ${hiddenN}）` : "管理可见窗口";
+    btnVis.onclick = () => openWindowVisibilityDialog();
+  }
+}
+
+function openWindowVisibilityDialog() {
+  const wins = allKnownWindows();
+  if (!wins.length) {
+    toast("暂无推送窗口记录，请先在聊天里 /hapi bind");
+    return;
+  }
+  const hidden = loadHiddenWindows();
+  const groups = groupWindowsByBot(wins);
+
+  const body = groups
+    .map(([bot, list]) => {
+      const shownN = list.filter((w) => !hidden.has(w.umo)).length;
+      const rows = list
+        .map((w) => {
+          const on = !hidden.has(w.umo);
+          return `<label class="win-vis-item">
+            <input type="checkbox" data-vis-umo value="${attr(w.umo)}" ${on ? "checked" : ""} />
+            <span class="win-vis-title">${esc(w.title)}</span>
+            <span class="win-vis-umo mono">${esc(w.umo)}</span>
+          </label>`;
+        })
+        .join("");
+      return `<div class="win-vis-group" data-bot="${attr(bot)}">
+        <div class="win-vis-group-head">
+          <span class="win-vis-bot">Bot:${esc(bot)}</span>
+          <span class="win-vis-count muted">${shownN}/${list.length}</span>
+          <button type="button" class="btn btn-sm js-vis-group-all" data-bot="${attr(bot)}">全选</button>
+          <button type="button" class="btn btn-sm js-vis-group-none" data-bot="${attr(bot)}">全不选</button>
+        </div>
+        <div class="win-vis-group-body">${rows}</div>
+      </div>`;
+    })
+    .join("");
+
+  $("#dlg-title").textContent = "管理可见推送窗口";
+  $("#dlg-body").innerHTML = `
+    <p class="field-help">勾选的窗口会出现在本页左侧列表和推送下拉框里。按 Bot 分组；默认全部显示。设置只存在本浏览器。</p>
+    <div class="win-vis-toolbar">
+      <button type="button" class="btn btn-sm" id="vis-all">全部显示</button>
+      <button type="button" class="btn btn-sm" id="vis-none">全部隐藏</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-primary btn-sm" id="vis-apply">应用</button>
+    </div>
+    <div class="win-vis-list">${body}</div>
+  `;
+  $("#dlg").showModal();
+
+  const setGroup = (bot, checked) => {
+    $$("#dlg-body .win-vis-group").forEach((g) => {
+      if (g.dataset.bot !== bot) return;
+      g.querySelectorAll("input[data-vis-umo]").forEach((inp) => {
+        inp.checked = checked;
+      });
+    });
+    refreshGroupCounts();
+  };
+  const refreshGroupCounts = () => {
+    $$("#dlg-body .win-vis-group").forEach((g) => {
+      const boxes = [...g.querySelectorAll("input[data-vis-umo]")];
+      const n = boxes.filter((b) => b.checked).length;
+      const el = g.querySelector(".win-vis-count");
+      if (el) el.textContent = `${n}/${boxes.length}`;
+    });
+  };
+
+  $$("#dlg-body .js-vis-group-all").forEach((b) => {
+    b.onclick = () => setGroup(b.dataset.bot, true);
+  });
+  $$("#dlg-body .js-vis-group-none").forEach((b) => {
+    b.onclick = () => setGroup(b.dataset.bot, false);
+  });
+  $$("#dlg-body input[data-vis-umo]").forEach((inp) => {
+    inp.onchange = refreshGroupCounts;
+  });
+  $("#vis-all") &&
+    ($("#vis-all").onclick = () => {
+      $$("#dlg-body input[data-vis-umo]").forEach((inp) => {
+        inp.checked = true;
+      });
+      refreshGroupCounts();
+    });
+  $("#vis-none") &&
+    ($("#vis-none").onclick = () => {
+      $$("#dlg-body input[data-vis-umo]").forEach((inp) => {
+        inp.checked = false;
+      });
+      refreshGroupCounts();
+    });
+  $("#vis-apply") &&
+    ($("#vis-apply").onclick = () => {
+      const nextHidden = new Set();
+      $$("#dlg-body input[data-vis-umo]").forEach((inp) => {
+        if (!inp.checked && inp.value) nextHidden.add(inp.value);
+      });
+      saveHiddenWindows(nextHidden);
+      $("#dlg").close();
+      toast(
+        nextHidden.size
+          ? `已隐藏 ${nextHidden.size} 个窗口（本页列表/下拉）`
+          : "已全部显示",
+      );
+      renderSessions();
+    });
 }
 
 
@@ -1349,39 +1610,57 @@ const RENDER_KIND_LABELS = {
   message: "Agent 对话",
 };
 
-const DEFAULT_CARD_CSS_FALLBACK = `/* 推送卡片 — 改 :root 的 --card-* 出图即生效
- * 色 / 整体 / 字号 / status 徽章 / list 序号 / 行距 均可调
- */
+const DEFAULT_CARD_CSS_FALLBACK = `/* ============================================
+ * 推送卡片样式
+ *
+ * ① :root 里的 --card-*  —— 出图真正读这些
+ *    颜色 / 宽度 / 字号 / 徽章 / 序号框 / 行距
+ * ② 下面的 .card / .row 等 —— 只给左侧网页预览
+ *    聊天出图不读选择器，只认上面的变量
+ * ============================================ */
 :root {
+  /* —— 颜色 —— */
   --card-bg: #f7f4ea;
   --card-fg: #14120f;
   --card-accent: #0f6b3c;
   --card-muted: #3a362e;
   --card-border: #c9c2b0;
   --card-code-bg: #ebe4d0;
+
+  /* —— 整体尺寸 —— */
   --card-radius: 12px;
   --card-pad: 28px;
   --card-width: 720px;
   --card-font-scale: 1.12;
+
+  /* —— 字号 —— */
   --card-title-size: 24px;
   --card-sub-size: 14.5px;
   --card-body-size: 16.5px;
   --card-meta-size: 13.5px;
   --card-foot-size: 13px;
+
+  /* —— status 状态徽章 —— */
   --card-badge-h: 40px;
   --card-badge-pad-x: 20px;
   --card-badge-font: 16.5px;
   --card-badge-dot: 6px;
+
+  /* —— list 序号框 —— */
   --card-idx-w: 46px;
   --card-idx-h: 32px;
   --card-idx-font: 14px;
   --card-idx-radius: 7px;
   --card-idx-top: 6px;
+
+  /* —— 行距 / 间距 —— */
   --card-row-pad-y: 13px;
   --card-row-pad-x: 14px;
   --card-row-gap: 10px;
   --card-section-gap: 16px;
 }
+
+/* —— 以下仅 DOM 预览用 —— */
 .card {
   width: var(--card-width);
   background: var(--card-bg);
@@ -1419,6 +1698,162 @@ const FALLBACK_INSTALLABLE = [
 ];
 
 
+/** 命令目录：优先 meta.command_catalog（formatters.HELP_*），否则用 help 接口 / 本地兜底 */
+function commandCatalog() {
+  const fromMeta = state.meta?.command_catalog;
+  if (fromMeta?.commands?.length) return fromMeta;
+  // 从 help 数据派生（与 formatters.export_help_data 同源）
+  const topics = helpTopics().map((t) => ({ id: t.id, name: t.name, desc: t.desc }));
+  const seen = new Set();
+  const commands = [];
+  for (const item of helpCommands()) {
+    const usage = String(item.usage || "").trim();
+    if (!usage.startsWith("/hapi")) continue;
+    const rest = usage.slice("/hapi".length).trim();
+    if (!rest) continue;
+    const token = rest.split(/\s+/)[0];
+    const id = token.replace(/[\[\]<>]/g, "").toLowerCase();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    // takes_arg：本地兜底根据 usage 是否含空格后参数位粗判；真值以后端 catalog 为准
+    const takes_arg = /\s/.test(rest.replace(token, "").trim()) || /[\[<]/.test(usage);
+    commands.push({
+      id,
+      topic: item.topic || "",
+      usage,
+      summary: item.summary || "",
+      takes_arg,
+    });
+  }
+  return { topics, commands };
+}
+
+function topicNameMap() {
+  const m = {};
+  for (const t of commandCatalog().topics || []) m[t.id] = t.name || t.id;
+  // 兜底中文名
+  Object.assign(m, {
+    session: m.session || "会话",
+    chat: m.chat || "对话",
+    approve: m.approve || "审批",
+    push: m.push || "通知",
+    files: m.files || "文件",
+    config: m.config || "配置",
+  });
+  return m;
+}
+
+function cmdSelectHtml(selected, rowIdx) {
+  const cat = commandCatalog();
+  const names = topicNameMap();
+  const byTopic = new Map();
+  for (const c of cat.commands || []) {
+    const tid = c.topic || "_";
+    if (!byTopic.has(tid)) byTopic.set(tid, []);
+    byTopic.get(tid).push(c);
+  }
+  let html = `<select class="ctrl ctrl-sm js-kw-cmd" data-idx="${rowIdx}">`;
+  html += `<option value="">选择命令…</option>`;
+  for (const [tid, list] of byTopic) {
+    html += `<optgroup label="${esc(names[tid] || tid)}">`;
+    for (const c of list) {
+      const sel = c.id === selected ? "selected" : "";
+      const argHint = c.takes_arg ? "可带参" : "整句";
+      html += `<option value="${attr(c.id)}" ${sel}>${esc(c.usage)} — ${esc(c.summary || c.id)} · ${argHint}</option>`;
+    }
+    html += `</optgroup>`;
+  }
+  html += `</select>`;
+  return html;
+}
+
+function paintKwMapList() {
+  const host = $("#ix-kw-list");
+  if (!host) return;
+  const rows = Array.isArray(state._ixKwMaps) ? state._ixKwMaps : [];
+  if (!rows.length) {
+    host.innerHTML = `<div class="empty-inline">还没有映射。点「添加映射」：填关键词，再选对应 /hapi 命令。</div>`;
+    return;
+  }
+  host.innerHTML = rows
+    .map((row, i) => {
+      const kws = Array.isArray(row.keywords) ? row.keywords.join("，") : "";
+      return `<div class="kw-map-row" data-idx="${i}">
+        <label class="kw-map-field">
+          <span class="kw-map-label">关键词</span>
+          <input type="text" class="ctrl js-kw-keys" data-idx="${i}" value="${attr(kws)}" placeholder="列表，会话列表（逗号分隔，可多个）" />
+        </label>
+        <label class="kw-map-field kw-map-cmd">
+          <span class="kw-map-label">映射命令</span>
+          ${cmdSelectHtml(row.command || "", i)}
+        </label>
+        <button type="button" class="btn btn-sm btn-danger js-kw-del" data-idx="${i}" title="删除">删</button>
+      </div>`;
+    })
+    .join("");
+
+  $$("#ix-kw-list .js-kw-keys").forEach((inp) => {
+    inp.oninput = () => {
+      const i = Number(inp.dataset.idx);
+      if (!state._ixKwMaps?.[i]) return;
+      state._ixKwMaps[i].keywords = String(inp.value || "")
+        .split(/[,，]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    };
+  });
+  $$("#ix-kw-list .js-kw-cmd").forEach((sel) => {
+    sel.onchange = () => {
+      const i = Number(sel.dataset.idx);
+      if (!state._ixKwMaps?.[i]) return;
+      state._ixKwMaps[i].command = sel.value || "";
+    };
+  });
+  $$("#ix-kw-list .js-kw-del").forEach((btn) => {
+    btn.onclick = () => {
+      const i = Number(btn.dataset.idx);
+      if (!Array.isArray(state._ixKwMaps)) return;
+      state._ixKwMaps.splice(i, 1);
+      paintKwMapList();
+    };
+  });
+}
+
+function collectQuickOpsPatchFromForm() {
+  const pokeOn = Boolean($("#ix-poke")?.checked);
+  const pokeAction =
+    document.querySelector("#ix-poke-actions input[name='ix-poke-action']:checked")?.value ||
+    "approve";
+  const prefix = ($("#ix-prefix")?.value || ">").trim() || ">";
+  // 再从 DOM 同步一遍关键词，避免漏 input 事件
+  $$("#ix-kw-list .js-kw-keys").forEach((inp) => {
+    const i = Number(inp.dataset.idx);
+    if (!state._ixKwMaps?.[i]) return;
+    state._ixKwMaps[i].keywords = String(inp.value || "")
+      .split(/[,，]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  });
+  $$("#ix-kw-list .js-kw-cmd").forEach((sel) => {
+    const i = Number(sel.dataset.idx);
+    if (!state._ixKwMaps?.[i]) return;
+    state._ixKwMaps[i].command = sel.value || "";
+  });
+  const maps = (state._ixKwMaps || [])
+    .map((m) => ({
+      keywords: [...(m.keywords || [])].filter(Boolean),
+      command: String(m.command || "").trim().toLowerCase(),
+    }))
+    .filter((m) => m.keywords.length && m.command);
+  return {
+    poke_approve: pokeOn,
+    poke_action: pokeAction,
+    quick_prefix: prefix,
+    cmd_keyword_maps: maps,
+    cmd_keyword_maps_list: maps,
+  };
+}
+
 function interactRenderState(cfg) {
   const kinds = Array.isArray(cfg.render_kinds_list)
     ? cfg.render_kinds_list
@@ -1442,46 +1877,6 @@ function interactRenderState(cfg) {
   };
 }
 
-function sampleDomRows(kind) {
-  if (kind === "pending") {
-    return [
-      { i: 1, a: "claude · auth-mw", b: "Bash · npm test" },
-      { i: 2, a: "claude · auth-mw", b: "Edit · src/auth.ts" },
-    ];
-  }
-  if (kind === "permission") {
-    return [
-      { i: 0, a: "工具", b: "Bash" },
-      { i: 0, a: "命令", b: "pytest -q tests/test_auth.py" },
-    ];
-  }
-  if (kind === "status") {
-    return [
-      { i: 0, a: "状态", b: "active · thinking" },
-      { i: 0, a: "模型", b: "opus · effort high" },
-      { i: 0, a: "路径", b: "/home/dev/proj-auth" },
-    ];
-  }
-  if (kind === "routes") {
-    return [
-      { i: 1, a: "会话绑定", b: "群 A · 20001" },
-      { i: 2, a: "Agent 窗口", b: "claude → 私聊" },
-      { i: 3, a: "默认窗口", b: "私聊 · 10001" },
-    ];
-  }
-  if (kind === "message") {
-    return [
-      { i: 0, a: "Markdown", b: "## 修复摘要 · 代码块 · 列表" },
-      { i: 0, a: "正文", b: "已完成鉴权中间件重构，补充单测。" },
-    ];
-  }
-  return [
-    { i: 1, a: "重构鉴权中间件", b: "思考中 · claude:opus · 当前" },
-    { i: 2, a: "补 session 列表单测", b: "已关闭 · claude:sonnet" },
-    { i: 3, a: "API 文档生成", b: "运行中 · codex:default · 待审 1" },
-  ];
-}
-
 function sampleTitle(kind) {
   return (
     {
@@ -1490,7 +1885,8 @@ function sampleTitle(kind) {
       status: "Session 状态",
       permission: "权限请求",
       routes: "推送路由",
-      message: "Agent 消息",
+      // 真实 message 卡：title = 会话标题
+      message: "重构鉴权中间件",
     }[kind] || kind
   );
 }
@@ -1503,7 +1899,8 @@ function sampleSub(kind) {
       status: "claude · a1b2c3d4 · 思考中",
       permission: "序号 1 · claude · auth-mw",
       routes: "绑定 1 · 有默认窗口 · Agent 1",
-      message: "claude · auth-mw",
+      // 真实 message 卡：subtitle = Agent 消息 · 路径 · flavor · sid
+      message: "Agent 消息 · claude · auth-mw · a1b2c3d4",
     }[kind] || ""
   );
 }
@@ -1511,33 +1908,99 @@ function sampleSub(kind) {
 function sampleFooter(kind) {
   return (
     {
-      session_list: "/hapi sw <n>  切换    > 消息  快捷发送",
-      pending: "/hapi a  全部批准    /hapi pending  列表",
-      status: "sw 切换   ·   list 列表   ·   msg 最近消息",
-      permission: "/hapi allow 1   /hapi deny 1",
-      routes: "bind 设默认   ·   bind <agent> 设 Agent 窗口",
-      message: "output=simple",
+      session_list: "",
+      pending: "",
+      status: "",
+      permission: "",
+      routes: "",
+      message: "",
     }[kind] || ""
   );
+}
+
+/** 按真实出卡结构生成 DOM 预览 body（message 是 markdown 正文，不是键值行） */
+function sampleDomBody(kind) {
+  if (kind === "message") {
+    return `<div class="rpc-md">
+      <div class="rpc-md-h2">修复摘要</div>
+      <div class="rpc-md-p">已完成鉴权中间件重构，补充单测。</div>
+      <div class="rpc-md-p">主要改动：</div>
+      <div class="rpc-md-li">· 统一 JWT 刷新路径</div>
+      <div class="rpc-md-li">· 抽出 session 绑定校验</div>
+      <div class="rpc-md-pre"><code>pytest -q tests/test_auth.py</code></div>
+    </div>`;
+  }
+  if (kind === "pending") {
+    return [
+      { i: 1, a: "claude · auth-mw", b: "Bash · npm test" },
+      { i: 2, a: "claude · auth-mw", b: "Edit · src/auth.ts" },
+    ]
+      .map(
+        (r) =>
+          `<div class="rpc-row"><div class="rpc-head">[${r.i}] ${esc(r.a)}</div><div class="rpc-detail">${esc(r.b)}</div></div>`,
+      )
+      .join("");
+  }
+  if (kind === "permission") {
+    return [
+      { a: "工具", b: "Bash" },
+      { a: "命令", b: "pytest -q tests/test_auth.py" },
+    ]
+      .map(
+        (r) =>
+          `<div class="rpc-row"><div class="rpc-head">${esc(r.a)}</div><div class="rpc-detail">${esc(r.b)}</div></div>`,
+      )
+      .join("");
+  }
+  if (kind === "status") {
+    return [
+      { a: "状态", b: "思考中" },
+      { a: "模型", b: "opus · effort high" },
+      { a: "路径", b: "/home/dev/proj-auth" },
+    ]
+      .map(
+        (r) =>
+          `<div class="rpc-row"><div class="rpc-head">${esc(r.a)}</div><div class="rpc-detail">${esc(r.b)}</div></div>`,
+      )
+      .join("");
+  }
+  if (kind === "routes") {
+    return [
+      { i: 1, a: "会话绑定", b: "群 A · 20001" },
+      { i: 2, a: "Agent 窗口", b: "claude → 私聊" },
+      { i: 3, a: "默认窗口", b: "私聊 · 10001" },
+    ]
+      .map(
+        (r) =>
+          `<div class="rpc-row"><div class="rpc-head">[${r.i}] ${esc(r.a)}</div><div class="rpc-detail">${esc(r.b)}</div></div>`,
+      )
+      .join("");
+  }
+  // session_list
+  return [
+    { i: 1, a: "重构鉴权中间件", b: "思考中 · claude:opus · 当前" },
+    { i: 2, a: "补 session 列表单测", b: "已关闭 · claude:sonnet" },
+    { i: 3, a: "API 文档生成", b: "运行中 · codex:default · 待审 1" },
+  ]
+    .map(
+      (r) =>
+        `<div class="rpc-row"><div class="rpc-head">[${r.i}] ${esc(r.a)}</div><div class="rpc-detail">${esc(r.b)}</div></div>`,
+    )
+    .join("");
 }
 
 function paintDomCardPreview() {
   const root = $("#ix-dom-preview");
   if (!root) return;
   const kind = $("#ix-sample")?.value || "session_list";
-  const rows = sampleDomRows(kind)
-    .map((r) => {
-      const head = r.i ? `[${r.i}] ${r.a}` : r.a;
-      return `<div class="rpc-row"><div class="rpc-head">${esc(head)}</div><div class="rpc-detail">${esc(r.b)}</div></div>`;
-    })
-    .join("");
+  const foot = sampleFooter(kind);
   root.innerHTML = `
     <div class="render-preview-card">
       <div class="rpc-title">${esc(sampleTitle(kind))}</div>
       <div class="rpc-sub">${esc(sampleSub(kind))}</div>
       <div class="rpc-bar"></div>
-      ${rows}
-      <div class="rpc-foot">${esc(sampleFooter(kind))}</div>
+      <div class="rpc-body">${sampleDomBody(kind)}</div>
+      ${foot ? `<div class="rpc-foot">${esc(foot)}</div>` : ""}
       <div class="rpc-brand">hapi connector</div>
     </div>
     <p class="field-help" style="margin-top:8px">DOM 仅示意结构。样式以自定义 CSS +「生成实卡」为准。</p>`;
@@ -1576,9 +2039,19 @@ function collectRenderPatchFromForm() {
     fontPath = "";
   }
 
+  const fmode =
+    document.querySelector('#ix-fmode-cards input[name="ix-fmode"]:checked')?.value ||
+    $("#ix-fmode")?.value ||
+    state.data?.config?.formula_mode ||
+    "off";
+
   return {
     render_mode,
-    formula_mode: "off",
+    formula_mode: ["off", "detect", "plain", "always"].includes(fmode)
+      ? fmode === "always"
+        ? "plain"
+        : fmode
+      : "off",
     render_kinds:
       render_mode === "card"
         ? kinds.join(",") || "session_list,pending,status,permission,message"
@@ -1624,12 +2097,21 @@ function renderInteract() {
     })
     .join("");
 
+  const kwMaps = Array.isArray(cfg.cmd_keyword_maps_list)
+    ? cfg.cmd_keyword_maps_list
+    : [];
+  state._ixKwMaps = kwMaps.map((m) => ({
+    keywords: [...(m.keywords || [])],
+    command: m.command || "",
+  }));
+  if (!state._ixKwMaps.length) state._ixKwMaps = [];
+
   $("#view-interact").innerHTML = `
-    <div class="card">
+    <div class="card card-section">
       <div class="card-head">
         <div>
           <h2>快捷操作</h2>
-          <p class="sub">聊天侧前缀与可配置的戳一戳快捷动作。</p>
+          <p class="sub">聊天侧前缀、戳一戳与指令关键词映射。改完点右下角保存。</p>
         </div>
       </div>
 
@@ -1649,15 +2131,19 @@ function renderInteract() {
         <div class="field-label-row">
           <div class="field-label">戳一戳映射动作</div>
         </div>
-        <p class="field-help">一戳执行的安全快捷指令。默认「批准待审」兼容旧行为；可改为 list / stop / 切换推送级别等。</p>
+        <p class="field-help">一戳执行的安全快捷指令。默认「批准待审」；前几项对应聊天里的 /hapi 命令。</p>
         <div class="poke-action-grid" id="ix-poke-actions">
           ${(cfg.poke_actions || [])
             .map((a) => {
               const on = (cfg.poke_action || "approve") === a.id;
+              const cmd = a.cmd
+                ? `<span class="pa-cmd mono">${esc(a.cmd)}</span>`
+                : `<span class="pa-cmd pa-cmd-empty"></span>`;
               return `<label class="poke-action-card ${on ? "is-on" : ""}">
                 <input type="radio" name="ix-poke-action" value="${attr(a.id)}" ${on ? "checked" : ""} />
                 <span class="pa-emoji" aria-hidden="true">${esc(a.emoji || "·")}</span>
                 <span class="pa-label">${esc(a.label || a.id)}</span>
+                ${cmd}
                 <span class="pa-desc">${esc(a.desc || "")}</span>
               </label>`;
             })
@@ -1669,16 +2155,31 @@ function renderInteract() {
         <div class="field-label-row">
           <div class="field-label">快捷发送前缀</div>
         </div>
-        <p class="field-help">默认 &gt; 时，「&gt; 继续修 bug」进当前会话；「&gt;2 内容」进列表第 2 个。</p>
+        <p class="field-help">插件默认不接管所有消息。发送到 HAPI 需使用 <code>/hapi to</code> 或快捷发送前缀；带前缀的消息会发往当前窗口活跃的 HAPI 会话。</p>
         <input id="ix-prefix" class="ctrl" type="text" value="${attr(cfg.quick_prefix)}" style="max-width:220px" />
+      </div>
+
+      <div class="field">
+        <div class="field-label-row">
+          <div class="field-label">指令关键词映射</div>
+        </div>
+        <p class="field-help">关键词来自帮助命令表。无参命令须<strong>整句相等</strong>；可带参命令允许「关键词 + 参数」（如 <code>切换 2</code> → <code>/hapi sw 2</code>）。仅当前窗口有交互中会话时生效。</p>
+        <div id="ix-kw-list" class="kw-map-list"></div>
+        <div class="kw-map-toolbar">
+          <button type="button" class="btn btn-sm" id="ix-kw-add">添加映射</button>
+        </div>
+      </div>
+
+      <div class="section-actions">
+        <button type="button" class="btn btn-primary" id="ix-save-quick">保存快捷操作</button>
       </div>
     </div>
 
-    <div class="card">
+    <div class="card card-section">
       <div class="card-head">
         <div>
           <h2>推送呈现</h2>
-          <p class="sub">呈现模式、出卡类型、CSS 与字体都在本页配置。出图用 Pillow；字体可勾选装到 assets/fonts。</p>
+          <p class="sub">此处修改消息渲染形式（文字 / 图片）。图片渲染使用 Pillow（延迟较低）。</p>
         </div>
         <span class="tag ${engineTagCls}">${engineTag}</span>
       </div>
@@ -1712,14 +2213,41 @@ function renderInteract() {
           </div>
 
           <div class="field">
+            <div class="field-label">公式渲染（$$…$$ / $…$）</div>
+            <p class="field-help">Agent 消息里的 LaTeX 公式。推荐「检测到再渲染」：有公式才出图嵌入，没有就当普通正文。当前引擎尚未接通时，公式仍按源码显示，选项会先落盘。</p>
+            <div class="enum-cards" id="ix-fmode-cards">
+              ${[
+                { value: "off", title: "关闭", desc: "公式当普通文字，照常出卡。" },
+                { value: "detect", title: "检测到再渲染", desc: "有 $$…$$ / $…$ 时尽量渲成小图嵌进卡片（引擎未接时仍显示源码）。" },
+                { value: "plain", title: "有公式则只发文字", desc: "识别到公式时放弃出卡，整段按纯文本推送。" },
+              ]
+                .map(
+                  (o) => `<label class="enum-card">
+                <input type="radio" name="ix-fmode" value="${o.value}" ${
+                    (rs.formula_mode || "off") === o.value ? "checked" : ""
+                  } />
+                <div class="t">${esc(o.title)}</div>
+                <div class="d">${esc(o.desc)}</div>
+              </label>`,
+                )
+                .join("")}
+            </div>
+          </div>
+
+          <div class="field">
             <div class="field-label">卡片 CSS（当前生效）</div>
-            <p class="field-help">${rs.using_default_css ? "当前为内置默认。" : "当前为已保存的自定义 CSS。"} 改 <code>:root</code> 里的 <code>--card-*</code> 变量即可调色/字号/徽章/序号框/行距（出图生效）。改 <code>.card</code> 等选择器只影响左侧 DOM 预览。</p>
+            <p class="field-help css-help">
+              ${rs.using_default_css ? "现在用的是内置默认样式。" : "现在用的是你保存过的自定义样式。"}
+              <br /><strong>怎么改：</strong>
+              <br />· <code>:root</code> 里的 <code>--card-*</code> — 颜色、字号、徽章、序号框、行距。改这里，聊天出的图会跟着变。
+              <br />· <code>.card</code> / <code>.row</code> 等选择器 — 只给左侧网页预览看，出图不会读它们。
+            </p>
             <textarea id="ix-css" class="ctrl render-css-editor" rows="14" spellcheck="false">${esc(rs.effective_css)}</textarea>
           </div>
 
           <div class="field">
             <div class="field-label">卡片字体</div>
-            <p class="field-help">在下列位置扫描到的字体；选中即写入 <code>card_font_path</code>。无可用字体时出卡回退纯文本。</p>
+            <p class="field-help">会在下列路径扫描可选字体。</p>
             <ul class="font-scan-locs">
               ${(fonts.scan_locations || [
                 { label: "插件目录", path: fonts.bundled_dir || "assets/fonts", hint: "插件包内 assets/fonts/" },
@@ -1744,8 +2272,7 @@ function renderInteract() {
           </div>
 
           <div class="field">
-            <div class="field-label">可选安装（勾选后点安装）</div>
-            <p class="field-help">勾选后点「安装所选」。字体 → 插件 <code>assets/fonts/</code>；Pillow → pip。两项可分开选。</p>
+            <div class="field-label">可选生图依赖</div>
             <div class="chk-grid" id="ix-install-grid">
               ${(Array.isArray(engine.installable) && engine.installable.length
                   ? engine.installable
@@ -1773,7 +2300,6 @@ function renderInteract() {
 
           <div class="render-actions">
             <button type="button" class="btn" id="ix-reset-style">恢复默认样式</button>
-            <button type="button" class="btn btn-primary" id="ix-save-render">保存并应用</button>
           </div>
         </div>
 
@@ -1795,42 +2321,65 @@ function renderInteract() {
           <div id="ix-real-preview" class="render-real-host"></div>
         </div>
       </div>
+
+      <div class="section-actions">
+        <button type="button" class="btn btn-primary" id="ix-save-render">保存呈现设置</button>
+      </div>
     </div>
   `;
 
-  const applyQuick = async (patch) => {
-    try {
-      if (liveMode && api) {
-        const res = await api.saveConfig(patch);
-        if (res?.config && state.data) state.data.config = { ...state.data.config, ...res.config };
-      } else {
-        store.saveConfig(patch);
-      }
-      if (state.data?.config) Object.assign(state.data.config, patch);
-      if (state.draft) Object.assign(state.draft, patch);
-      // 不整页重绘，避免选择框跳回
-      await refresh({ silent: true });
-    } catch (e) {
-      toast("保存失败: " + (e.message || e));
-    }
-  };
-
-  $("#ix-poke").onchange = () => {
-    const on = $("#ix-poke").checked;
-    const txt = $("#ix-poke").closest(".switch")?.querySelector(".switch-text");
-    if (txt) txt.textContent = on ? "开启" : "关闭";
-    const wrap = $("#ix-poke-action-wrap");
-    if (wrap) wrap.hidden = !on;
-    applyQuick({ poke_approve: on });
-  };
+  // 戳一戳开关：只改 UI 显隐，点保存才落盘
+  $("#ix-poke") &&
+    ($("#ix-poke").onchange = () => {
+      const on = $("#ix-poke").checked;
+      const txt = $("#ix-poke").closest(".switch")?.querySelector(".switch-text");
+      if (txt) txt.textContent = on ? "开启" : "关闭";
+      const wrap = $("#ix-poke-action-wrap");
+      if (wrap) wrap.hidden = !on;
+    });
   $$("#ix-poke-actions input[name='ix-poke-action']").forEach((inp) => {
     inp.onchange = () => {
       $$("#ix-poke-actions .poke-action-card").forEach((c) => c.classList.remove("is-on"));
       inp.closest(".poke-action-card")?.classList.add("is-on");
-      applyQuick({ poke_action: inp.value });
     };
   });
-  $("#ix-prefix").onchange = () => applyQuick({ quick_prefix: $("#ix-prefix").value });
+
+  paintKwMapList();
+  $("#ix-kw-add") && ($("#ix-kw-add").onclick = () => {
+    if (!Array.isArray(state._ixKwMaps)) state._ixKwMaps = [];
+    state._ixKwMaps.push({ keywords: [], command: "" });
+    paintKwMapList();
+  });
+
+  $("#ix-save-quick") &&
+    ($("#ix-save-quick").onclick = async () => {
+      const patch = collectQuickOpsPatchFromForm();
+      try {
+        let res = null;
+        if (liveMode && api) {
+          res = await api.saveConfig(patch);
+          toast(res?.message || "已保存快捷操作");
+        } else {
+          store.saveConfig({
+            ...patch,
+            cmd_keyword_maps_list: patch.cmd_keyword_maps_list || [],
+          });
+          toast("已保存快捷操作（本地 mock）");
+        }
+        if (res?.config && state.data) state.data.config = { ...state.data.config, ...res.config };
+        else if (state.data?.config) Object.assign(state.data.config, patch);
+        if (state.draft) Object.assign(state.draft, patch);
+        if (Array.isArray(patch.cmd_keyword_maps_list)) {
+          state._ixKwMaps = patch.cmd_keyword_maps_list.map((m) => ({
+            keywords: [...(m.keywords || [])],
+            command: m.command || "",
+          }));
+        }
+        await refresh({ silent: true });
+      } catch (e) {
+        toast("保存失败: " + (e.message || e));
+      }
+    });
 
   // 渲染模式：本地立即显隐，不必先保存
   $$('#ix-rmode-cards input[name="ix-rmode"]').forEach((inp) => {
@@ -1940,14 +2489,14 @@ function renderInteract() {
         let res = null;
         if (liveMode && api) {
           res = await api.saveConfig(patch);
-          toast((res?.message || "已保存") + "");
+          toast(res?.message || "已保存呈现设置");
         } else {
           store.saveConfig({
             ...patch,
             render_kinds_list: patch.render_kinds.split(","),
             render_engine: engine,
           });
-          toast("已保存（本地 mock）");
+          toast("已保存呈现设置（本地 mock）");
         }
         if (res?.config && state.data) state.data.config = { ...state.data.config, ...res.config };
         else if (state.data?.config) Object.assign(state.data.config, patch);

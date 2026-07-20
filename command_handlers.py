@@ -6,6 +6,7 @@ from astrbot.core.utils.session_waiter import session_waiter, SessionController
 from . import formatters
 from . import session_ops
 from .formatters import is_compact_request
+from .hapi_routes import ROUTE_HANDLERS, ROUTE_TAKES_ARG
 
 
 def _session_resume_state(session: dict) -> str:
@@ -29,6 +30,9 @@ def _session_resume_state(session: dict) -> str:
 class CommandHandlers:
     """处理所有 /hapi 子命令"""
 
+    # 与 hapi_routes 同源，便于外部引用
+    ROUTE_TAKES_ARG = ROUTE_TAKES_ARG
+
     def __init__(self, plugin):
         self.plugin = plugin
         self.client = plugin.client
@@ -36,6 +40,11 @@ class CommandHandlers:
         self.state_mgr = plugin.state_mgr
         self.sse_listener = plugin.sse_listener
         self.binding_mgr = plugin.binding_mgr
+
+    def _handler_for(self, subcommand: str):
+        """按子命令名解析 handler；别名映射到同一方法。"""
+        method = ROUTE_HANDLERS.get(subcommand)
+        return getattr(self, method, None) if method else None
 
     # ──── 路由 ────
 
@@ -54,56 +63,17 @@ class CommandHandlers:
         subcommand = parts[0].lower()
         argument = parts[1] if len(parts) > 1 else ""
         logger.debug(f"[cmd_hapi_router] subcommand='{subcommand}', argument='{argument}', parts={parts}")
-        routes = {
-            "help": (self.cmd_help, True),
-            "帮助": (self.cmd_help, True),
-            "list": (self.cmd_list, True),
-            "ls": (self.cmd_list, True),
-            "sw": (self.cmd_sw, True),
-            "s": (self.cmd_status, False),
-            "status": (self.cmd_status, False),
-            "msg": (self.cmd_msg, True),
-            "messages": (self.cmd_msg, True),
-            "to": (self.cmd_to, True),
-            "perm": (self.cmd_perm, True),
-            "model": (self.cmd_model, True),
-            "effort": (self.cmd_effort, True),
-            "plan": (self.cmd_plan, True),
-            "fast": (self.cmd_fast, True),
-            "remote": (self.cmd_remote, False),
-            "output": (self.cmd_output, True),
-            "out": (self.cmd_output, True),
-            "pending": (self.cmd_pending, False),
-            "approve": (self.cmd_approve, False),
-            "a": (self.cmd_approve, False),
-            "allow": (self.cmd_allow, True),
-            "answer": (self.cmd_answer, True),
-            "deny": (self.cmd_deny, True),
-            "create": (self.cmd_create, False),
-            "abort": (self.cmd_abort, True),
-            "stop": (self.cmd_abort, True),
-            "archive": (self.cmd_archive, False),
-            "resume": (self.cmd_resume, True),
-            "reopen": (self.cmd_reopen, True),
-            "rename": (self.cmd_rename, False),
-            "delete": (self.cmd_delete, False),
-            "clean": (self.cmd_clean, True),
-            "files": (self.cmd_files, True),
-            "file": (self.cmd_files, True),
-            "find": (self.cmd_find, True),
-            "download": (self.cmd_download, True),
-            "dl": (self.cmd_download, True),
-            "upload": (self.cmd_upload, True),
-            "bind": (self.cmd_bind, True),
-            "routes": (self.cmd_routes, False),
-        }
-        route = routes.get(subcommand)
-        if route is None:
+        if subcommand not in self.ROUTE_TAKES_ARG:
+            yield event.plain_result(formatters.format_unknown_command_help(subcommand))
+            return
+
+        handler = self._handler_for(subcommand)
+        if handler is None:
             yield event.plain_result(formatters.format_unknown_command_help(subcommand))
             return
 
         await self.state_mgr.ensure_primary_session(event)
-        handler, takes_arg = route
+        takes_arg = self.ROUTE_TAKES_ARG[subcommand]
         if takes_arg:
             async for result in handler(event, argument):
                 yield result

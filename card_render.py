@@ -59,7 +59,9 @@ except ImportError:  # pragma: no cover — 脚本直跑 / 未作为包部署
 
 
 RENDER_MODES = ("text", "card")
-FORMULA_MODES = ("off", "detect", "always")
+# off=当普通文字出卡；detect=有公式时尽量渲成小图嵌进卡（引擎未接时仍按源码）；
+# plain=识别到公式则放弃出卡，只发纯文本
+FORMULA_MODES = ("off", "detect", "plain")
 CARD_KINDS = (
     "session_list",
     "pending",
@@ -82,16 +84,16 @@ DEFAULT_KINDS = (
 # 默认 CSS：用户可在 WebUI 整段覆盖。
 # Pillow 读取 :root 全部 --card-*（色 + 字号 + 布局尺寸）；选择器仅 DOM 预览用。
 DEFAULT_CARD_CSS = """\
-/* HAPI Connector 推送卡片 — 用 :root 变量调布局，保存后出图生效
+/* ============================================
+ * 推送卡片样式
  *
- * 色: --card-bg/fg/accent/muted/border/code-bg
- * 整体: --card-width / --card-pad / --card-radius / --card-font-scale
- * 字号: --card-title-size / --card-sub-size / --card-body-size / --card-meta-size / --card-foot-size
- * status 徽章: --card-badge-h / --card-badge-pad-x / --card-badge-font / --card-badge-dot
- * list 序号: --card-idx-w / --card-idx-h / --card-idx-font / --card-idx-radius / --card-idx-top
- * list 行: --card-row-pad-y / --card-row-pad-x / --card-row-gap / --card-section-gap
- */
+ * ① :root 里的 --card-*  —— 出图真正读这些
+ *    颜色 / 宽度 / 字号 / 徽章 / 序号框 / 行距
+ * ② 下面的 .card / .row 等 —— 只给网页预览
+ *    聊天出图不读选择器，只认上面的变量
+ * ============================================ */
 :root {
+  /* —— 颜色 —— */
   --card-bg: #f7f4ea;
   --card-fg: #14120f;
   --card-accent: #0f6b3c;
@@ -99,11 +101,13 @@ DEFAULT_CARD_CSS = """\
   --card-border: #c9c2b0;
   --card-code-bg: #ebe4d0;
 
+  /* —— 整体尺寸 —— */
   --card-radius: 12px;
   --card-pad: 28px;
   --card-width: 720px;
   --card-font-scale: 1.12;
 
+  /* —— 字号 —— */
   --card-title-size: 24px;
   --card-sub-size: 14.5px;
   --card-body-size: 16.5px;
@@ -111,26 +115,27 @@ DEFAULT_CARD_CSS = """\
   --card-foot-size: 13px;
   --card-mono: 0;
 
-  /* status 状态徽章 */
+  /* —— status 状态徽章 —— */
   --card-badge-h: 40px;
   --card-badge-pad-x: 20px;
   --card-badge-font: 16.5px;
   --card-badge-dot: 6px;
 
-  /* list 序号框 */
+  /* —— list 序号框 —— */
   --card-idx-w: 46px;
   --card-idx-h: 32px;
   --card-idx-font: 14px;
   --card-idx-radius: 7px;
   --card-idx-top: 6px;
 
-  /* list 行距 */
+  /* —— 行距 / 间距 —— */
   --card-row-pad-y: 13px;
   --card-row-pad-x: 14px;
   --card-row-gap: 10px;
   --card-section-gap: 16px;
 }
 
+/* —— 以下仅 DOM 预览用 —— */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -885,6 +890,52 @@ def normalize_render_mode(raw) -> str:
     return "text"
 
 
+def normalize_formula_mode(raw) -> str:
+    """off / detect / plain。历史 always 映射为 plain。"""
+    mode = str(raw or "off").strip().lower()
+    if mode == "always":
+        return "plain"
+    if mode in FORMULA_MODES:
+        return mode
+    return "off"
+
+
+# $$…$$ 块级 或 $…$ 行内（简单启发，避免单独 $ 误伤）
+_RE_FORMULA_BLOCK = re.compile(r"\$\$[^$]+\$\$", re.DOTALL)
+_RE_FORMULA_INLINE = re.compile(r"(?<!\$)\$(?!\$)([^$\n]+)\$(?!\$)")
+
+
+def text_has_formula(text: str | None) -> bool:
+    """正文里是否出现 LaTeX 风格 $$…$$ / $…$。"""
+    s = str(text or "")
+    if not s:
+        return False
+    if _RE_FORMULA_BLOCK.search(s):
+        return True
+    if _RE_FORMULA_INLINE.search(s):
+        return True
+    return False
+
+
+def payload_has_formula(data: dict[str, Any] | None) -> bool:
+    """payload 各文本字段是否含公式（用于 plain 模式决定是否放弃出卡）。"""
+    if not data:
+        return False
+    chunks: list[str] = []
+    for k in ("body", "text", "title", "subtitle", "footer", "detail"):
+        v = data.get(k)
+        if isinstance(v, str) and v:
+            chunks.append(v)
+    for row in data.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        for k in ("label", "detail", "title", "text"):
+            v = row.get(k)
+            if isinstance(v, str) and v:
+                chunks.append(v)
+    return text_has_formula("\n".join(chunks))
+
+
 def should_render_card(
     *,
     kind: str,
@@ -1011,9 +1062,9 @@ def render_meta() -> dict[str, Any]:
         ],
         "engine": engine_status(),
         "formula_subset": {
-            "supported": [],
-            "planned": ["$inline$", "$$block$$"],
-            "note": "formula_mode 未接引擎时公式按源码文本显示。",
+            "supported": ["plain 模式跳过出卡"],
+            "planned": ["detect: $inline$ / $$block$$ 嵌图"],
+            "note": "off=当文字出卡；detect=有公式嵌图（引擎未接则源码）；plain=有公式只发文字。",
         },
     }
 

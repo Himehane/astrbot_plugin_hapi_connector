@@ -22,27 +22,32 @@ POKE_ACTIONS: dict[str, dict[str, str]] = {
     "approve": {
         "label": "批准待审",
         "desc": "批准当前窗口可见的非 question 权限请求（原默认行为）",
+        "cmd": "/hapi a",
         "emoji": "✅",
     },
     # 刻意不提供 deny：一戳拒绝全部误触成本过高，请用 /hapi deny
     "pending": {
         "label": "查看待审",
         "desc": "列出当前窗口待审批请求",
+        "cmd": "/hapi pending",
         "emoji": "📋",
     },
     "list": {
         "label": "会话列表",
         "desc": "列出当前窗口可见的 session",
+        "cmd": "/hapi list",
         "emoji": "☰",
     },
     "status": {
         "label": "当前状态",
         "desc": "查看当前绑定 session 状态",
+        "cmd": "/hapi s",
         "emoji": "◎",
     },
     "stop": {
         "label": "中止当前",
-        "desc": "中止（abort）当前窗口生效中的 session",
+        "desc": "中止当前窗口生效中的 session",
+        "cmd": "/hapi abort",
         "emoji": "⏹",
     },
     "output_cycle": {
@@ -72,15 +77,18 @@ def normalize_poke_action(raw: Any) -> str:
 
 
 def poke_actions_meta() -> list[dict[str, str]]:
-    return [
-        {
+    out: list[dict[str, str]] = []
+    for k, v in POKE_ACTIONS.items():
+        item = {
             "id": k,
             "label": v["label"],
             "desc": v["desc"],
             "emoji": v.get("emoji", ""),
         }
-        for k, v in POKE_ACTIONS.items()
-    ]
+        if v.get("cmd"):
+            item["cmd"] = v["cmd"]
+        out.append(item)
+    return out
 
 
 def _visible_sids(plugin, event: AstrMessageEvent) -> set[str]:

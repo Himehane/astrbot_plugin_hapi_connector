@@ -31,6 +31,7 @@ CONFIG_KEYS = (
     "quick_prefix",
     "poke_approve",
     "poke_action",
+    "cmd_keyword_maps",
     "remind_pending",
     "remind_interval",
     "auto_approve_enabled",
@@ -70,7 +71,7 @@ RECONNECT_KEYS = frozenset({
 
 OUTPUT_LEVELS = ("silence", "simple", "summary", "detail")
 RENDER_MODES = ("text", "card")
-FORMULA_MODES = ("off", "detect", "always")
+FORMULA_MODES = ("off", "detect", "plain")
 CARD_PRESETS = ("terminal_light", "terminal_dark", "clean", "compact")
 CARD_DENSITY = ("comfortable", "compact")
 
@@ -91,6 +92,16 @@ INT_KEYS = frozenset({
     "card_width",
     "card_font_scale",
 })
+
+
+def _command_catalog_safe() -> dict:
+    try:
+        from .keyword_maps import export_command_catalog
+
+        return export_command_catalog()
+    except Exception as e:
+        logger.warning("command catalog failed: %s", e)
+        return {"topics": [], "commands": []}
 
 
 def register_pages(plugin) -> None:
@@ -160,6 +171,7 @@ class WebApi:
                 "output_levels": list(OUTPUT_LEVELS),
                 "render": render_meta,
                 "poke_actions": poke_actions_meta(),
+                "command_catalog": _command_catalog_safe(),
                 **profiles,
             })
         except Exception as e:
@@ -1012,6 +1024,7 @@ def public_config(plugin) -> dict[str, Any]:
         "quick_prefix": ">",
         "poke_approve": True,
         "poke_action": "approve",
+        "cmd_keyword_maps": "[]",
         "remind_pending": True,
         "remind_interval": 180,
         "auto_approve_enabled": False,
@@ -1082,6 +1095,16 @@ def public_config(plugin) -> dict[str, Any]:
     except Exception:
         out["poke_action"] = "approve"
         out["poke_actions"] = []
+
+    try:
+        from .keyword_maps import maps_to_storage, normalize_maps
+
+        maps = normalize_maps(out.get("cmd_keyword_maps"))
+        out["cmd_keyword_maps"] = maps_to_storage(maps)
+        out["cmd_keyword_maps_list"] = maps
+    except Exception:
+        out["cmd_keyword_maps"] = "[]"
+        out["cmd_keyword_maps_list"] = []
 
     out["access_token"] = token  # 明文（面板内使用）
     out["access_token_configured"] = bool(token.strip())
@@ -1188,6 +1211,7 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
                 "access_token_namespace",
                 "cf_access_enabled",
                 "render_kinds_list",
+                "cmd_keyword_maps_list",
                 "render_engine",
                 "card_style",
             ):
@@ -1244,6 +1268,12 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
             cleaned[key] = val
             continue
 
+        if key == "cmd_keyword_maps":
+            from .keyword_maps import maps_to_storage, normalize_maps
+
+            cleaned[key] = maps_to_storage(normalize_maps(raw_val))
+            continue
+
         if key == "render_mode":
             from . import card_render
 
@@ -1256,7 +1286,9 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
             continue
 
         if key == "formula_mode":
-            val = str(raw_val or "").strip().lower()
+            from . import card_render
+
+            val = card_render.normalize_formula_mode(raw_val)
             if val not in FORMULA_MODES:
                 raise ConfigValidationError(
                     f"formula_mode 必须是 {'/'.join(FORMULA_MODES)}"
@@ -1368,6 +1400,10 @@ def apply_runtime_config(plugin, patch: dict) -> None:
         from .poke_actions import normalize_poke_action
 
         plugin._poke_action = normalize_poke_action(patch["poke_action"])
+    if "cmd_keyword_maps" in patch:
+        from .keyword_maps import normalize_maps
+
+        plugin._cmd_keyword_maps = normalize_maps(patch["cmd_keyword_maps"])
     if "remind_pending" in patch:
         sse._remind_enabled = patch["remind_pending"]
     if "remind_interval" in patch:

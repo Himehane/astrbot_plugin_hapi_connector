@@ -578,13 +578,18 @@ def try_render_png(plugin, kind: str, data: dict[str, Any]) -> card_render.Rende
     cfg = _cfg_dict(plugin)
     mode = card_render.normalize_render_mode(cfg.get("render_mode"))
     kinds = card_render.parse_kinds(cfg.get("render_kinds"))
-    formula_mode = str(cfg.get("formula_mode") or "off").strip().lower()
+    formula_mode = card_render.normalize_formula_mode(cfg.get("formula_mode"))
 
     if not card_render.should_render_card(kind=kind, render_mode=mode, kinds=kinds):
         logger.info(
             "card skip kind=%s mode=%s kinds=%s (需 render_mode=card 且 kinds 含该类型)",
             kind, mode, ",".join(kinds),
         )
+        return None
+
+    # plain：识别到公式则放弃出卡，只发文字
+    if formula_mode == "plain" and card_render.payload_has_formula(data):
+        logger.info("card skip kind=%s formula_mode=plain (正文含公式，回退纯文本)", kind)
         return None
 
     style = card_render.style_from_config(cfg)

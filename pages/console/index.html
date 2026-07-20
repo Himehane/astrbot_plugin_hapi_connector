@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>HAPI 连接器 · 管理面板</title>
     <!-- 纯静态本地资源，符合 plugin-pages：禁止外链 CDN / 字体 / 脚本 -->
-    <link rel="stylesheet" href="./style.css?v=3.1.5" />
+    <link rel="stylesheet" href="./style.css?v=3.1.20" />
   </head>
   <body>
     <div class="app-shell" id="app">
@@ -68,17 +68,17 @@
               <aside class="win-pane">
                 <div class="pane-head">
                   <div class="pane-title">聊天窗口</div>
-                  <p class="pane-sub">点选过滤右侧 session</p>
                 </div>
                 <div id="window-list" class="win-list"></div>
-                <div class="pane-foot" id="rule-footnote"></div>
+                <div class="pane-foot win-pane-foot">
+                  <button type="button" class="btn btn-sm win-vis-btn" id="btn-win-vis">管理可见窗口</button>
+                </div>
               </aside>
 
               <div class="sess-pane">
                 <div class="pane-head row">
                   <div>
                     <div class="pane-title" id="focus-title">Sessions</div>
-                    <p class="pane-sub">单击行勾选 · 双击打开详情 · 权限 / 投递可直接改</p>
                   </div>
                 </div>
 
@@ -118,6 +118,6 @@
       <div id="dlg-body" class="dlg-body"></div>
     </dialog>
 
-    <script type="module" src="./app.js?v=3.1.5"></script>
+    <script type="module" src="./app.js?v=3.1.20"></script>
   </body>
 </html>
