@@ -925,8 +925,9 @@ function renderOverview() {
 
 /* ---------- sessions (+ 推送路由) ---------- */
 function renderRoutePanel() {
-  const def = state.data.defaults;
-  const opts = state.data.window_options;
+  const def = state.data?.defaults || { primary: null, flavor: {}, writable: false };
+  const flavorMap = def.flavor && typeof def.flavor === "object" ? def.flavor : {};
+  const opts = Array.isArray(state.data?.window_options) ? state.data.window_options : [];
   const winOpts = (selected) =>
     `<option value="">未设置</option>` +
     opts
@@ -939,34 +940,40 @@ function renderRoutePanel() {
   const flavorCells = FLAVOR_ROUTE_KEYS.map(
     (f) => `<label class="route-cell">
       <span class="route-cell-label">${esc(f)} 推送窗口</span>
-      <select class="ctrl-sm js-route-flavor" data-flavor="${f}">${winOpts(def.flavor[f] || "")}</select>
+      <select class="ctrl-sm js-route-flavor" data-flavor="${f}">${winOpts(flavorMap[f] || "")}</select>
     </label>`,
   ).join("");
+
+  const routeWritable = def.writable !== false;
+  const routeHint = def.writable_reason || (opts.length ? "" : "尚无聊天窗口记录，请先在聊天里 /hapi bind");
+  const subExtra = routeWritable
+    ? ""
+    : routeHint
+      ? ` · ${esc(routeHint)}`
+      : " · 当前只读";
 
   $("#route-panel").innerHTML = `
     <div class="route-panel-inner">
       <div class="route-panel-head">
         <div>
           <div class="route-panel-title">推送设置</div>
-          <p class="route-panel-sub">表内「按推送设置」时：优先按 Agent 类型推送到对应推送窗口；若未设置则推送到默认推送窗口</p>
+          <p class="route-panel-sub">表内「按推送设置」时：优先按 Agent 类型；未设置则用默认推送窗口${subExtra}</p>
         </div>
       </div>
       <div class="route-row">
         <label class="route-cell route-cell-primary">
           <span class="route-cell-label">默认推送窗口</span>
-          <select id="route-primary" class="ctrl-sm">${winOpts(def.primary)}</select>
+          <select id="route-primary" class="ctrl-sm" ${routeWritable ? "" : "disabled"}>${winOpts(def.primary || "")}</select>
         </label>
         <div class="route-flavor-grid">${flavorCells}</div>
       </div>
     </div>`;
 
-  const routeWritable = state.data.defaults?.writable !== false;
-  const routeHint = state.data.defaults?.writable_reason || "";
-  if (!routeWritable && liveMode) {
-    $("#route-primary")?.setAttribute("disabled", "disabled");
+  if (!routeWritable) {
     $$(".js-route-flavor").forEach((sel) => sel.setAttribute("disabled", "disabled"));
   }
-  $("#route-primary").onchange = async () => {
+  const primarySel = $("#route-primary");
+  if (primarySel) primarySel.onchange = async () => {
     const umo = $("#route-primary").value || null;
     try {
       if (liveMode && api) {

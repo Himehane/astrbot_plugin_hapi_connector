@@ -134,32 +134,56 @@ class WebApi:
     # ──── handlers ────
 
     async def meta(self):
-        from astrbot.api.web import json_response
-        from . import card_render
+        from astrbot.api.web import error_response, json_response
 
-        from .poke_actions import poke_actions_meta
+        try:
+            from . import card_render
+            from .poke_actions import poke_actions_meta
 
-        from . import font_manager
+            profiles = flavor_profiles.export_profiles_meta()
+            try:
+                render_meta = card_render.render_meta()
+            except Exception as e:
+                logger.warning("card_render.render_meta failed: %s", e)
+                render_meta = {"engine": {"pillow": False}, "error": str(e)}
+            try:
+                from . import font_manager
 
-        profiles = flavor_profiles.export_profiles_meta()
-        render_meta = card_render.render_meta()
-        render_meta["installable"] = font_manager.installable_items()
-        return json_response({
-            "plugin_name": PLUGIN_NAME,
-            "plugin_version": _plugin_version(self.plugin),
-            "output_levels": list(OUTPUT_LEVELS),
-            "render": render_meta,
-            "poke_actions": poke_actions_meta(),
-            **profiles,
-        })
+                render_meta["installable"] = font_manager.installable_items()
+            except Exception as e:
+                logger.warning("font_manager installable failed: %s", e)
+                render_meta.setdefault("installable", [])
+
+            return json_response({
+                "plugin_name": PLUGIN_NAME,
+                "plugin_version": _plugin_version(self.plugin),
+                "output_levels": list(OUTPUT_LEVELS),
+                "render": render_meta,
+                "poke_actions": poke_actions_meta(),
+                **profiles,
+            })
+        except Exception as e:
+            logger.exception("WebUI meta failed")
+            return error_response(f"meta 失败: {type(e).__name__}: {e}", status_code=500)
 
     async def render_meta(self):
-        from astrbot.api.web import json_response
-        from . import card_render, font_manager
+        from astrbot.api.web import error_response, json_response
 
-        meta = card_render.render_meta()
-        meta["installable"] = font_manager.installable_items()
-        return json_response(meta)
+        try:
+            from . import card_render
+
+            meta = card_render.render_meta()
+            try:
+                from . import font_manager
+
+                meta["installable"] = font_manager.installable_items()
+            except Exception as e:
+                logger.warning("render_meta font_manager: %s", e)
+                meta["installable"] = []
+            return json_response(meta)
+        except Exception as e:
+            logger.exception("WebUI render_meta failed")
+            return error_response(f"render/meta 失败: {type(e).__name__}: {e}", status_code=500)
 
     async def render_install(self):
         """按勾选项安装字体到插件目录，和/或 pip 依赖（非自动，需显式 POST）。"""
