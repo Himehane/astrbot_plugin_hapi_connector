@@ -1761,43 +1761,60 @@ def _draw_session_list_png(
     row_bg_cur = _mix_rgb(bg, accent, 0.14)
     section_bg = _mix_rgb(bg, accent, 0.08)
 
-    # 预估高度
+    # 与绘制共用度量，避免预估偏矮导致底部被裁
+    sec_h = max(28, int(30 * scale))
+    title_max_w = content_w - idx_box_w - row_pad_x * 2 - 10
+
+    def _meta_line_for(row: dict) -> str:
+        status = str(row.get("status") or "")
+        if not status and row.get("detail"):
+            status = str(row.get("detail"))
+        flavor = str(row.get("flavor") or "")
+        model = str(row.get("model") or "")
+        pending = int(row.get("pending") or 0)
+        is_current = bool(row.get("is_current"))
+        bits = []
+        if status:
+            bits.append(status)
+        if flavor or model:
+            bits.append(f"{flavor}:{model}" if flavor else model)
+        if pending:
+            bits.append(f"待审 {pending}")
+        if is_current:
+            bits.append("当前")
+        if not bits and row.get("detail"):
+            bits.append(str(row.get("detail")))
+        return "  ·  ".join(bits)
+
+    def _session_row_h(label: str, meta_line: str) -> int:
+        title_lines = _wrap_text(d0, label, font_body, title_max_w) or [""]
+        meta_h_local = _text_size(d0, meta_line or "测", font_meta)[1]
+        title_h = sum(_text_size(d0, ln or " ", font_body)[1] + 3 for ln in title_lines)
+        return row_pad_y * 2 + title_h + 6 + meta_h_local
+
+    # 预估高度（与绘制同一套公式 + 底部安全边距）
     y = pad
     y += _text_size(d0, title, font_title)[1] + 6
     if subtitle:
         for _ in _wrap_text(d0, subtitle, font_sub, content_w):
             y += _text_size(d0, "测", font_sub)[1] + 2
         y += 6
-    y += 10  # bar
+    y += 14  # accent bar + gap
     for row in rows:
         rtype = str(row.get("type") or "row")
         if rtype == "section":
-            y += section_gap + 22 * scale
+            y += max(4, section_gap // 2) + sec_h + 8
             continue
         label = str(row.get("label") or "")
-        # 标题可能折行
-        title_lines = _wrap_text(d0, label, font_body, content_w - idx_box_w - row_pad_x * 2 - 8)
-        meta_h = _text_size(d0, "测", font_meta)[1] + 2
-        y += row_pad_y * 2 + sum(
-            _text_size(d0, ln or " ", font_body)[1] + 2 for ln in title_lines
-        ) + meta_h + row_gap
+        y += _session_row_h(label, _meta_line_for(row)) + row_gap
     if footer:
-        y += 20 + _text_size(d0, "测", font_foot)[1] * 2
-    if style.show_brand:
-        y += 12 + _text_size(d0, "hapi", font_foot)[1]
-    y += pad
-    height = min(max(int(y), 140), 4500)
+        y += 8 + 12 + _text_size(d0, "测", font_foot)[1] * 3
+    y += pad + 32
+    height = max(int(y), 140)
+    height = min(height, 12000)
 
     img = Image.new("RGB", (width, height), bg)
     draw = ImageDraw.Draw(img)
-    _draw_rounded_rect(
-        draw,
-        (1, 1, width - 2, height - 2),
-        radius=style.radius,
-        fill=bg,
-        outline=border,
-        width=2,
-    )
 
     y = pad
     draw.text((pad, y), title, font=font_title, fill=fg)
@@ -1821,8 +1838,6 @@ def _draw_session_list_png(
                 count_txt = detail if detail else ""
             else:
                 count_txt = f"{count}"
-            # 分组条
-            sec_h = max(28, int(30 * scale))
             _draw_rounded_rect(
                 draw,
                 (pad, y, width - pad, y + sec_h),
@@ -1830,7 +1845,6 @@ def _draw_session_list_png(
                 fill=section_bg,
                 outline=None,
             )
-            # 左侧色条
             draw.rectangle((pad, y + 4, pad + 4, y + sec_h - 4), fill=accent)
             tx = pad + 14
             ty = y + (sec_h - _text_size(draw, "测", font_meta)[1]) // 2
@@ -1848,30 +1862,11 @@ def _draw_session_list_png(
         label = str(row.get("label") or "")
         idx = row.get("index") or 0
         sid = str(row.get("sid_short") or "")
-        status = str(row.get("status") or "")
         status_key = str(row.get("status_key") or "")
-        flavor = str(row.get("flavor") or "")
-        model = str(row.get("model") or "")
-        pending = int(row.get("pending") or 0)
         is_current = bool(row.get("is_current"))
-        # 兼容旧 payload：从 detail 拼 meta
-        if not status and row.get("detail"):
-            status = str(row.get("detail"))
+        meta_line = _meta_line_for(row)
 
-        title_max_w = content_w - idx_box_w - row_pad_x * 2 - 10
         title_lines = _wrap_text(draw, label, font_body, title_max_w) or [""]
-        meta_bits = []
-        if status:
-            meta_bits.append(status)
-        if flavor or model:
-            meta_bits.append(f"{flavor}:{model}" if flavor else model)
-        if pending:
-            meta_bits.append(f"待审 {pending}")
-        if is_current:
-            meta_bits.append("当前")
-        if not meta_bits and row.get("detail"):
-            meta_bits.append(str(row.get("detail")))
-        meta_line = "  ·  ".join(meta_bits)
         meta_h = _text_size(draw, meta_line or "测", font_meta)[1]
         title_h = sum(_text_size(draw, ln or " ", font_body)[1] + 3 for ln in title_lines)
         row_h = row_pad_y * 2 + title_h + 6 + meta_h
@@ -1889,7 +1884,6 @@ def _draw_session_list_png(
         if is_current:
             draw.rectangle((pad + 2, y + 6, pad + 6, y + row_h - 6), fill=accent)
 
-        # 序号块：固定方块，数字水平+垂直居中（贴行顶略靠上）
         idx_txt = str(idx) if idx else "-"
         try:
             bbox = draw.textbbox((0, 0), idx_txt, font=font_idx)
@@ -1898,7 +1892,6 @@ def _draw_session_list_png(
         except Exception:
             tw, th = _text_size(draw, idx_txt, font_idx)
             toff_x, toff_y = 0, 0
-        # 高度：CSS --card-idx-h 优先，0 则按字号自动
         idx_box_h = idx_box_h_cfg if idx_box_h_cfg > 0 else max(th + 14, idx_box_w - 6)
         idx_box_top = y + idx_top
         idx_box_left = pad + row_pad_x
@@ -1929,7 +1922,6 @@ def _draw_session_list_png(
             draw.text((tx, ty), line, font=font_body, fill=fg)
             ty += _text_size(draw, line or " ", font_body)[1] + 3
 
-        # 状态色点 + meta（点再往下一点，避免视觉偏上）
         sc = _status_color(status_key, accent, muted, fg)
         my = ty + 3
         dot_r = 4
@@ -1939,15 +1931,18 @@ def _draw_session_list_png(
             m_toff = mb[1]
         except Exception:
             m_th, m_toff = meta_h, 0
-        # Pillow 基线偏上：+6 偏上、+14 偏下 → 二分取 +10
         cy = my - m_toff + m_th // 2 + 10
         draw.ellipse((tx, cy - dot_r, tx + dot_r * 2, cy + dot_r), fill=sc)
         draw.text((tx + 14, my), meta_line, font=font_meta, fill=sub_fg)
 
-        # 右上角 sid
         if sid:
             sw, sh = _text_size(draw, sid, font_meta)
-            draw.text((width - pad - row_pad_x - sw, y + row_pad_y), sid, font=font_meta, fill=sub_fg)
+            draw.text(
+                (width - pad - row_pad_x - sw, y + row_pad_y),
+                sid,
+                font=font_meta,
+                fill=sub_fg,
+            )
 
         y += row_h + row_gap
 
@@ -1959,12 +1954,26 @@ def _draw_session_list_png(
             draw.text((pad, y), line, font=font_foot, fill=accent)
             y += _text_size(draw, line or " ", font_foot)[1] + 2
 
-    if style.show_brand:
-        brand = "hapi connector"
-        bw, bh = _text_size(draw, brand, font_foot)
-        draw.text(
-            (width - pad - bw, height - pad - bh), brand, font=font_foot, fill=sub_fg
-        )
+    # 按实际内容高度裁剪多余空白；若内容超出预估则扩展
+    content_bottom = int(y + pad)
+    if content_bottom > height:
+        bigger = Image.new("RGB", (width, content_bottom), bg)
+        bigger.paste(img, (0, 0))
+        img = bigger
+        height = content_bottom
+    elif content_bottom < height:
+        height = max(content_bottom, 140)
+        img = img.crop((0, 0, width, height))
+
+    draw = ImageDraw.Draw(img)
+    _draw_rounded_rect(
+        draw,
+        (1, 1, width - 2, height - 2),
+        radius=style.radius,
+        fill=None,
+        outline=border,
+        width=2,
+    )
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
