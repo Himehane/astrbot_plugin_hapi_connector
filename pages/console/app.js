@@ -890,13 +890,30 @@ function renderOverview() {
   $$("#view-overview [data-go]").forEach((b) => {
     b.onclick = () => go(b.dataset.go);
   });
-  $("#btn-open-hapi")?.addEventListener("click", async () => {
+  $("#btn-open-hapi")?.addEventListener("click", async (ev) => {
+    ev.preventDefault();
+    const btn = $("#btn-open-hapi");
+    if (btn) btn.disabled = true;
     try {
       const launch = await fetchHubLaunch({ autologin: true });
-      if (!launch?.url) return toast("请先在设置中填写 HAPI 地址");
+      if (!launch?.url) {
+        toast("请先在设置中填写 HAPI 地址");
+        return;
+      }
       openHubUrl(launch.url);
     } catch (e) {
-      toast("打开失败: " + (e.message || e));
+      const msg = String(e?.message || e || "");
+      if (/not supported|DOMException|security|blocked/i.test(msg)) {
+        toast("当前面板不允许自动打开新标签，链接已尝试复制");
+        try {
+          const launch = await fetchHubLaunch({ autologin: true });
+          if (launch?.url) await copyTextSafe(launch.url);
+        } catch (_) {}
+      } else {
+        toast("打开失败: " + msg);
+      }
+    } finally {
+      if (btn) btn.disabled = false;
     }
   });
   $("#btn-reconnect")?.addEventListener("click", async () => {
@@ -2476,17 +2493,31 @@ async function copyTextSafe(text) {
   if (!ok) throw new Error("copy failed");
 }
 
+/** 插件页 iframe 里 window.open 常抛 NotSupportedError，用 <a target=_blank> 打开 */
 function openHubUrl(url) {
   if (!url) {
     toast("没有可用链接");
     return false;
   }
-  const w = window.open(url, "_blank", "noopener,noreferrer");
-  if (!w) {
-    toast("弹窗被拦截，请允许弹窗或手动打开 HAPI 地址");
-    return false;
-  }
-  return true;
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return true;
+  } catch (_) {}
+  try {
+    const w = window.open(url, "_blank");
+    if (w) return true;
+  } catch (_) {}
+  copyTextSafe(url)
+    .then(() => toast("无法自动打开，链接已复制，请粘贴到新标签页"))
+    .catch(() => toast("无法自动打开，请到设置查看 HAPI 地址后手动访问"));
+  return false;
 }
 
 async function fetchHubLaunch(opts = {}) {
