@@ -60,8 +60,8 @@ class SSEListener:
         self._compaction_completed_seqs: dict[str, int] = {}
         # {session_id: seq}，记录已发送“任务完成”通知时的 lastSeq，防止状态抖动重复提醒
         self._completion_notified_seqs: dict[str, int] = {}
-        # {session_id: [text, ...]}，短暂排队权限类通知，先补普通消息再发送
-        self._queued_request_notifications: dict[str, list[str]] = {}
+        # {session_id: [text|dict, ...]}，短暂排队权限类通知，先补普通消息再发送
+        self._queued_request_notifications: dict[str, list] = {}
         self._request_notify_sids: set[str] = set()
         self._request_notify_task: asyncio.Task | None = None
 
@@ -332,7 +332,8 @@ class SSEListener:
                     del self.pending[sid]
 
             # 有新的权限请求 -> 推送提醒（或忙时自动批准）
-            queued_notifications: list[str] = []
+            # 队列元素：str（纯文本）或 dict（结构卡参数，_flush 时出卡）
+            queued_notifications: list = []
             for rid, req in new_requests:
                 label = session_label_short(sid, self.sessions_cache)
                 async with self._lock:
@@ -349,12 +350,27 @@ class SSEListener:
                     notify_msg = f"[忙时托管审批] 已自动批准\n{label}\n  {result_mark} {tool}"
                     queued_notifications.append(notify_msg)
                 else:
-                    if is_question_request(req):
-                        msg = format_question_notification(req, label, total, session_total, index)
+                    is_q = is_question_request(req)
+                    if is_q:
+                        msg = format_question_notification(
+                            req, label, total, session_total, index
+                        )
+                        detail = format_request_detail(req)
                     else:
                         detail = format_request_detail(req)
-                        msg = format_permission_notification(label, detail, total, session_total, index)
-                    queued_notifications.append(msg)
+                        msg = format_permission_notification(
+                            label, detail, total, session_total, index
+                        )
+                    queued_notifications.append({
+                        "text": msg,
+                        "label": label,
+                        "detail": detail,
+                        "total": total,
+                        "session_total": session_total,
+                        "index": index,
+                        "req": req,
+                        "is_question": is_q,
+                    })
 
             self._queue_request_notifications(sid, queued_notifications)
 
@@ -439,10 +455,10 @@ class SSEListener:
     def _mark_messages_notified(self, sid: str, latest_visible_seq: int):
         self._message_notified_seqs[sid] = latest_visible_seq
 
-    def _queue_request_notifications(self, sid: str, texts: list[str]):
-        if not texts:
+    def _queue_request_notifications(self, sid: str, items: list):
+        if not items:
             return
-        self._queued_request_notifications.setdefault(sid, []).extend(texts)
+        self._queued_request_notifications.setdefault(sid, []).extend(items)
         self._request_notify_sids.add(sid)
         if self._request_notify_task is None or self._request_notify_task.done():
             self._request_notify_task = asyncio.create_task(self._debounced_request_notifications())
@@ -461,8 +477,21 @@ class SSEListener:
                 else:
                     await self._show_simple(sid, old_seq)
 
-        for text in queued:
-            await self._push_notification(text, sid)
+        for item in queued:
+            if isinstance(item, dict):
+                await self._push_permission_card(
+                    session_id=sid,
+                    label=str(item.get("label") or ""),
+                    fallback_text=str(item.get("text") or ""),
+                    total=int(item.get("total") or 0),
+                    session_total=int(item.get("session_total") or 0),
+                    index=int(item.get("index") or 0),
+                    detail=str(item.get("detail") or ""),
+                    req=item.get("req"),
+                    is_question=bool(item.get("is_question")),
+                )
+            else:
+                await self._push_notification(str(item), sid)
 
     async def _debounced_request_notifications(self):
         while True:
@@ -662,8 +691,6 @@ class SSEListener:
                 label=label,
                 body=body,
                 fallback_text=output,
-                title="Agent 消息" if len(visible_msgs) == 1 else f"Agent 消息 · {len(visible_msgs)} 条",
-                footer="output=detail",
             )
             return True
 
@@ -729,8 +756,6 @@ class SSEListener:
                 label=label,
                 body=body,
                 fallback_text=output,
-                title="Agent 消息" if len(agent_texts) == 1 else f"Agent 消息 · {len(agent_texts)} 条",
-                footer="output=simple",
             )
             return True
 
@@ -794,8 +819,6 @@ class SSEListener:
                 label=label,
                 body=body,
                 fallback_text=output,
-                title="Agent 消息" if len(agent_texts) == 1 else f"最近 {len(agent_texts)} 条消息",
-                footer="output=summary",
             )
             return True
 
@@ -870,10 +893,13 @@ class SSEListener:
         label: str,
         body: str,
         fallback_text: str,
-        title: str = "Agent 消息",
+        title: str = "",
         footer: str = "",
     ):
-        """Agent 对话推送：按 render_mode / render_kinds 尝试出卡，失败回退文本。"""
+        """Agent 对话推送：按 render_mode / render_kinds 尝试出卡，失败回退文本。
+
+        标题用会话标题；不附 output=* 尾注（避免图片后再多一条文本）。
+        """
         plugin = self.plugin
         if plugin is None:
             # 兜底：从 notify 链路外拿不到 plugin 时只发文本
@@ -884,13 +910,19 @@ class SSEListener:
             await self._push_notification(fallback_text, session_id)
             return
         try:
-            from . import output_present
+            from . import output_present, formatters as fmt
 
+            sess = next(
+                (s for s in self.sessions_cache if s.get("id") == session_id),
+                None,
+            )
+            sess_title = fmt.get_session_title(sess) if sess else ""
             payload = output_present.build_message_payload(
                 label=label,
                 body=body,
-                title=title,
-                footer=footer,
+                title=title or sess_title,
+                footer=footer,  # 默认空，不推 caption
+                session_title=sess_title,
             )
             notif = getattr(plugin, "notification_mgr", None)
             if notif is None:
@@ -908,6 +940,55 @@ class SSEListener:
             )
         except Exception as e:
             logger.warning("message card push failed: %s", e, exc_info=True)
+            await self._push_notification(fallback_text, session_id)
+
+    async def _push_permission_card(
+        self,
+        *,
+        session_id: str,
+        label: str,
+        fallback_text: str,
+        total: int,
+        session_total: int,
+        index: int,
+        detail: str = "",
+        req: dict | None = None,
+        is_question: bool = False,
+    ):
+        """权限 / 问题请求推送：结构卡优先，失败回退文本。"""
+        plugin = self.plugin
+        if plugin is None:
+            await self._push_notification(fallback_text, session_id)
+            return
+        try:
+            from . import output_present
+
+            kind = "question" if is_question else "permission"
+            # 卡片 kind 统一用 permission（CARD_KINDS 已有）；question 也走同一结构卡
+            payload = output_present.build_permission_payload(
+                label=label,
+                detail=detail,
+                total=total,
+                session_total=session_total,
+                index=index,
+                kind=kind,
+                req=req,
+            )
+            notif = getattr(plugin, "notification_mgr", None)
+            if notif is None:
+                await self._push_notification(fallback_text, session_id)
+                return
+            await output_present.present_push(
+                plugin,
+                notif,
+                "permission",
+                payload,
+                fallback_text,
+                session_id,
+                self.sessions_cache,
+            )
+        except Exception as e:
+            logger.warning("permission card push failed: %s", e, exc_info=True)
             await self._push_notification(fallback_text, session_id)
 
     async def load_existing_pending(self):
