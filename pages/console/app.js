@@ -2598,7 +2598,6 @@ function renderInteract() {
     ? "Pillow 可用"
     : "未装 Pillow · 回退文本";
   const engineTagCls = pillowOk ? "tag-ok" : "tag-muted";
-  const cssValue = rs.effective_css || rs.default_css || "";
   const kindChecks = Object.keys(RENDER_KIND_LABELS)
     .map((k) => {
       const on = rs.kinds.includes(k);
