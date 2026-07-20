@@ -247,6 +247,7 @@ const HELP_COMMANDS = [
   { topic: "push", usage: "/hapi bind [<flavor>]", summary: "设置当前聊天为默认推送窗口；带 flavor（如 claude/codex）时只对对应 agent 生效", example: "/hapi bind claude", home: false },
   { topic: "push", usage: "/hapi bind status", summary: "查看默认推送窗口、flavor 推送窗口和 session 绑定状态", example: null, home: false },
   { topic: "push", usage: "/hapi routes", summary: "查看当前生效的会话推送路由", example: null, home: false },
+  { topic: "push", usage: "/hapi alias [过滤词]", summary: "查看指令关键词映射（匹配规则与当前条目；可按关键词/命令过滤）", example: "/hapi alias to", home: true },
   { topic: "push", usage: "/hapi bind reset", summary: "清空会话路由和窗口状态，保留默认推送窗口和 flavor 推送窗口", example: null, home: false },
   { topic: "files", usage: "/hapi files [路径]", summary: "浏览远端目录", example: "/hapi files src", home: false },
   { topic: "files", usage: "/hapi files -l [路径]", summary: "浏览目录并显示文件大小", example: "/hapi files -l .", home: false },

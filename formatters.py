@@ -858,6 +858,13 @@ HELP_COMMANDS = [
     },
     {
         "topic": "push",
+        "usage": "/hapi alias [过滤词]",
+        "summary": "查看指令关键词映射（匹配规则与当前条目；可按关键词/命令过滤）",
+        "example": "/hapi alias to",
+        "home": True,
+    },
+    {
+        "topic": "push",
         "usage": "/hapi bind reset",
         "summary": "清空会话路由和窗口状态，保留默认通知窗口和 flavor 默认窗口",
         "example": None,

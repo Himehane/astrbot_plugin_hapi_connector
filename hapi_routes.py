@@ -49,6 +49,7 @@ ROUTE_TAKES_ARG: dict[str, bool] = {
     "upload": True,
     "bind": True,
     "routes": False,
+    "alias": True,  # 可选过滤词
 }
 
 # 子命令 → CommandHandlers 方法名
@@ -94,4 +95,5 @@ ROUTE_HANDLERS: dict[str, str] = {
     "upload": "cmd_upload",
     "bind": "cmd_bind",
     "routes": "cmd_routes",
+    "alias": "cmd_alias",
 }

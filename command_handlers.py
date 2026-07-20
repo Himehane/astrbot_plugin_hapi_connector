@@ -1705,6 +1705,36 @@ class CommandHandlers:
                 "  /hapi bind reset        重置窗口路由"
             )
 
+    # ── alias（指令关键词映射一览） ──
+
+    async def cmd_alias(self, event: AstrMessageEvent, arg: str = ""):
+        """查看指令关键词映射：/hapi alias [过滤词]
+
+        文案与规则在 keyword_maps.format_maps_list，此处只取运行时配置并输出。
+        """
+        from .keyword_maps import (
+            DEFAULT_KEYWORD_MAPS,
+            format_maps_list,
+            normalize_maps,
+        )
+
+        maps = getattr(self.plugin, "_cmd_keyword_maps", None)
+        if not maps:
+            raw = None
+            try:
+                raw = self.plugin.config.get("cmd_keyword_maps")
+            except Exception:
+                raw = None
+            maps = normalize_maps(raw)
+            if not maps and (
+                raw is None
+                or (isinstance(raw, str) and str(raw).strip() in ("", "[]"))
+            ):
+                maps = normalize_maps(DEFAULT_KEYWORD_MAPS)
+
+        text = format_maps_list(maps, filter_text=arg or "")
+        yield event.plain_result(text)
+
     # ── routes ──
 
     async def cmd_routes(self, event: AstrMessageEvent):
