@@ -1288,6 +1288,184 @@ def _latex_approx_plain(latex: str) -> str:
     return s or (latex or "").strip()
 
 
+def _matplotlib_probe_font(path: Path | str | None) -> "Any | None":
+    """探测 matplotlib 能否加载该字体。
+
+    Pillow 能读的 .ttc / 可变字体，matplotlib 常报 SFNT table missing。
+    失败返回 None，调用方换下一个候选，**不要求用户另下字体**。
+    """
+    if path is None:
+        return None
+    p = Path(path)
+    try:
+        if not p.is_file() or p.stat().st_size <= 1024:
+            return None
+    except OSError:
+        return None
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib.font_manager import FontProperties
+    except Exception:
+        return None
+
+    fp = FontProperties(fname=str(p))
+    fig = None
+    try:
+        fig = plt.figure(figsize=(0.5, 0.35), dpi=72)
+        # 必须实际 savefig 才会触发 FreeType 读表；构造 FontProperties 本身不报错
+        # 同时塞中文 + 拉丁，筛掉只有 CJK 缺 Latin 的 fallback 字体
+        fig.text(0.05, 0.55, "测Aa中文Agent", fontproperties=fp, fontsize=11)
+        fig.text(0.05, 0.15, r"$x^{2}+y_{i}$", fontsize=11)
+        buf = io.BytesIO()
+        # 用 warning 当失败信号：缺大量拉丁字形的字体质量差
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            fig.savefig(buf, format="png", dpi=72)
+            # SFNT 等硬错误走 except；这里只拦「缺字太多」
+            miss = [
+                w
+                for w in caught
+                if "missing from font" in str(w.message).lower()
+                or "glyph" in str(w.message).lower()
+            ]
+            # 缺字超过 3 个视为不合格（DroidSansFallback 缺整套拉丁）
+            if len(miss) > 3:
+                return None
+        data = buf.getvalue()
+        if data and len(data) > 32:
+            return fp
+    except Exception:
+        return None
+    finally:
+        if fig is not None:
+            plt.close(fig)
+    return None
+
+
+def _resolve_matplotlib_fonts(
+    user_path: str | None = None,
+) -> tuple[Any, Any, str]:
+    """选 matplotlib 能真正画出中文的字体。
+
+    返回 (fp_body, fp_title, note)。
+    不额外下载；扫已有 user / assets/fonts / 系统字体。
+    全部不可用时退回默认 FontProperties（公式仍可渲，中文可能缺字）。
+    """
+    from matplotlib.font_manager import FontProperties
+
+    # 候选：用户指定 → 插件目录 → 系统；优先单字体 ttf/otf，ttc/可变字体靠后
+    paths: list[Path] = []
+    seen: set[str] = set()
+
+    def add(p: Path | str | None) -> None:
+        if not p:
+            return
+        path = Path(p)
+        key = str(path)
+        if key in seen:
+            return
+        try:
+            if path.is_file() and path.stat().st_size > 1024:
+                seen.add(key)
+                paths.append(path)
+        except OSError:
+            return
+
+    add(font_manager.resolve_user_font(user_path))
+    try:
+        scanned = font_manager.list_available_fonts().get("fonts") or []
+        for ent in scanned:
+            add(ent.get("path"))
+    except Exception:
+        pass
+    add(font_manager.resolve_font_path(mono=False, user_path=user_path))
+
+    # matplotlib 字体库按族名找（有时比硬塞 .ttc 路径更稳）
+    try:
+        from matplotlib import font_manager as mpl_fm
+
+        for family in (
+            "Noto Sans CJK SC",
+            "Noto Sans SC",
+            "Source Han Sans SC",
+            "WenQuanYi Micro Hei",
+            "WenQuanYi Zen Hei",
+            "Microsoft YaHei",
+            "PingFang SC",
+            "SimHei",
+            "Droid Sans Fallback",
+        ):
+            try:
+                path = mpl_fm.findfont(
+                    FontProperties(family=family),
+                    fallback_to_default=False,
+                )
+                # findfont 失败时常退回 DejaVu；排除之
+                if path and "dejavu" not in str(path).lower():
+                    add(path)
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    def rank(p: Path) -> tuple[int, str]:
+        n = p.name.lower()
+        score = 0
+        # 单字体 ttf/otf 最稳
+        if p.suffix.lower() in (".ttf", ".otf"):
+            score -= 20
+        if p.suffix.lower() in (".ttc", ".otc"):
+            score += 10
+        if "vf" in n or "variable" in n:
+            score += 20  # 可变字体 matplotlib 最常 SFNT 炸
+        if "fallback" in n and "droid" in n:
+            score += 15  # 常缺拉丁字母
+        if any(
+            k in n
+            for k in (
+                "notosanssc",
+                "noto sans sc",
+                "sourcehansans",
+                "source han sans",
+                "wqy-microhei",
+                "wqy-zenhei",
+                "msyh",
+                "yahei",
+                "pingfang",
+                "noto sans cjk",
+                "notosanscjk",
+            )
+        ):
+            score -= 8
+        if "cjk" in n or "sc" in n or "cn" in n:
+            score -= 2
+        return (score, n)
+
+    paths = sorted(paths, key=rank)
+
+    for p in paths:
+        fp = _matplotlib_probe_font(p)
+        if fp is None:
+            logger.debug("matplotlib 跳过不可用字体: %s", p)
+            continue
+        logger.info("matplotlib 正文字体: %s", p)
+        return fp, fp, str(p)
+
+    logger.warning(
+        "matplotlib 未能加载合适的中文字体（.ttc/可变字体常不兼容）。"
+        "公式仍渲染；中文可能缺字。无需额外下载依赖——"
+        "把 NotoSansSC-Regular.otf 放到插件 assets/fonts/，或在 card_font_path 指定 .ttf/.otf 即可。"
+    )
+    fp = FontProperties()
+    return fp, fp, ""
+
+
 def render_message_matplotlib_png(
     data: dict[str, Any],
     style: "CardStyle",
@@ -1300,7 +1478,6 @@ def render_message_matplotlib_png(
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from matplotlib.font_manager import FontProperties
         from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea, VPacker
     except Exception as e:
         logger.debug("matplotlib import failed: %s", e)
@@ -1316,15 +1493,14 @@ def render_message_matplotlib_png(
     width_in = width_px / float(dpi)
     max_chars = max(28, int((width_px - 56) / 15))
 
-    font_file = font_manager.resolve_font_path(
-        mono=False, user_path=style.font_path or None
-    )
-    fp = FontProperties(fname=str(font_file)) if font_file else FontProperties()
-    fp_title = FontProperties(fname=str(font_file)) if font_file else FontProperties()
     try:
-        fp_title.set_weight("bold")
-    except Exception:
-        pass
+        fp, fp_title, _font_note = _resolve_matplotlib_fonts(style.font_path or None)
+    except Exception as e:
+        logger.warning("matplotlib 字体探测失败，用默认字体: %s", e)
+        from matplotlib.font_manager import FontProperties
+
+        fp = FontProperties()
+        fp_title = FontProperties()
 
     scale = float(style.font_scale or 1.0)
     fs_title = max(13.0, 15.5 * scale)
