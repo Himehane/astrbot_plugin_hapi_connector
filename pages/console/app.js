@@ -7,7 +7,7 @@
  * 页面：概览 / 会话 / 交互 / 命令帮助 / 设置
  */
 
-import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.32";
+import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.35";
 
 /* ---------- constants ---------- */
 

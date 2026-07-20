@@ -6,6 +6,9 @@
 # 基础（Pillow，结构卡 + 对话卡 + CSS 变量子集）
 Pillow>=10.0,<12
 
+# 公式内嵌（Agent 消息 formula_mode=detect 时用）
+# matplotlib>=3.7,<4
+
 # 完整自定义 CSS 保真（推荐，可选）
 # playwright>=1.40
 # 安装后还需：playwright install chromium

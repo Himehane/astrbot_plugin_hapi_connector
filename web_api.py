@@ -1130,8 +1130,15 @@ def public_config(plugin) -> dict[str, Any]:
                 {
                     "id": "dep_pillow",
                     "group": "dep",
-                    "label": "Pillow（出卡引擎）",
+                    "label": "Pillow（出图引擎）",
                     "desc": "pip install Pillow",
+                    "installed": False,
+                },
+                {
+                    "id": "dep_matplotlib",
+                    "group": "dep",
+                    "label": "matplotlib（公式内嵌）",
+                    "desc": "pip install matplotlib",
                     "installed": False,
                 },
             ]

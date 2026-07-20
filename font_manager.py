@@ -411,6 +411,15 @@ def installable_items() -> list[dict[str, Any]]:
         pillow_ok = False
         pillow_ver = None
 
+    try:
+        import matplotlib  # noqa: F401
+
+        mpl_ok = True
+        mpl_ver = getattr(matplotlib, "__version__", "?")
+    except ImportError:
+        mpl_ok = False
+        mpl_ver = None
+
     return [
         {
             "id": "font_noto_sc",
@@ -424,11 +433,20 @@ def installable_items() -> list[dict[str, Any]]:
         {
             "id": "dep_pillow",
             "group": "dep",
-            "label": "Pillow（出卡引擎）",
-            "desc": "pip install Pillow — 低延迟出卡，不依赖浏览器",
+            "label": "Pillow（出图引擎）",
+            "desc": "pip install Pillow — 低延迟出图，不依赖浏览器",
             "target": "pip:Pillow",
             "installed": pillow_ok,
             "detail": f"v{pillow_ver}" if pillow_ok else None,
+        },
+        {
+            "id": "dep_matplotlib",
+            "group": "dep",
+            "label": "matplotlib（公式内嵌）",
+            "desc": "pip install matplotlib — Agent 消息里公式渲成内嵌图（可选）",
+            "target": "pip:matplotlib",
+            "installed": mpl_ok,
+            "detail": f"v{mpl_ver}" if mpl_ok else None,
         },
     ]
 
@@ -665,7 +683,14 @@ def install_selected(ids: list[str], *, force_font: bool = False) -> dict[str, A
             r = download_font_to_bundled(force=force_font, progress=item_log)
             results.append({"id": item_id, **r})
         elif item_id == "dep_pillow":
-            r = install_pip_package("Pillow>=10.0,<12", progress=item_log)
+            r = install_pip_package("Pillow>=10.0,<12", progress=item_log, import_name="PIL")
+            results.append({"id": item_id, **r})
+        elif item_id == "dep_matplotlib":
+            r = install_pip_package(
+                "matplotlib>=3.7,<4",
+                progress=item_log,
+                import_name="matplotlib",
+            )
             results.append({"id": item_id, **r})
         else:
             continue
