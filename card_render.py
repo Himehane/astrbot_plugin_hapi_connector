@@ -943,58 +943,57 @@ def matplotlib_available() -> bool:
         return False
 
 
-def extract_formula_segments(text: str) -> list[tuple[str, str]]:
-    """把正文拆成 (kind, content)，kind 为 text|formula。
+def extract_formula_segments(text: str) -> list[tuple[str, str, bool]]:
+    """把正文拆成 (kind, content, is_display)。
 
-    优先块级 $$ / \\[ \\] / begin…end，再行内 $ / \\( \\)。
+    kind 为 text|formula；is_display 仅 formula 有意义。
+    块级：$$ / \\[ \\] / begin…end；行内：$ / \\( \\)。
     """
     s = str(text or "")
     if not s:
         return []
 
-    # 统一扫描：按起始位置排序的块级优先
-    spans: list[tuple[int, int, str]] = []  # start, end, latex
+    # start, end, latex, is_display
+    spans: list[tuple[int, int, str, bool]] = []
 
-    def _add(m: re.Match, group: int = 1) -> None:
+    def _add(m: re.Match, *, display: bool, group: int = 1) -> None:
         latex = (m.group(group) or "").strip()
         if latex:
-            spans.append((m.start(), m.end(), latex))
+            spans.append((m.start(), m.end(), latex, display))
 
     for m in _RE_FORMULA_BLOCK.finditer(s):
-        _add(m)
+        _add(m, display=True)
     for m in _RE_FORMULA_BRACKET.finditer(s):
-        _add(m)
+        _add(m, display=True)
     for m in _RE_FORMULA_BEGIN.finditer(s):
-        # 整段环境作为公式（含 begin/end）
         latex = (m.group(0) or "").strip()
         if latex:
-            spans.append((m.start(), m.end(), latex))
+            spans.append((m.start(), m.end(), latex, True))
     for m in _RE_FORMULA_PAREN.finditer(s):
-        _add(m)
+        _add(m, display=False)
     for m in _RE_FORMULA_INLINE.finditer(s):
-        _add(m)
+        _add(m, display=False)
 
     if not spans:
-        return [("text", s)]
+        return [("text", s, False)]
 
-    # 去重叠：保留先出现的
     spans.sort(key=lambda x: (x[0], -(x[1] - x[0])))
-    picked: list[tuple[int, int, str]] = []
-    for st, en, latex in spans:
-        if any(not (en <= ps or st >= pe) for ps, pe, _ in picked):
+    picked: list[tuple[int, int, str, bool]] = []
+    for st, en, latex, disp in spans:
+        if any(not (en <= ps or st >= pe) for ps, pe, _, _ in picked):
             continue
-        picked.append((st, en, latex))
+        picked.append((st, en, latex, disp))
     picked.sort(key=lambda x: x[0])
 
-    out: list[tuple[str, str]] = []
+    out: list[tuple[str, str, bool]] = []
     cur = 0
-    for st, en, latex in picked:
+    for st, en, latex, disp in picked:
         if st > cur:
-            out.append(("text", s[cur:st]))
-        out.append(("formula", latex))
+            out.append(("text", s[cur:st], False))
+        out.append(("formula", latex, disp))
         cur = en
     if cur < len(s):
-        out.append(("text", s[cur:]))
+        out.append(("text", s[cur:], False))
     return out
 
 
@@ -1577,9 +1576,10 @@ def render_message_matplotlib_png(
         children.append(_text_area(subtitle.strip(), size=fs_sub, color=muted))
     children.append(_text_area("━" * min(18, max_chars // 2), size=fs_sub, color=accent))
 
-    segs = extract_formula_segments(body) if text_has_formula(body) else [("text", body)]
-    if not segs:
-        segs = [("text", body)]
+    raw_segs = extract_formula_segments(body) if text_has_formula(body) else [("text", body, False)]
+    if not raw_segs:
+        raw_segs = [("text", body, False)]
+    segs = [(k, c) for k, c, *_ in (s if len(s) >= 2 else ("text", "", False) for s in raw_segs)]
 
     for row in _segs_to_rows(segs):
         if not row:
@@ -2936,34 +2936,83 @@ def _parse_message_blocks_with_math(
     style: CardStyle,
     max_formula_w: int,
     formula_fontsize: float,
+    formula_fontsize_display: float | None = None,
 ) -> list[dict[str, Any]]:
-    """正文：按公式定界切段 → 文本走 Markdown，公式段单独 matplotlib 紧凑出图。
+    """正文：行内公式嵌进同一行，块级公式单独居中。
 
-    单个公式失败只退回源码文本块，不拖垮整条消息。
+    单个公式失败只退回源码文本，不拖垮整条消息。
     """
     segs = extract_formula_segments(text)
-    if not segs or all(k == "text" for k, _ in segs):
+    if not segs or all(k == "text" for k, _c, _d in segs):
         return _parse_md_blocks(text)
 
-    out: list[dict[str, Any]] = []
-    for kind, content in segs:
-        if kind == "text":
-            if content.strip():
-                out.extend(_parse_md_blocks(content))
-            continue
-        im = render_math_to_pil(
-            content,
-            fontsize=formula_fontsize,
+    fs_inline = formula_fontsize
+    fs_disp = formula_fontsize_display or (formula_fontsize * 1.12)
+    fg = style.fg or "#14120f"
+    bg = style.bg or "#f7f4ea"
+
+    def _render_one(latex: str, *, display: bool):
+        return render_math_to_pil(
+            latex,
+            fontsize=fs_disp if display else fs_inline,
             dpi=200,
-            fg=style.fg or "#14120f",
-            bg=style.bg or "#f7f4ea",
-            max_width_px=max(80, max_formula_w - 8),
+            fg=fg,
+            bg=bg,
+            max_width_px=max(80, max_formula_w - (8 if display else 48)),
         )
+
+    out: list[dict[str, Any]] = []
+    line_parts: list[dict[str, Any]] = []
+
+    def flush_line() -> None:
+        nonlocal line_parts
+        if not line_parts:
+            return
+        if all(p.get("type") == "text" for p in line_parts):
+            joined = "".join(p.get("text") or "" for p in line_parts)
+            if joined.strip():
+                out.extend(_parse_md_blocks(joined))
+            line_parts = []
+            return
+        out.append({"type": "rich_line", "parts": list(line_parts)})
+        line_parts = []
+
+    for kind, content, is_display in segs:
+        if kind == "text":
+            parts = str(content or "").split("\n")
+            for i, part in enumerate(parts):
+                if i > 0:
+                    flush_line()
+                if part:
+                    line_parts.append({"type": "text", "text": part})
+            continue
+
+        if is_display:
+            flush_line()
+            im = _render_one(content, display=True)
+            if im is not None:
+                out.append({
+                    "type": "formula_img",
+                    "image": im,
+                    "text": content,
+                    "display": True,
+                })
+            else:
+                out.append({"type": "p", "text": content})
+            continue
+
+        im = _render_one(content, display=False)
         if im is not None:
-            out.append({"type": "formula_img", "image": im, "text": content})
+            line_parts.append({
+                "type": "formula_img",
+                "image": im,
+                "text": content,
+                "display": False,
+            })
         else:
-            # 失败：源码当普通段，仍在同一张消息图里
-            out.append({"type": "p", "text": content})
+            line_parts.append({"type": "text", "text": content})
+
+    flush_line()
     return out or _parse_md_blocks(text)
 
 
@@ -3014,7 +3063,8 @@ def _draw_message_png(
             body,
             style=style,
             max_formula_w=content_w,
-            formula_fontsize=formula_fs,
+            formula_fontsize=max(11.0, body_size * 0.82),
+            formula_fontsize_display=formula_fs,
         )
     else:
         blocks = _parse_md_blocks(body)
@@ -3060,12 +3110,23 @@ def _draw_message_png(
             h += row_h(r, False)
         return h + 16
 
+    def _rich_line_height(parts) -> int:
+        h = _text_size(d0, "测", font_body)[1]
+        for p in parts or []:
+            if p.get("type") == "formula_img" and p.get("image") is not None:
+                h = max(h, int(getattr(p["image"], "height", h)))
+            elif p.get("type") == "text":
+                h = max(h, _text_size(d0, p.get("text") or " ", font_body)[1])
+        return h + 6
+
     def measure_block(b) -> int:
         h = 0
+        if b["type"] == "rich_line":
+            return _rich_line_height(b.get("parts") or []) + 6
         if b["type"] == "formula_img":
             im = b.get("image")
             if im is not None:
-                return int(getattr(im, "height", 40)) + 16
+                return int(getattr(im, "height", 40)) + (18 if b.get("display") else 10)
             return 48
         if b["type"] == "table":
             return _measure_table(b)
@@ -3144,14 +3205,58 @@ def _draw_message_png(
         if y > height - pad - 28:
             draw.text((pad, y), "...", font=font_body, fill=sub_fg)
             break
+        if b["type"] == "rich_line":
+            parts = b.get("parts") or []
+            # 同行：文字 + 行内公式，左对齐、垂直居中
+            line_h = _rich_line_height(parts)
+            x = pad
+            for p in parts:
+                if p.get("type") == "formula_img" and p.get("image") is not None:
+                    im = p["image"]
+                    # 放不下则换行
+                    if x > pad and x + im.width > width - pad:
+                        y += line_h + 4
+                        x = pad
+                        line_h = max(line_h, im.height)
+                    yy = y + max(0, (line_h - im.height) // 2)
+                    if y + line_h > height - pad:
+                        new_h = min(4500, y + line_h + pad + 40)
+                        if new_h > height:
+                            bigger = Image.new("RGB", (width, new_h), bg)
+                            bigger.paste(img, (0, 0))
+                            img = bigger
+                            draw = ImageDraw.Draw(img)
+                            height = new_h
+                    try:
+                        img.paste(im, (x, yy))
+                    except Exception:
+                        draw.text((x, y), str(p.get("text") or ""), font=font_body, fill=fg)
+                    x += im.width + 3
+                else:
+                    t = str(p.get("text") or "")
+                    if not t:
+                        continue
+                    # 简单按字符前进；过长则 wrap 到后续
+                    tw, th = _text_size(draw, t, font_body)
+                    if x > pad and x + tw > width - pad:
+                        # 尝试在空格处折，否则硬折
+                        y += line_h + 4
+                        x = pad
+                    yy = y + max(0, (line_h - th) // 2)
+                    draw.text((x, yy), t, font=font_body, fill=fg)
+                    x += tw
+            y += line_h + 6
+            continue
         if b["type"] == "formula_img":
             im = b.get("image")
             if im is not None:
                 try:
-                    x0 = pad + max(0, (content_w - im.width) // 2)
-                    # 防止高度估算不足时贴图越界
+                    # 块级：居中；行内残留：左对齐
+                    if b.get("display", True):
+                        x0 = pad + max(0, (content_w - im.width) // 2)
+                    else:
+                        x0 = pad
                     if y + im.height > height - pad:
-                        # 扩展画布
                         new_h = min(4500, y + im.height + pad + 40)
                         if new_h > height:
                             bigger = Image.new("RGB", (width, new_h), bg)
@@ -3160,7 +3265,7 @@ def _draw_message_png(
                             draw = ImageDraw.Draw(img)
                             height = new_h
                     img.paste(im, (x0, y))
-                    y += im.height + 12
+                    y += im.height + (14 if b.get("display", True) else 8)
                 except Exception:
                     for line in _wrap_text(
                         draw, str(b.get("text") or ""), font_body, content_w
