@@ -69,7 +69,7 @@ RECONNECT_KEYS = frozenset({
 })
 
 OUTPUT_LEVELS = ("silence", "simple", "summary", "detail")
-RENDER_MODES = ("text", "auto", "card")
+RENDER_MODES = ("text", "card")
 FORMULA_MODES = ("off", "detect", "always")
 CARD_PRESETS = ("terminal_light", "terminal_dark", "clean", "compact")
 CARD_DENSITY = ("comfortable", "compact")
@@ -807,11 +807,6 @@ def _resolve_writable_user(plugin, user_id=None) -> str:
         return uid
     if len(known) == 0:
         raise LifecycleError("尚无已知用户；请先在聊天中使用 /hapi bind", 400)
-    if len(known) > 1:
-        raise LifecycleError(
-            f"存在 {len(known)} 个用户路由，Web 端暂不支持改默认推送；请用聊天 /hapi bind",
-            400,
-        )
     return known[0]
 
 
@@ -1023,6 +1018,7 @@ def public_config(plugin) -> dict[str, Any]:
 
     # 前端方便：kinds 同时给数组；失败时不拖垮整个 config
     try:
+        out["render_mode"] = card_render.normalize_render_mode(out.get("render_mode"))
         out["render_kinds_list"] = card_render.parse_kinds(out.get("render_kinds"))
     except Exception:
         out["render_kinds_list"] = list(card_render.DEFAULT_KINDS)
@@ -1235,7 +1231,9 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
             continue
 
         if key == "render_mode":
-            val = str(raw_val or "").strip().lower()
+            from . import card_render
+
+            val = card_render.normalize_render_mode(raw_val)
             if val not in RENDER_MODES:
                 raise ConfigValidationError(
                     f"render_mode 必须是 {'/'.join(RENDER_MODES)}"
@@ -1562,7 +1560,7 @@ def build_sessions_snapshot(plugin) -> dict:
         })
 
     columns = build_columns(sessions, defaults)
-    window_options = build_window_options(owners, defaults, plugin)
+    window_options = build_window_options(owners, defaults, plugin, sessions)
 
     try:
         cfg_view = public_config(plugin)
@@ -1687,14 +1685,14 @@ def aggregate_route_defaults(plugin) -> dict:
         for fk, umo in plugin.state_mgr.normalized_flavor_primary_umos(st).items():
             flavor.setdefault(fk, umo)
 
-    writable = len(known) == 1
+    # 有已知用户即可在 Web 改（多用户时写到第一个 known user，提示见 writable_reason）
+    writable = len(known) >= 1
     reason = ""
     if len(known) == 0:
-        reason = "尚无已知用户路由；请先在聊天中使用 /hapi bind"
+        reason = "尚无已知用户；请先在聊天里 /hapi bind 一次"
         writable = False
     elif len(known) > 1:
-        reason = f"存在 {len(known)} 个用户路由，Web 端暂不支持改默认推送；请用聊天 /hapi bind"
-        writable = False
+        reason = f"有 {len(known)} 个用户路由，Web 将写入其中第一个；也可继续用聊天 /hapi bind"
 
     return {
         "primary": primary,
@@ -1753,16 +1751,27 @@ def build_columns(sessions: list[dict], defaults: dict) -> list[dict]:
     return cols
 
 
-def build_window_options(owners: dict, defaults: dict, plugin) -> list[dict]:
+def build_window_options(
+    owners: dict, defaults: dict, plugin, sessions: list[dict] | None = None
+) -> list[dict]:
     umos: set[str] = set()
     if defaults.get("primary"):
-        umos.add(defaults["primary"])
-    umos.update((defaults.get("flavor") or {}).values())
-    umos.update(owners.values())
+        umos.add(str(defaults["primary"]))
+    umos.update(str(v) for v in (defaults.get("flavor") or {}).values() if v)
+    umos.update(str(v) for v in owners.values() if v)
     # window states
-    for umo in getattr(plugin.binding_mgr, "_window_states", {}) or {}:
+    for umo in getattr(getattr(plugin, "binding_mgr", None), "_window_states", {}) or {}:
         if umo:
-            umos.add(umo)
+            umos.add(str(umo))
+    # session 绑定 / 有效投递窗口（曾经能选到的窗口不应丢）
+    for s in sessions or []:
+        if not isinstance(s, dict):
+            continue
+        for k in ("bound_umo", "effective_umo"):
+            u = s.get(k)
+            if u:
+                umos.add(str(u))
+    umos.discard("")
     return [{"umo": u, "title": window_display_title(u)} for u in sorted(umos)]
 
 

@@ -1292,6 +1292,11 @@ function renderSessions() {
 
 /* ---------- interact ---------- */
 
+function normalizeRenderMode(m) {
+  const v = String(m || "text").toLowerCase();
+  return v === "card" || v === "auto" ? "card" : "text";
+}
+
 const RENDER_KIND_LABELS = {
   session_list: "Session 列表",
   pending: "待审批列表",
@@ -1367,7 +1372,7 @@ function interactRenderState(cfg) {
     DEFAULT_CARD_CSS_FALLBACK;
   const custom = (cfg.card_custom_css || "").trim();
   return {
-    render_mode: cfg.render_mode || "text",
+    render_mode: normalizeRenderMode(cfg.render_mode),
     formula_mode: cfg.formula_mode || "off",
     kinds,
     card_font_path: cfg.card_font_path || "",
@@ -1484,7 +1489,7 @@ function collectRenderPatchFromForm() {
   const kinds = kindBoxes.filter((el) => el.checked).map((el) => el.value);
   // 模式卡片（enum）或 select 兜底
   const modeRadio = document.querySelector('input[name="ix-rmode"]:checked');
-  const render_mode = modeRadio?.value || $("#ix-rmode")?.value || "text";
+  const render_mode = normalizeRenderMode(modeRadio?.value || $("#ix-rmode")?.value || "text");
   const defaultCss =
     (state.meta && state.meta.render && state.meta.render.default_css) ||
     DEFAULT_CARD_CSS_FALLBACK;
@@ -1600,13 +1605,11 @@ function renderInteract() {
       <div class="render-layout">
         <div class="render-form">
           <div class="field">
-            <div class="field-label">推送呈现模式</div>
-            <p class="field-help">是否出卡片；下方勾选具体类型。需 Pillow（可在本页勾选安装）。</p>
+            <div class="field-label">渲染模式</div>
             <div class="enum-cards" id="ix-rmode-cards">
               ${[
-                { value: "text", title: "纯文本", desc: "全部文字推送，速度最快（默认）。" },
-                { value: "auto", title: "结构出卡", desc: "对已勾选类型出卡（含 Agent 对话）。" },
-                { value: "card", title: "尽量出卡", desc: "已勾选类型尽量出卡；未装 Pillow 时回退文本。" },
+                { value: "text", title: "纯文本", desc: "全部走文字推送。" },
+                { value: "card", title: "出卡", desc: "下方勾选的类型渲成卡片。" },
               ].map((o) => `<label class="enum-card">
                 <input type="radio" name="ix-rmode" value="${o.value}" ${rs.render_mode === o.value ? "checked" : ""} />
                 <div class="t">${esc(o.title)}</div>
@@ -1615,9 +1618,9 @@ function renderInteract() {
             </div>
           </div>
 
+          <div id="ix-card-panel" ${rs.render_mode === "card" ? "" : "hidden"}>
           <div class="field">
-            <div class="field-label">出卡类型</div>
-            <p class="field-help">仅在「结构出卡 / 尽量出卡」时生效。勾选 <code>Agent 对话</code> 后 SSE agent 消息也出卡。</p>
+            <div class="field-label">以下类型渲成卡片</div>
             <div class="chk-grid">${kindChecks}</div>
           </div>
 
@@ -1683,13 +1686,15 @@ function renderInteract() {
             <div id="ix-install-log" class="field-help" style="margin-top:8px;white-space:pre-wrap"></div>
           </div>
 
+          </div><!-- /ix-card-panel -->
+
           <div class="render-actions">
             <button type="button" class="btn" id="ix-reset-style">恢复默认样式</button>
             <button type="button" class="btn btn-primary" id="ix-save-render">保存并应用</button>
           </div>
         </div>
 
-        <div class="render-preview-pane">
+        <div class="render-preview-pane" id="ix-preview-pane" ${rs.render_mode === "card" ? "" : "hidden"}>
           <div class="field-label-row" style="margin-bottom:8px">
             <div class="field-label">预览</div>
             <select id="ix-sample" class="ctrl" style="max-width:160px">

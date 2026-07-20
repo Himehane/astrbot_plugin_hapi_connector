@@ -1,6 +1,6 @@
-"""推送呈现：按配置决定纯文本或结构卡图片。
+"""推送呈现：按配置决定纯文本或结构卡/对话卡图片。
 
-Pillow 为可选依赖；不可用或渲染失败时永远回退文本。
+Pillow / Playwright 为可选依赖；不可用或渲染失败时永远回退文本。
 """
 
 from __future__ import annotations
@@ -26,29 +26,17 @@ from . import card_render
 
 def _cfg_dict(plugin) -> dict[str, Any]:
     cfg = getattr(plugin, "config", {}) or {}
-    # AstrBotConfig 可能是 dict 子类
+    keys = list(card_render.config_defaults().keys())
     try:
-        return dict(cfg)
+        out = dict(cfg)
+        for k in keys:
+            if k not in out and hasattr(cfg, "get"):
+                out[k] = cfg.get(k)
+        return out
     except Exception:
         out = {}
-        for k in card_render.config_defaults():
+        for k in keys:
             out[k] = cfg.get(k) if hasattr(cfg, "get") else None
-        for k in (
-            "render_mode",
-            "formula_mode",
-            "render_kinds",
-            "card_style_preset",
-            "card_width",
-            "card_accent",
-            "card_bg",
-            "card_fg",
-            "card_font_scale",
-            "card_density",
-            "card_show_brand",
-            "card_mono",
-        ):
-            if hasattr(cfg, "get"):
-                out[k] = cfg.get(k)
         return out
 
 
@@ -125,6 +113,53 @@ def build_pending_payload(
     }
 
 
+def build_message_payload(
+    *,
+    label: str,
+    body: str,
+    title: str = "Agent 消息",
+    footer: str = "",
+) -> dict[str, Any]:
+    return {
+        "title": title,
+        "subtitle": label or "",
+        "body": body or "",
+        "footer": footer or "",
+    }
+
+
+def try_render_png(plugin, kind: str, data: dict[str, Any]) -> card_render.RenderResult | None:
+    """若配置要求出卡且引擎可用，返回 RenderResult；否则 None（调用方发文本）。"""
+    cfg = _cfg_dict(plugin)
+    mode = card_render.normalize_render_mode(cfg.get("render_mode"))
+    kinds = card_render.parse_kinds(cfg.get("render_kinds"))
+    formula_mode = str(cfg.get("formula_mode") or "off").strip().lower()
+
+    if not card_render.should_render_card(kind=kind, render_mode=mode, kinds=kinds):
+        logger.debug(
+            "card skip kind=%s mode=%s kinds=%s",
+            kind, mode, ",".join(kinds),
+        )
+        return None
+
+    style = card_render.style_from_config(cfg)
+    result = card_render.render_card(kind, data, style, formula_mode=formula_mode)
+    if not result.ok or not result.png:
+        if result.error:
+            logger.warning("card present fallback (%s): %s", kind, result.error)
+        return None
+    logger.info("card rendered kind=%s engine=%s bytes=%s", kind, result.engine, result.bytes_len)
+    return result
+
+
+def write_temp_png(png: bytes) -> str:
+    fd, path = tempfile.mkstemp(prefix="hapi_card_", suffix=".png")
+    os.close(fd)
+    with open(path, "wb") as f:
+        f.write(png)
+    return path
+
+
 async def present(
     plugin,
     event: AstrMessageEvent,
@@ -133,34 +168,16 @@ async def present(
     fallback_text: str,
 ) -> AsyncIterator:
     """yield 一条 event 结果：优先图片卡，否则纯文本。"""
-    cfg = _cfg_dict(plugin)
-    mode = str(cfg.get("render_mode") or "text").strip().lower()
-    kinds = card_render.parse_kinds(cfg.get("render_kinds"))
-    formula_mode = str(cfg.get("formula_mode") or "off").strip().lower()
-
-    if not card_render.should_render_card(kind=kind, render_mode=mode, kinds=kinds):
-        yield event.plain_result(fallback_text)
-        return
-
-    style = card_render.style_from_config(cfg)
-    result = card_render.render_card(kind, data, style, formula_mode=formula_mode)
-    if not result.ok or not result.png:
-        if result.error:
-            logger.info("card present fallback (%s): %s", kind, result.error)
+    result = try_render_png(plugin, kind, data)
+    if result is None:
         yield event.plain_result(fallback_text)
         return
 
     path = None
     try:
-        fd, path = tempfile.mkstemp(prefix="hapi_card_", suffix=".png")
-        os.close(fd)
-        with open(path, "wb") as f:
-            f.write(result.png)
-
-        # 优先 image_result；部分环境再链一条短说明
+        path = write_temp_png(result.png or b"")
         if hasattr(event, "image_result"):
             yield event.image_result(path)
-            # 附一行操作提示（footer），避免纯图不可复制指令
             footer = (data or {}).get("footer")
             if footer:
                 yield event.plain_result(str(footer))
@@ -179,6 +196,49 @@ async def present(
     except Exception as e:
         logger.warning("present image failed: %s", e)
         yield event.plain_result(fallback_text)
+    finally:
+        if path:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
+async def present_push(
+    plugin,
+    notification_mgr,
+    kind: str,
+    data: dict[str, Any],
+    fallback_text: str,
+    session_id: str,
+    sessions_cache: list[dict],
+) -> bool:
+    """SSE/后台推送路径：尝试发图，失败则发文本。返回是否已发送（图或文）。"""
+    result = try_render_png(plugin, kind, data)
+    if result is None or not result.png:
+        await notification_mgr.push_notification(
+            fallback_text, session_id, sessions_cache
+        )
+        return True
+
+    path = None
+    try:
+        path = write_temp_png(result.png)
+        footer = str((data or {}).get("footer") or "")
+        await notification_mgr.push_image_notification(
+            path,
+            session_id,
+            sessions_cache,
+            caption=footer,
+            dedupe_key=fallback_text,
+        )
+        return True
+    except Exception as e:
+        logger.warning("present_push image failed: %s", e)
+        await notification_mgr.push_notification(
+            fallback_text, session_id, sessions_cache
+        )
+        return True
     finally:
         if path:
             try:

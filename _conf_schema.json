@@ -121,40 +121,40 @@
     "description": "推送呈现模式",
     "type": "string",
     "default": "text",
-    "options": ["text", "auto", "card"],
-    "hint": "text=全部纯文本（最快）；auto=list/pending 等结构信息出卡片，Agent 对话仍文本；card=更多结构类型出卡。卡片需要可选依赖 Pillow（pip install -r requirements-render.txt），未安装时自动回退文本"
+    "options": ["text", "card"],
+    "hint": "text=纯文本；card=下方勾选的类型渲成卡片（含 Agent 对话）。需 Pillow；未安装回退文本。旧配置 auto 会当作 card"
   },
   "formula_mode": {
     "description": "公式渲染策略（预留）",
     "type": "string",
     "default": "off",
     "options": ["off", "detect", "always"],
-    "hint": "首版仅预留配置；开启后复杂公式仍以源码文本回退。后续可接可选数学引擎"
+    "hint": "预留配置；开启后复杂公式仍以源码文本回退"
   },
   "render_kinds": {
     "description": "允许出卡的消息类型（逗号分隔）",
     "type": "string",
-    "default": "session_list,pending,status,permission",
-    "hint": "可选：session_list,pending,status,permission,routes。仅 render_mode 为 auto/card 时生效"
+    "default": "session_list,pending,status,permission,message",
+    "hint": "可选：session_list,pending,status,permission,routes,message。message=Agent 对话推送也渲染为卡片"
   },
   "card_style_preset": {
     "description": "推送卡片样式预设",
     "type": "string",
     "default": "terminal_light",
     "options": ["terminal_light", "terminal_dark", "clean", "compact"],
-    "hint": "可在 WebUI「交互优化 → 推送呈现」里预览与微调"
+    "hint": "可在 WebUI「交互优化 → 推送呈现」里预览；也可用自定义 CSS 完全覆盖"
   },
   "card_width": {
     "description": "推送卡片宽度（像素）",
     "type": "int",
     "default": 720,
-    "hint": "范围 400–1200；手机场景可试 560"
+    "hint": "范围 400–1400；手机场景可试 560"
   },
   "card_accent": {
     "description": "卡片强调色",
     "type": "string",
     "default": "#1a7f4b",
-    "hint": "十六进制颜色，如 #1a7f4b"
+    "hint": "十六进制颜色；也会注入 CSS 变量 --card-accent"
   },
   "card_bg": {
     "description": "卡片背景色",
@@ -187,6 +187,18 @@
     "description": "卡片优先等宽字体",
     "type": "bool",
     "default": true
+  },
+  "card_custom_css": {
+    "description": "推送卡片自定义 CSS",
+    "type": "string",
+    "default": "",
+    "hint": "完整可编辑 CSS（可覆盖默认）。Playwright 引擎完整生效；Pillow 引擎识别 --card-* 变量。留空=内置默认样式。建议在 WebUI 编辑与预览"
+  },
+  "card_font_path": {
+    "description": "卡片字体文件路径",
+    "type": "string",
+    "default": "",
+    "hint": "可选。绝对路径或相对插件根的 .ttf/.otf/.ttc。留空则用 assets/fonts 或系统已装 CJK 字体；都没有则回退纯文本（不自动下载）"
   }
 }
 
