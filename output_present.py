@@ -225,6 +225,95 @@ def build_pending_payload(
     }
 
 
+def build_routes_payload(
+    *,
+    session_rows: list[dict[str, Any]] | None = None,
+    primary_umo: str | None = None,
+    primary_title: str | None = None,
+    flavor_routes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """推送路由结构卡。
+
+    session_rows: [{sid_short, flavor, title, window_title}]
+    flavor_routes: [{flavor, window_title}]
+    """
+    rows: list[dict[str, Any]] = []
+    n_bind = 0
+    n_flavor = 0
+
+    if session_rows:
+        rows.append({
+            "type": "section",
+            "label": "会话绑定",
+            "detail": f"{len(session_rows)}",
+            "count": len(session_rows),
+        })
+        for i, r in enumerate(session_rows, 1):
+            n_bind += 1
+            flavor = str(r.get("flavor") or "?")
+            title = str(r.get("title") or "")
+            sid = str(r.get("sid_short") or "")
+            win = str(r.get("window_title") or r.get("umo") or "")
+            label = f"[{flavor}] {title}" if title else f"[{flavor}]"
+            detail = f"→ {win}" if win else ""
+            rows.append({
+                "type": "row",
+                "index": i,
+                "sid_short": sid,
+                "label": label[:48],
+                "detail": detail[:80],
+            })
+
+    if primary_title or primary_umo:
+        rows.append({
+            "type": "section",
+            "label": "默认发送窗口",
+            "detail": "",
+            "count": 1,
+        })
+        rows.append({
+            "type": "row",
+            "index": 0,
+            "label": "primary",
+            "detail": str(primary_title or primary_umo or ""),
+        })
+
+    if flavor_routes:
+        rows.append({
+            "type": "section",
+            "label": "Agent 默认窗口",
+            "detail": f"{len(flavor_routes)}",
+            "count": len(flavor_routes),
+        })
+        for r in flavor_routes:
+            n_flavor += 1
+            rows.append({
+                "type": "row",
+                "index": 0,
+                "label": str(r.get("flavor") or "?"),
+                "detail": str(r.get("window_title") or r.get("umo") or ""),
+            })
+
+    if not rows:
+        rows = [{"type": "row", "index": 0, "label": "(空)", "detail": "暂无推送路由"}]
+
+    bits = []
+    if n_bind:
+        bits.append(f"绑定 {n_bind}")
+    if primary_title or primary_umo:
+        bits.append("有默认窗口")
+    if n_flavor:
+        bits.append(f"Agent {n_flavor}")
+    subtitle = " · ".join(bits) if bits else "暂无路由"
+
+    return {
+        "title": "推送路由",
+        "subtitle": subtitle,
+        "rows": rows,
+        "footer": "bind 设默认   ·   bind <agent> 设 Agent 窗口   ·   routes",
+    }
+
+
 def _strip_emoji(text: str) -> str:
     """卡片用：去掉 emoji / 杂符号，避免 Pillow 缺字形出方块或发灰。"""
     import re

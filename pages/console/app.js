@@ -7,7 +7,7 @@
  * 页面：概览 / 会话 / 交互 / 命令帮助 / 设置
  */
 
-import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.7";
+import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.8";
 
 /* ---------- constants ---------- */
 
@@ -282,19 +282,32 @@ const esc = (s) =>
 
 const attr = (s) => esc(s).replace(/'/g, "&#39;");
 
+function parseUmo(u) {
+  const raw = String(u || "").trim();
+  if (!raw) return { platform: "", kindLabel: "窗口", sid: "" };
+  const parts = raw.split(":");
+  const platform = parts[0] || "bot";
+  const msgType = parts[1] || "";
+  const sid = parts.length >= 3 ? parts.slice(2).join(":") : parts[1] || raw;
+  const mt = msgType.toLowerCase();
+  let kindLabel = "窗口";
+  if (mt.includes("group") || msgType === "GroupMessage") kindLabel = "群聊";
+  else if (mt.includes("friend") || mt.includes("private") || msgType === "FriendMessage")
+    kindLabel = "私聊";
+  else if (mt.includes("channel") || mt.includes("guild")) kindLabel = "频道";
+  else if (msgType) kindLabel = msgType;
+  return { platform, kindLabel, sid };
+}
+
 function wTitle(u) {
   if (!u) return "—";
   const opt = (state.data?.window_options || []).find((w) => w.umo === u);
+  // 后端已生成 Bot:平台-群聊/私聊-名称|ID
   if (opt?.title) return opt.title;
-  if (u.includes("FriendMessage") || u.includes("Private")) {
-    const tail = u.split(":").pop();
-    return tail && tail !== u ? `私聊 · ${tail}` : "私聊";
-  }
-  if (u.includes("GroupMessage") || /group/i.test(u)) {
-    const tail = u.split(":").pop();
-    return tail && tail !== u ? `群 · ${tail}` : "群聊";
-  }
-  return u.length > 28 ? u.slice(0, 14) + "…" + u.slice(-10) : u;
+  const { platform, kindLabel, sid } = parseUmo(u);
+  const name = opt?.name || "";
+  const tail = name || sid || u;
+  return `Bot:${platform || "bot"}-${kindLabel}-${tail}`;
 }
 
 function resolve(s, owners, defaults) {
@@ -440,8 +453,8 @@ function createStore() {
     default_notification_window: "",
     render_mode: "text",
     formula_mode: "off",
-    render_kinds: "session_list,pending,status,permission,message",
-    render_kinds_list: ["session_list", "pending", "status", "permission", "message"],
+    render_kinds: "session_list,pending,status,permission,routes,message",
+    render_kinds_list: ["session_list", "pending", "status", "permission", "routes", "message"],
     card_style_preset: "terminal_light",
     card_width: 720,
     card_accent: "#0f6b3c",

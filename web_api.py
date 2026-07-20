@@ -323,6 +323,7 @@ class WebApi:
             # 默认读缓存；?fresh=1 才强制拉 HAPI。绝不 wake SSE。
             force = _query_truthy(request, "fresh")
             await soft_refresh_sessions(self.plugin, force=force)
+            await ensure_umo_name_map(self.plugin, force=force)
             snap = build_sessions_snapshot(self.plugin)
             return json_response({
                 "connection": snap["connection"],
@@ -387,6 +388,7 @@ class WebApi:
         try:
             force = _query_truthy(request, "fresh")
             await soft_refresh_sessions(self.plugin, force=force)
+            await ensure_umo_name_map(self.plugin, force=force)
             return json_response(build_sessions_snapshot(self.plugin))
         except Exception as e:
             logger.exception("WebUI sessions_snapshot failed")
@@ -1509,6 +1511,59 @@ async def soft_refresh_sessions(plugin, *, force: bool = False) -> bool:
         return False
 
 
+def _collect_known_umos(plugin) -> set[str]:
+    """从绑定/默认路由/窗口状态收集已知 UMO。"""
+    umos: set[str] = set()
+    binding = getattr(plugin, "binding_mgr", None)
+    owners = dict(getattr(binding, "_session_owners", {}) or {}) if binding else {}
+    umos.update(str(v) for v in owners.values() if v)
+    for umo in getattr(binding, "_window_states", {}) or {}:
+        if umo:
+            umos.add(str(umo))
+    try:
+        defaults = aggregate_route_defaults(plugin)
+        if defaults.get("primary"):
+            umos.add(str(defaults["primary"]))
+        umos.update(str(v) for v in (defaults.get("flavor") or {}).values() if v)
+    except Exception:
+        pass
+    umos.discard("")
+    return umos
+
+
+async def ensure_umo_name_map(plugin, *, force: bool = False) -> dict[str, str]:
+    """异步解析 UMO 展示名，缓存到 plugin._umo_name_map。
+
+    同步 snapshot 只读缓存；调用方在 async handler 里先 await 本函数。
+    """
+    import time
+
+    cache: dict[str, str] = dict(getattr(plugin, "_umo_name_map", None) or {})
+    ts = float(getattr(plugin, "_umo_name_map_ts", 0) or 0)
+    umos = _collect_known_umos(plugin)
+    missing = [u for u in umos if u not in cache]
+    if not force and ts and (time.monotonic() - ts) < 60 and not missing:
+        return {k: v for k, v in cache.items() if v}
+
+    try:
+        from .umo_display import resolve_umo_names
+
+        ctx = getattr(plugin, "context", None)
+        to_query = list(umos) if force else missing or list(umos)
+        fresh = await resolve_umo_names(ctx, to_query)
+        if fresh:
+            cache.update(fresh)
+        # 对没有别名的也记空标记，避免反复打库
+        for u in to_query:
+            cache.setdefault(u, "")
+        plugin._umo_name_map = cache
+        plugin._umo_name_map_ts = time.monotonic()
+    except Exception as e:
+        logger.debug("ensure_umo_name_map failed: %s", e)
+        plugin._umo_name_map = cache
+    return {k: v for k, v in cache.items() if v}
+
+
 def build_sessions_snapshot(plugin) -> dict:
     """全局快照。只读内存，不触发网络。
 
@@ -1571,8 +1626,15 @@ def build_sessions_snapshot(plugin) -> dict:
             "layer": layer,
         })
 
-    columns = build_columns(sessions, defaults)
-    window_options = build_window_options(owners, defaults, plugin, sessions)
+    # 展示名：由 ensure_umo_name_map 异步预热写入 plugin._umo_name_map
+    # 空串 = 查过但没有别名，展示时当 None
+    raw_names = dict(getattr(plugin, "_umo_name_map", None) or {})
+    name_map = {k: v for k, v in raw_names.items() if v}
+
+    columns = build_columns(sessions, defaults, name_map=name_map)
+    window_options = build_window_options(
+        owners, defaults, plugin, sessions, name_map=name_map
+    )
 
     try:
         cfg_view = public_config(plugin)
@@ -1733,7 +1795,13 @@ def resolve_route_layer(
     return None, "none"
 
 
-def build_columns(sessions: list[dict], defaults: dict) -> list[dict]:
+def build_columns(
+    sessions: list[dict],
+    defaults: dict,
+    *,
+    name_map: dict[str, str] | None = None,
+) -> list[dict]:
+    names = name_map or {}
     map_: dict[str, dict] = {}
 
     def ensure(umo: str | None) -> dict:
@@ -1741,7 +1809,11 @@ def build_columns(sessions: list[dict], defaults: dict) -> list[dict]:
         if key not in map_:
             map_[key] = {
                 "umo": umo,
-                "title": window_display_title(umo) if umo else "未投递",
+                "title": (
+                    window_display_title(umo, name=names.get(str(umo)))
+                    if umo
+                    else "未投递"
+                ),
                 "is_primary": bool(umo and umo == defaults.get("primary")),
                 "flavors": [
                     f for f, u in (defaults.get("flavor") or {}).items() if u == umo
@@ -1764,7 +1836,12 @@ def build_columns(sessions: list[dict], defaults: dict) -> list[dict]:
 
 
 def build_window_options(
-    owners: dict, defaults: dict, plugin, sessions: list[dict] | None = None
+    owners: dict,
+    defaults: dict,
+    plugin,
+    sessions: list[dict] | None = None,
+    *,
+    name_map: dict[str, str] | None = None,
 ) -> list[dict]:
     umos: set[str] = set()
     if defaults.get("primary"):
@@ -1784,18 +1861,19 @@ def build_window_options(
             if u:
                 umos.add(str(u))
     umos.discard("")
-    return [{"umo": u, "title": window_display_title(u)} for u in sorted(umos)]
+    names = name_map or {}
+    return [
+        {
+            "umo": u,
+            "title": window_display_title(u, name=names.get(u)),
+            "name": names.get(u) or "",
+        }
+        for u in sorted(umos)
+    ]
 
 
-def window_display_title(umo: str | None) -> str:
-    if not umo:
-        return "—"
-    if "FriendMessage" in umo or ":Private" in umo or "private" in umo.lower():
-        tail = umo.rsplit(":", 1)[-1]
-        return f"私聊 · {tail}" if tail and tail != umo else "私聊"
-    if "GroupMessage" in umo or "group" in umo.lower():
-        tail = umo.rsplit(":", 1)[-1]
-        return f"群 · {tail}" if tail and tail != umo else "群聊"
-    if len(umo) > 36:
-        return umo[:18] + "…" + umo[-12:]
-    return umo
+def window_display_title(umo: str | None, name: str | None = None) -> str:
+    """Bot:平台-群聊/私聊-名称|ID（与 umo_display 一致）。"""
+    from .umo_display import format_umo_title
+
+    return format_umo_title(umo, name=name)

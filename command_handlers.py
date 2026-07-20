@@ -1732,46 +1732,98 @@ class CommandHandlers:
     # ── routes ──
 
     async def cmd_routes(self, event: AstrMessageEvent):
-        """查看会话推送路由"""
+        """查看会话推送路由（出卡优先）"""
         await self.state_mgr.ensure_primary_session(event)
         await self.plugin._refresh_sessions()
 
-        lines = ["会话推送路由："]
-        has_routes = False
+        from . import output_present
+        from .umo_display import format_umo_title, resolve_umo_names
 
+        # 收集全部相关 UMO，批量解析群名/别名
+        umos_needed: set[str] = set()
+        session_bind: list[tuple[str, str, dict]] = []
         for sid, umo in self.state_mgr._session_owners.items():
-            s = next((s for s in self.sessions_cache if s["id"] == sid), None)
-            if s and umo:
-                metadata = s.get("metadata") or {}
-                if not isinstance(metadata, dict):
-                    metadata = {}
-                flavor = metadata.get("flavor", "?")
-                summary = formatters.get_session_title(s)[:20]
-                umo_display = umo[:40] + "..." if len(umo) > 40 else umo
-                lines.append(f"  [{flavor}] {sid[:8]} {summary}\n    → {umo_display}")
-                has_routes = True
+            if not umo:
+                continue
+            s = next((x for x in self.sessions_cache if x.get("id") == sid), None)
+            if s:
+                session_bind.append((sid, str(umo), s))
+                umos_needed.add(str(umo))
 
         sender_id = str(event.get_sender_id())
         state = self.state_mgr._user_states_cache.get(sender_id, {})
         primary = state.get("primary_umo")
-
         if primary:
-            display = self.state_mgr.format_umo_for_display(str(primary))
-            lines.append(f"\n默认发送窗口: {display}")
+            umos_needed.add(str(primary))
+        flavor_routes = self.state_mgr.normalized_flavor_primary_umos(state)
+        for u in flavor_routes.values():
+            if u:
+                umos_needed.add(str(u))
+
+        name_map: dict[str, str] = {}
+        try:
+            name_map = await resolve_umo_names(self.plugin.context, umos_needed)
+        except Exception:
+            name_map = {}
+
+        def _win_title(umo: str) -> str:
+            return format_umo_title(umo, name=name_map.get(str(umo)))
+
+        lines = ["会话推送路由："]
+        has_routes = False
+        session_rows: list[dict] = []
+
+        for sid, umo, s in session_bind:
+            metadata = s.get("metadata") or {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            flavor = metadata.get("flavor", "?")
+            summary = formatters.get_session_title(s)[:24]
+            win = _win_title(umo)
+            lines.append(f"  [{flavor}] {sid[:8]} {summary}\n    → {win}")
+            session_rows.append({
+                "sid_short": sid[:8],
+                "flavor": flavor,
+                "title": summary,
+                "window_title": win,
+                "umo": umo,
+            })
             has_routes = True
 
-        flavor_routes = self.state_mgr.normalized_flavor_primary_umos(state)
+        primary_title = None
+        if primary:
+            primary_title = _win_title(str(primary))
+            lines.append(f"\n默认发送窗口: {primary_title}")
+            has_routes = True
+
+        flavor_rows: list[dict] = []
         if flavor_routes:
-            lines.append("\nFlavor 默认窗口:")
+            lines.append("\nAgent 默认窗口:")
             for flavor in sorted(flavor_routes):
-                display = self.state_mgr.format_umo_for_display(flavor_routes[flavor])
-                lines.append(f"  {flavor} -> {display}")
+                win = _win_title(flavor_routes[flavor])
+                lines.append(f"  {flavor} -> {win}")
+                flavor_rows.append({
+                    "flavor": flavor,
+                    "window_title": win,
+                    "umo": flavor_routes[flavor],
+                })
             has_routes = True
 
         if not has_routes:
             yield event.plain_result("暂无推送路由\n使用 /hapi bind 设置默认发送窗口")
-        else:
-            yield event.plain_result("\n".join(lines))
+            return
+
+        text = "\n".join(lines)
+        payload = output_present.build_routes_payload(
+            session_rows=session_rows,
+            primary_umo=str(primary) if primary else None,
+            primary_title=primary_title,
+            flavor_routes=flavor_rows,
+        )
+        async for result in output_present.present(
+            self.plugin, event, "routes", payload, text
+        ):
+            yield result
 
     # ── reset ──
 

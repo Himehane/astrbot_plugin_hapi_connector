@@ -70,7 +70,14 @@ CARD_KINDS = (
 )
 DENSITY_OPTIONS = ("comfortable", "compact")
 PRESET_IDS = ("terminal_light", "terminal_dark", "clean", "compact")
-DEFAULT_KINDS = ("session_list", "pending", "status", "permission", "message")
+DEFAULT_KINDS = (
+    "session_list",
+    "pending",
+    "status",
+    "permission",
+    "routes",
+    "message",
+)
 
 # 默认 CSS：用户可在 WebUI 整段覆盖 / 追加。变量名是 Pillow 引擎的契约。
 DEFAULT_CARD_CSS = """\
@@ -579,13 +586,32 @@ def sample_payload(kind: str) -> dict[str, Any]:
     if kind == "routes":
         return {
             "title": "推送路由",
-            "subtitle": "通知投递优先级",
+            "subtitle": "绑定 1 · 有默认窗口 · Agent 1",
             "rows": [
-                {"index": 1, "label": "会话绑定", "detail": "群 A · 20001"},
-                {"index": 2, "label": "Agent 窗口", "detail": "claude → 私聊"},
-                {"index": 3, "label": "默认窗口", "detail": "私聊 · 10001"},
+                {"type": "section", "label": "会话绑定", "detail": "1", "count": 1},
+                {
+                    "type": "row",
+                    "index": 1,
+                    "sid_short": "a1b2c3d4",
+                    "label": "[claude] 重构鉴权",
+                    "detail": "→ Bot:maimai-群聊-1081179981",
+                },
+                {"type": "section", "label": "默认发送窗口", "detail": "", "count": 1},
+                {
+                    "type": "row",
+                    "index": 0,
+                    "label": "primary",
+                    "detail": "Bot:maimai-私聊-2732367272",
+                },
+                {"type": "section", "label": "Agent 默认窗口", "detail": "1", "count": 1},
+                {
+                    "type": "row",
+                    "index": 0,
+                    "label": "claude",
+                    "detail": "Bot:maimai-私聊-2732367272",
+                },
             ],
-            "footer": "/hapi bind  ·  /hapi routes",
+            "footer": "bind 设默认   ·   bind <agent> 设 Agent 窗口   ·   routes",
         }
     if kind == "message":
         return {

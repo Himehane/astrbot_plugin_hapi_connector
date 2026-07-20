@@ -134,7 +134,7 @@
   "render_kinds": {
     "description": "允许出卡的消息类型",
     "type": "string",
-    "default": "session_list,pending,status,permission,message",
+    "default": "session_list,pending,status,permission,routes,message",
     "hint": "插件 WebUI「交互优化 / 设置」里勾选保存。可选值：session_list,pending,status,permission,routes,message（message=Agent 对话）"
   },
   "card_style_preset": {

@@ -237,10 +237,21 @@ class StateManager:
         return []
 
     @staticmethod
-    def format_umo_for_display(umo: str | None, max_len: int = 40) -> str:
-        if not umo:
+    def format_umo_for_display(
+        umo: str | None,
+        max_len: int = 48,
+        *,
+        name: str | None = None,
+    ) -> str:
+        """Bot:平台-群聊/私聊-名称|ID；过长时截断尾部。"""
+        from .umo_display import format_umo_title
+
+        title = format_umo_title(umo, name=name)
+        if not title or title == "—":
             return ""
-        return umo[:max_len] + "..." if len(umo) > max_len else umo
+        if len(title) > max_len:
+            return title[: max_len - 1] + "…"
+        return title
 
     def user_route_summary_lines(self, event: AstrMessageEvent) -> list[str]:
         """Format current user's default notification routing summary."""
@@ -253,7 +264,7 @@ class StateManager:
 
         flavor_routes = self.normalized_flavor_primary_umos(state)
         if flavor_routes:
-            lines.append("Flavor 默认窗口:")
+            lines.append("Agent 默认窗口:")
             for flavor in sorted(flavor_routes):
                 lines.append(f"  {flavor}: {self.format_umo_for_display(flavor_routes[flavor])}")
 
