@@ -857,8 +857,7 @@ function renderOverview() {
         <dt>HAPI 网页</dt>
         <dd>${
           cfg.hapi_web_url
-            ? `<a class="ext-link mono break" href="${attr(cfg.hapi_web_url)}" target="_blank" rel="noopener noreferrer">${esc(cfg.hapi_web_url)}</a>
-               <div class="kv-hint">点链接在新标签打开（已带登录 token）</div>`
+            ? `<a class="ext-link mono break" href="${attr(cfg.hapi_web_url)}" target="_blank" rel="noopener noreferrer">${esc(cfg.hapi_web_url)}</a>`
             : `<span class="muted">未配置地址</span>`
         }</dd>
         <dt>插件 SSE</dt><dd>${esc(label)}${c.stream_live ? " · 流活跃" : ""}${c.task_running === false ? " · 任务未运行" : ""}</dd>
