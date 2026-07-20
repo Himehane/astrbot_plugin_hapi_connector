@@ -1659,11 +1659,11 @@ function renderSessions() {
 
 /* ---------- interact ---------- */
 
-/** 图片 CSS：按区块拆成多份编辑，保存时拼回完整 card_custom_css */
+/** 图片 CSS：按图片类型拆开编辑，保存时拼回一条 card_custom_css */
 const CSS_PART_DEFS = [
   {
-    id: "color",
-    label: "颜色",
+    id: "global",
+    label: "全局",
     vars: [
       "--card-bg",
       "--card-fg",
@@ -1671,37 +1671,23 @@ const CSS_PART_DEFS = [
       "--card-muted",
       "--card-border",
       "--card-code-bg",
-    ],
-  },
-  {
-    id: "size",
-    label: "整体尺寸",
-    vars: ["--card-radius", "--card-pad", "--card-width", "--card-font-scale"],
-  },
-  {
-    id: "font",
-    label: "字号",
-    vars: [
+      "--card-radius",
+      "--card-pad",
+      "--card-width",
+      "--card-font-scale",
       "--card-title-size",
       "--card-sub-size",
       "--card-body-size",
       "--card-meta-size",
       "--card-foot-size",
       "--card-mono",
+      "--card-row-pad-y",
+      "--card-row-pad-x",
+      "--card-row-gap",
     ],
   },
   {
-    id: "status",
-    label: "状态徽章",
-    vars: [
-      "--card-badge-h",
-      "--card-badge-pad-x",
-      "--card-badge-font",
-      "--card-badge-dot",
-    ],
-  },
-  {
-    id: "list",
+    id: "session_list",
     label: "Session 列表",
     vars: [
       "--card-idx-w",
@@ -1713,9 +1699,38 @@ const CSS_PART_DEFS = [
     ],
   },
   {
-    id: "row",
-    label: "行距间距",
-    vars: ["--card-row-pad-y", "--card-row-pad-x", "--card-row-gap"],
+    id: "pending",
+    label: "待审批",
+    vars: [],
+    note: "无独占变量，颜色/字号/行距改「全局」。",
+  },
+  {
+    id: "status",
+    label: "状态",
+    vars: [
+      "--card-badge-h",
+      "--card-badge-pad-x",
+      "--card-badge-font",
+      "--card-badge-dot",
+    ],
+  },
+  {
+    id: "permission",
+    label: "权限",
+    vars: [],
+    note: "无独占变量，颜色/字号/行距改「全局」。",
+  },
+  {
+    id: "routes",
+    label: "路由",
+    vars: [],
+    note: "无独占变量，颜色/字号/行距改「全局」。",
+  },
+  {
+    id: "message",
+    label: "Agent 对话",
+    vars: [],
+    note: "无独占变量，正文/代码底色等改「全局」。",
   },
   { id: "preview", label: "网页预览", mode: "tail" },
 ];
@@ -1733,10 +1748,7 @@ function extractCssVars(css) {
 function extractPreviewCss(css) {
   const s = String(css || "");
   const rootStart = s.indexOf(":root");
-  if (rootStart < 0) {
-    // 没有 :root 时整段当预览/选择器
-    return s.trim();
-  }
+  if (rootStart < 0) return s.trim();
   const brace = s.indexOf("{", rootStart);
   if (brace < 0) return "";
   let depth = 0;
@@ -1759,6 +1771,9 @@ function defaultCssText() {
 }
 
 function formatPartVars(def, varMap, fallbackMap) {
+  if (!def.vars?.length) {
+    return def.note ? `/* ${def.note} */` : "/* 无独占变量 */";
+  }
   return def.vars
     .map((name) => {
       const val = varMap[name] ?? fallbackMap[name];
@@ -1776,9 +1791,10 @@ function splitCssToParts(css) {
   const parts = {};
   for (const def of CSS_PART_DEFS) {
     if (def.mode === "tail") {
-      const tail = extractPreviewCss(src);
       parts[def.id] =
-        tail || extractPreviewCss(defaultCssText()) || "/* 仅网页预览用选择器 */";
+        extractPreviewCss(src) ||
+        extractPreviewCss(defaultCssText()) ||
+        "/* 仅网页预览用选择器 */";
       continue;
     }
     parts[def.id] = formatPartVars(def, vars, fallback);
@@ -1788,20 +1804,35 @@ function splitCssToParts(css) {
 
 function joinCssParts(parts) {
   const fallback = extractCssVars(defaultCssText());
-  const lines = [];
+  const merged = { ...fallback };
+  // 有独占变量的块按顺序覆盖；空块忽略
   for (const def of CSS_PART_DEFS) {
     if (def.mode === "tail") continue;
+    const found = extractCssVars(parts?.[def.id] || "");
+    Object.assign(merged, found);
+  }
+  const lines = [];
+  const seen = new Set();
+  for (const def of CSS_PART_DEFS) {
+    if (def.mode === "tail" || !def.vars?.length) continue;
     lines.push(`  /* —— ${def.label} —— */`);
-    const raw = String(parts?.[def.id] || "");
-    const found = extractCssVars(raw);
     for (const name of def.vars) {
-      const val = found[name] ?? fallback[name];
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const val = merged[name];
       if (val == null || val === "") continue;
       lines.push(`  ${name}: ${val};`);
     }
     lines.push("");
   }
-  const preview = String(parts?.preview || "").trim() || extractPreviewCss(defaultCssText());
+  // 用户在某块里写了未登记变量，也收进 :root
+  for (const [name, val] of Object.entries(merged)) {
+    if (seen.has(name) || val == null || val === "") continue;
+    lines.push(`  ${name}: ${val};`);
+    seen.add(name);
+  }
+  const preview =
+    String(parts?.preview || "").trim() || extractPreviewCss(defaultCssText());
   return `:root {\n${lines.join("\n").replace(/\n+$/, "")}\n}\n\n${preview}\n`;
 }
 
@@ -1822,16 +1853,23 @@ function showCssPart(partId) {
   state._cssPartId = def.id;
   if (!state._cssParts) state._cssParts = splitCssToParts(defaultCssText());
   const ta = $("#ix-css-part");
-  if (ta) ta.value = state._cssParts[def.id] || "";
+  if (ta) {
+    ta.value = state._cssParts[def.id] || "";
+    // 无独占变量的类型：不强制改，仍可粘贴覆盖变量
+    ta.readOnly = false;
+  }
   $$("#ix-css-tabs [data-css-part]").forEach((t) => {
     t.classList.toggle("is-on", t.dataset.cssPart === def.id);
   });
   const hint = $("#ix-css-part-hint");
   if (hint) {
-    hint.textContent =
-      def.mode === "tail"
-        ? "仅 DOM 预览读这里的选择器；聊天出图只认上面变量。"
-        : "只改本块变量；保存时自动拼成完整 CSS。";
+    if (def.mode === "tail") {
+      hint.textContent = "仅网页 DOM 预览读这里；出图不读选择器。";
+    } else if (!def.vars?.length) {
+      hint.textContent = def.note || "此类型无独占变量，改「全局」即可。";
+    } else {
+      hint.textContent = "编辑本类型相关变量；保存时拼成完整 CSS。";
+    }
   }
 }
 
@@ -2716,7 +2754,7 @@ function renderInteract() {
             <div class="field-label">图片 CSS（当前生效）</div>
             <p class="field-help">
               ${rs.using_default_css ? "内置默认样式。" : "已保存的自定义样式。"}
-              按区块拆开编辑，保存时拼成完整 CSS。
+              按图片类型拆开编辑，保存时拼成完整 CSS。
             </p>
             <div class="css-part-tabs" id="ix-css-tabs" role="tablist">
               ${CSS_PART_DEFS.map(

@@ -1747,7 +1747,7 @@ select.ctrl-sm {
   border-radius: 2px;
 }
 
-/* 图片 CSS 分栏 */
+/* 图片 CSS 分栏（按图片类型） */
 .css-part-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1774,53 +1774,6 @@ select.ctrl-sm {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--bg);
-}
-
-.css-part-panel {
-  margin: 0 0 8px;
-  padding: 10px 12px;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-}
-
-.css-part-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ink);
-  margin-bottom: 6px;
-}
-
-.css-part-vars {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.css-part-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 8px;
-  align-items: start;
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.css-part-row code {
-  font-size: 10.5px;
-  color: var(--cursor-ink);
-  word-break: break-word;
-}
-
-.css-part-row span {
-  color: var(--muted);
-  font-family: var(--font-ui);
-}
-
-@media (max-width: 640px) {
-  .css-part-row {
-    grid-template-columns: 1fr;
-  }
 }
 
 .enum-cards {
