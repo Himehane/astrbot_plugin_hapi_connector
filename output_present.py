@@ -290,7 +290,7 @@ def build_status_payload(session: dict[str, Any]) -> dict[str, Any]:
         "status_key": status_key,
         "flavor": flavor,
         "sid_short": sid_short,
-        "footer": "sw 切换   ·   list 列表   ·   msg 最近消息",
+        "footer": "/hapi sw  切换    /hapi list  列表    /hapi msg  最近消息",
     }
 
 
@@ -379,7 +379,7 @@ def build_routes_payload(
         "title": "推送路由",
         "subtitle": subtitle,
         "rows": rows,
-        "footer": "bind 设默认   ·   bind <agent> 设 Agent 窗口   ·   routes",
+        "footer": "/hapi bind  设默认推送窗口    /hapi bind <agent>  设 Agent 推送窗口    /hapi routes",
     }
 
 

@@ -1795,28 +1795,148 @@ function topicNameMap() {
   return m;
 }
 
+function findCmdMeta(cmdId) {
+  const id = String(cmdId || "").toLowerCase();
+  return (commandCatalog().commands || []).find((c) => c.id === id) || null;
+}
+
+function cmdDisplayLabel(cmdId) {
+  const c = findCmdMeta(cmdId);
+  if (!c) return cmdId ? `/hapi ${cmdId}` : "";
+  const argHint = c.takes_arg ? "可带参" : "整句";
+  return `${c.usage} — ${c.summary || c.id} · ${argHint}`;
+}
+
+/** 可输入过滤的命令下拉（combobox） */
 function cmdSelectHtml(selected, rowIdx) {
+  const label = selected ? cmdDisplayLabel(selected) : "";
+  return `<div class="cmd-combo" data-idx="${rowIdx}">
+    <input type="text" class="ctrl ctrl-sm js-kw-cmd-input" data-idx="${rowIdx}"
+      value="${attr(label)}" placeholder="输入过滤命令…" autocomplete="off" spellcheck="false" />
+    <input type="hidden" class="js-kw-cmd" data-idx="${rowIdx}" value="${attr(selected || "")}" />
+    <div class="cmd-combo-panel" hidden></div>
+  </div>`;
+}
+
+function filterCommands(query) {
+  const q = String(query || "").trim().toLowerCase();
   const cat = commandCatalog();
   const names = topicNameMap();
+  const list = cat.commands || [];
+  if (!q) return list;
+  return list.filter((c) => {
+    const blob = [
+      c.id,
+      c.usage,
+      c.summary,
+      names[c.topic] || c.topic,
+      `/hapi ${c.id}`,
+    ]
+      .join(" ")
+      .toLowerCase();
+    return blob.includes(q);
+  });
+}
+
+function renderCmdComboPanel(combo, query, selectedId) {
+  const panel = combo.querySelector(".cmd-combo-panel");
+  if (!panel) return;
+  const names = topicNameMap();
+  const list = filterCommands(query);
+  if (!list.length) {
+    panel.innerHTML = `<div class="cmd-combo-empty">无匹配命令</div>`;
+    panel.hidden = false;
+    return;
+  }
+  // 按 topic 分组
   const byTopic = new Map();
-  for (const c of cat.commands || []) {
+  for (const c of list) {
     const tid = c.topic || "_";
     if (!byTopic.has(tid)) byTopic.set(tid, []);
     byTopic.get(tid).push(c);
   }
-  let html = `<select class="ctrl ctrl-sm js-kw-cmd" data-idx="${rowIdx}">`;
-  html += `<option value="">选择命令…</option>`;
-  for (const [tid, list] of byTopic) {
-    html += `<optgroup label="${esc(names[tid] || tid)}">`;
-    for (const c of list) {
-      const sel = c.id === selected ? "selected" : "";
+  let html = "";
+  for (const [tid, cmds] of byTopic) {
+    html += `<div class="cmd-combo-group">${esc(names[tid] || tid)}</div>`;
+    for (const c of cmds) {
+      const on = c.id === selectedId ? " is-on" : "";
       const argHint = c.takes_arg ? "可带参" : "整句";
-      html += `<option value="${attr(c.id)}" ${sel}>${esc(c.usage)} — ${esc(c.summary || c.id)} · ${argHint}</option>`;
+      html += `<button type="button" class="cmd-combo-item${on}" data-cmd="${attr(c.id)}">
+        <span class="cmd-combo-usage mono">${esc(c.usage)}</span>
+        <span class="cmd-combo-sum">${esc(c.summary || c.id)} · ${argHint}</span>
+      </button>`;
     }
-    html += `</optgroup>`;
   }
-  html += `</select>`;
-  return html;
+  panel.innerHTML = html;
+  panel.hidden = false;
+}
+
+function bindCmdCombos(host) {
+  const root = host || document;
+  const closeAll = (except) => {
+    $$(".cmd-combo-panel", root).forEach((p) => {
+      if (except && p === except) return;
+      p.hidden = true;
+    });
+  };
+
+  $$(".cmd-combo", root).forEach((combo) => {
+    const idx = Number(combo.dataset.idx);
+    const input = combo.querySelector(".js-kw-cmd-input");
+    const hidden = combo.querySelector(".js-kw-cmd");
+    const panel = combo.querySelector(".cmd-combo-panel");
+    if (!input || !hidden || !panel) return;
+
+    const pick = (cmdId) => {
+      hidden.value = cmdId || "";
+      input.value = cmdId ? cmdDisplayLabel(cmdId) : "";
+      panel.hidden = true;
+      if (state._ixKwMaps?.[idx]) {
+        const prev = state._ixKwMaps[idx].command;
+        state._ixKwMaps[idx].command = cmdId || "";
+        if (cmdId !== "to") state._ixKwMaps[idx].args = "";
+        if (prev !== cmdId) paintKwMapList();
+      }
+    };
+
+    input.onfocus = () => {
+      renderCmdComboPanel(combo, "", hidden.value);
+    };
+    input.oninput = () => {
+      // 输入只做过滤；未点选前不改 hidden（避免半成品 id）
+      renderCmdComboPanel(combo, input.value, hidden.value);
+    };
+    input.onkeydown = (e) => {
+      if (e.key === "Escape") {
+        panel.hidden = true;
+        input.blur();
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const first = panel.querySelector(".cmd-combo-item");
+        if (first) pick(first.dataset.cmd);
+      }
+    };
+    panel.onclick = (e) => {
+      const btn = e.target.closest(".cmd-combo-item");
+      if (!btn) return;
+      e.preventDefault();
+      pick(btn.dataset.cmd);
+    };
+  });
+
+  // 点外部关闭
+  if (!state._cmdComboDocBound) {
+    state._cmdComboDocBound = true;
+    document.addEventListener("click", (e) => {
+      if (e.target.closest(".cmd-combo")) return;
+      $$(".cmd-combo-panel").forEach((p) => {
+        p.hidden = true;
+      });
+    });
+  }
+  closeAll();
 }
 
 function paintKwMapList() {
@@ -1865,18 +1985,7 @@ function paintKwMapList() {
         .filter(Boolean);
     };
   });
-  $$("#ix-kw-list .js-kw-cmd").forEach((sel) => {
-    sel.onchange = () => {
-      const i = Number(sel.dataset.idx);
-      if (!state._ixKwMaps?.[i]) return;
-      const prev = state._ixKwMaps[i].command;
-      state._ixKwMaps[i].command = sel.value || "";
-      // 不是 to 时清掉固定发送内容
-      if (state._ixKwMaps[i].command !== "to") state._ixKwMaps[i].args = "";
-      // 切换命令后重绘以显隐「发送消息」
-      if (prev !== state._ixKwMaps[i].command) paintKwMapList();
-    };
-  });
+  bindCmdCombos($("#ix-kw-list"));
   $$("#ix-kw-list .js-kw-args").forEach((inp) => {
     inp.oninput = () => {
       const i = Number(inp.dataset.idx);
@@ -1909,10 +2018,11 @@ function collectQuickOpsPatchFromForm() {
       .map((s) => s.trim())
       .filter(Boolean);
   });
-  $$("#ix-kw-list .js-kw-cmd").forEach((sel) => {
-    const i = Number(sel.dataset.idx);
+  $$("#ix-kw-list .js-kw-cmd").forEach((inp) => {
+    const i = Number(inp.dataset.idx);
     if (!state._ixKwMaps?.[i]) return;
-    state._ixKwMaps[i].command = sel.value || "";
+    // hidden input 存 command id
+    state._ixKwMaps[i].command = String(inp.value || "").trim().toLowerCase();
   });
   $$("#ix-kw-list .js-kw-args").forEach((inp) => {
     const i = Number(inp.dataset.idx);

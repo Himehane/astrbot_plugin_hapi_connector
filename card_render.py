@@ -601,9 +601,8 @@ def style_from_config(cfg: dict[str, Any] | None) -> CardStyle:
     mono = base.get("mono", True)
     if "card_mono" in cfg and cfg.get("card_mono") is not None:
         mono = _parse_bool(cfg.get("card_mono"), bool(mono))
-    show_brand = base.get("show_brand", False)
-    if "card_show_brand" in cfg and cfg.get("card_show_brand") is not None:
-        show_brand = _parse_bool(cfg.get("card_show_brand"), bool(show_brand))
+    # 产品要求：推送图片右下角永不显示 hapi connector 角标
+    show_brand = False
 
     custom_css = ""
     if cfg.get("card_custom_css") is not None:
@@ -740,7 +739,7 @@ def sample_payload(kind: str) -> dict[str, Any]:
                 {"type": "kv", "label": "路径", "detail": "…/dev/proj-auth"},
                 {"type": "kv", "label": "ID", "detail": "a1b2c3d4"},
             ],
-            "footer": "sw 切换   ·   list 列表   ·   msg 最近消息",
+            "footer": "/hapi sw  切换    /hapi list  列表    /hapi msg  最近消息",
         }
     if kind == "routes":
         return {
@@ -770,7 +769,7 @@ def sample_payload(kind: str) -> dict[str, Any]:
                     "detail": "Bot:maimai-私聊-2732367272",
                 },
             ],
-            "footer": "bind 设默认   ·   bind <agent> 设 Agent 窗口   ·   routes",
+            "footer": "/hapi bind  设默认推送窗口    /hapi bind <agent>  设 Agent 推送窗口    /hapi routes",
         }
     if kind == "message":
         return {
