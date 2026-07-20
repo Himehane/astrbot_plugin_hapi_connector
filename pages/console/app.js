@@ -1645,7 +1645,7 @@ const RENDER_KIND_LABELS = {
   session_list: "Session 列表",
   pending: "待审批列表",
   status: "状态",
-  permission: "权限请求卡",
+  permission: "权限请求",
   routes: "推送路由",
   message: "Agent 对话",
 };
