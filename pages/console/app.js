@@ -1595,28 +1595,65 @@ function wireTable(visibleIds) {
     b.onclick = async () => {
       const ids = visibleIds.filter((id) => state.selected.has(id));
       if (!ids.length) {
-        alert("请先勾选 session");
+        toast("请先勾选 session");
         return;
       }
       const action = b.dataset.batch;
-      if (action === "delete" && !confirm(`删除 ${ids.length} 个 session？`)) return;
+      const labels = { resume: "恢复", archive: "归档", delete: "删除" };
+      const label = labels[action] || action;
+      if (action === "delete" && !confirm(`删除 ${ids.length} 个 session？不可恢复。`)) return;
       if (action === "archive" && !confirm(`归档 ${ids.length} 个 session？`)) return;
       if (action === "resume" && !confirm(`恢复 ${ids.length} 个？可能得到新 session id。`)) return;
+
+      // 防连点
+      $$("[data-batch]").forEach((x) => {
+        x.disabled = true;
+        x.classList.add("is-busy");
+      });
       try {
         if (liveMode && api) {
           const res = await api.batchLifecycle(ids, action);
-          toast(res.message || "批量完成");
+          const results = Array.isArray(res?.results) ? res.results : [];
+          const okN = results.filter((r) => r?.ok).length;
+          const failN = results.length - okN;
+          const detail = results
+            .filter((r) => !r?.ok)
+            .slice(0, 3)
+            .map((r) => `${String(r.id || "").slice(0, 8)}: ${r.message || "失败"}`)
+            .join("；");
+          if (failN === 0) {
+            toast(res?.message || `${label}成功 ${okN}/${results.length || ids.length}`);
+          } else if (okN === 0) {
+            toast(res?.message || `${label}全部失败` + (detail ? ` · ${detail}` : ""));
+          } else {
+            toast(
+              (res?.message || `${label}部分成功 ${okN}/${results.length}`) +
+                (detail ? ` · ${detail}` : ""),
+            );
+          }
           ids.forEach((id) => state.selected.delete(id));
-          if (!applySnapFromResult(res)) await refresh();
-          else { renderTopConn(); renderSessions(); }
+          // 批量接口自带 snapshot；失败也强制 fresh 拉一次
+          if (!applySnapFromResult(res)) await refresh({ fresh: true, repaint: true });
+          else {
+            renderTopConn();
+            renderSessions();
+          }
           return;
         }
+        // mock
         for (const id of ids) store.lifecycle(id, action);
         ids.forEach((id) => state.selected.delete(id));
-        await refresh();
+        toast(`${label}完成（本地 mock）`);
+        await refresh({ repaint: true });
       } catch (err) {
-        toast("批量操作失败: " + (err.message || err));
-        await refresh();
+        toast(`${label}失败: ` + (err.message || err));
+        await refresh({ fresh: true, repaint: true });
+      } finally {
+        // renderSessions 会重建按钮，这里兜底
+        $$("[data-batch]").forEach((x) => {
+          x.disabled = false;
+          x.classList.remove("is-busy");
+        });
       }
     };
   });
@@ -1636,6 +1673,142 @@ function renderSessions() {
 
 
 /* ---------- interact ---------- */
+
+/** 图片 CSS 分栏说明：出图真正读 :root 变量；选择器仅网页预览 */
+const CSS_PART_HELP = {
+  all: {
+    title: "全局（全部图片）",
+    note: "改这些，所有推送图片都会变。",
+    vars: [
+      ["--card-bg / fg / accent / muted / border / code-bg", "背景、字色、强调色、次要字、边框、代码底"],
+      ["--card-width / pad / radius / font-scale", "宽度、内边距、圆角、整体字号倍率"],
+      ["--card-title-size / sub-size / body-size / meta-size / foot-size", "标题 / 副标题 / 正文 / 元信息 / 页脚字号"],
+    ],
+    snippet:
+      "/* 全局 */\n/* --card-bg --card-fg --card-accent --card-muted --card-border --card-code-bg */\n/* --card-width --card-pad --card-radius --card-font-scale */\n/* --card-title-size --card-sub-size --card-body-size --card-meta-size --card-foot-size */\n",
+  },
+  session_list: {
+    title: "Session 列表",
+    note: "序号框、行距、分组条。",
+    vars: [
+      ["--card-idx-w / h / font / radius / top", "序号框宽、高、字号、圆角、距行顶"],
+      ["--card-row-pad-y / pad-x / gap", "行内上下/左右留白、行与行间距"],
+      ["--card-section-gap", "路径分组之间的间距"],
+    ],
+    snippet:
+      "/* Session 列表 */\n/* --card-idx-w --card-idx-h --card-idx-font --card-idx-radius --card-idx-top */\n/* --card-row-pad-y --card-row-pad-x --card-row-gap --card-section-gap */\n",
+  },
+  pending: {
+    title: "待审批列表",
+    note: "颜色与字号用全局；行距可调 row。",
+    vars: [
+      ["全局颜色 / 字号", "见「全局」"],
+      ["--card-row-pad-y / pad-x / gap", "列表行间距与内边距"],
+    ],
+    snippet: "/* 待审批 — 主要用全局变量；行距：--card-row-pad-y --card-row-pad-x --card-row-gap */\n",
+  },
+  status: {
+    title: "状态",
+    note: "大状态徽章与圆点。",
+    vars: [
+      ["--card-badge-h / pad-x / font / dot", "徽章高度、左右内边距、字号、圆点大小"],
+      ["全局颜色 / 字号", "标题副标题等"],
+    ],
+    snippet:
+      "/* 状态图片 */\n/* --card-badge-h --card-badge-pad-x --card-badge-font --card-badge-dot */\n",
+  },
+  permission: {
+    title: "权限请求",
+    note: "结构行 + 通用颜色字号。",
+    vars: [
+      ["全局颜色 / 字号", "见「全局」"],
+      ["--card-row-pad-y / pad-x / gap", "键值行间距"],
+    ],
+    snippet: "/* 权限请求 — 全局 + --card-row-* */\n",
+  },
+  routes: {
+    title: "推送路由",
+    note: "同结构行布局。",
+    vars: [
+      ["全局颜色 / 字号", "见「全局」"],
+      ["--card-row-pad-y / pad-x / gap", "行间距"],
+    ],
+    snippet: "/* 推送路由 — 全局 + --card-row-* */\n",
+  },
+  message: {
+    title: "Agent 对话",
+    note: "Markdown 正文；代码块底色用 code-bg。",
+    vars: [
+      ["--card-body-size / title-size / sub-size", "正文、标题、副标题"],
+      ["--card-code-bg / border / muted", "代码底、边框、次要字"],
+    ],
+    snippet:
+      "/* Agent 对话 */\n/* --card-body-size --card-title-size --card-sub-size --card-code-bg --card-border --card-muted */\n",
+  },
+  preview: {
+    title: "网页预览（不出图）",
+    note: "只有左侧 DOM 预览读选择器；聊天出图不读 .card / .row。",
+    vars: [
+      [".card / .card-title / .row …", "仅网页预览排版"],
+      [":root --card-*", "预览与出图都会跟颜色变量（若预览注入了变量）"],
+    ],
+    snippet:
+      "/* 仅网页预览 — 出图忽略选择器 */\n/* .card { } .card-title { } .row { } .row-detail { } */\n",
+  },
+};
+
+function paintCssPartHelp(partId) {
+  const part = CSS_PART_HELP[partId] || CSS_PART_HELP.all;
+  const host = $("#ix-css-part-help");
+  if (!host) return;
+  host.dataset.part = partId;
+  const rows = (part.vars || [])
+    .map(
+      ([k, d]) =>
+        `<div class="css-part-row"><code class="mono">${esc(k)}</code><span>${esc(d)}</span></div>`,
+    )
+    .join("");
+  host.innerHTML = `
+    <div class="css-part-title">${esc(part.title)}</div>
+    <p class="css-part-note">${esc(part.note || "")}</p>
+    <div class="css-part-vars">${rows}</div>
+  `;
+}
+
+function wireCssPartTabs() {
+  const tabs = $$("#ix-css-tabs [data-css-part]");
+  if (!tabs.length) return;
+  const current =
+    tabs.find((t) => t.classList.contains("is-on"))?.dataset.cssPart || "all";
+  paintCssPartHelp(current);
+  tabs.forEach((tab) => {
+    tab.onclick = () => {
+      tabs.forEach((t) => t.classList.toggle("is-on", t === tab));
+      paintCssPartHelp(tab.dataset.cssPart);
+    };
+  });
+  const insertBtn = $("#ix-css-insert");
+  if (insertBtn) {
+    insertBtn.onclick = () => {
+      const ta = $("#ix-css");
+      if (!ta) return;
+      const partId = $("#ix-css-part-help")?.dataset.part || "all";
+      const snip = (CSS_PART_HELP[partId] || CSS_PART_HELP.all).snippet || "";
+      const start = ta.selectionStart ?? ta.value.length;
+      const end = ta.selectionEnd ?? start;
+      const v = ta.value;
+      ta.value = v.slice(0, start) + snip + v.slice(end);
+      const pos = start + snip.length;
+      ta.focus();
+      try {
+        ta.setSelectionRange(pos, pos);
+      } catch (_) {
+        /* ignore */
+      }
+      toast("已插入「" + (CSS_PART_HELP[partId]?.title || partId) + "」说明");
+    };
+  }
+}
 
 function normalizeRenderMode(m) {
   return String(m || "text").toLowerCase() === "card" ? "card" : "text";
@@ -2495,15 +2668,31 @@ function renderInteract() {
 
           <div class="field">
             <div class="field-label">图片 CSS（当前生效）</div>
-            <p class="field-help css-help">
+            <p class="field-help">
               ${rs.using_default_css ? "现在用的是内置默认样式。" : "现在用的是你保存过的自定义样式。"}
-              <br /><strong>改 :root 里的变量，聊天发出的图片会跟着变。哪类图片用哪些变量：</strong>
-              <br />· <strong>全部图片通用</strong> — <code>--card-bg / fg / accent / muted / border / code-bg</code>（颜色）；<code>--card-width / pad / radius / font-scale</code>（宽、边距、圆角、字号倍率）；<code>--card-title-size / sub-size / body-size / meta-size / foot-size</code>（标题/副标题/正文/元信息/页脚字号）
-              <br />· <strong>Session 列表</strong> — <code>--card-idx-*</code>（序号框宽高/字号/圆角/距行顶）；<code>--card-row-*</code> 与 <code>--card-section-gap</code>（行距、行内边距、分组间距）
-              <br />· <strong>状态图片</strong> — <code>--card-badge-*</code>（状态徽章高、左右内边距、字号、圆点）
-              <br />· <strong>Agent 对话 / 待审批 / 权限 / 路由</strong> — 主要用通用颜色与字号；行间距看 <code>--card-row-*</code>
-              <br />· <code>.card</code> / <code>.row</code> 等选择器<strong>只影响左侧网页预览</strong>，出图不读。
+              用下面分栏切换「要改哪一块」；点「插入说明」会在编辑器光标处贴上对应变量注释（真正改值仍在 <code>:root</code>）。
             </p>
+            <div class="css-part-tabs" id="ix-css-tabs" role="tablist">
+              ${[
+                { id: "all", label: "全局" },
+                { id: "session_list", label: "Session 列表" },
+                { id: "pending", label: "待审批" },
+                { id: "status", label: "状态" },
+                { id: "permission", label: "权限" },
+                { id: "routes", label: "路由" },
+                { id: "message", label: "Agent 对话" },
+                { id: "preview", label: "网页预览" },
+              ]
+                .map(
+                  (t, i) =>
+                    `<button type="button" class="css-part-tab ${i === 0 ? "is-on" : ""}" data-css-part="${t.id}" role="tab">${esc(t.label)}</button>`,
+                )
+                .join("")}
+            </div>
+            <div class="css-part-panel" id="ix-css-part-help"></div>
+            <div class="css-part-actions">
+              <button type="button" class="btn btn-sm" id="ix-css-insert">插入说明到编辑器</button>
+            </div>
             <textarea id="ix-css" class="ctrl render-css-editor" rows="14" spellcheck="false">${esc(rs.effective_css)}</textarea>
           </div>
 
@@ -2665,6 +2854,8 @@ function renderInteract() {
     },
   );
 
+
+  wireCssPartTabs();
 
   $("#ix-reset-style") &&
     ($("#ix-reset-style").onclick = () => {

@@ -572,18 +572,40 @@ class WebApi:
                 continue
             try:
                 r = await run_lifecycle(self.plugin, sid, action)
-                results.append({"id": sid, "ok": True, **{k: v for k, v in r.items() if k != "snapshot"}})
+                results.append({
+                    "id": sid,
+                    "ok": True,
+                    "message": r.get("message") or f"{action} 成功",
+                    **{k: v for k, v in r.items() if k not in ("snapshot", "ok", "message")},
+                })
             except LifecycleError as e:
                 results.append({"id": sid, "ok": False, "message": str(e)})
             except Exception as e:
-                results.append({"id": sid, "ok": False, "message": str(e)})
+                logger.exception("batch lifecycle %s failed for %s", action, sid)
+                results.append({"id": sid, "ok": False, "message": f"{type(e).__name__}: {e}"})
+
+        # 批量结束后强制刷新一次，避免 snapshot 仍是旧 active 状态
+        try:
+            await self.plugin._refresh_sessions()
+        except Exception as e:
+            logger.warning("batch refresh after lifecycle failed: %s", e)
 
         ok_n = sum(1 for r in results if r.get("ok"))
+        fail_n = len(results) - ok_n
+        if fail_n == 0:
+            msg = f"{action} 成功 {ok_n}/{len(results)}"
+        elif ok_n == 0:
+            first = next((r.get("message") for r in results if not r.get("ok")), "失败")
+            msg = f"{action} 全部失败 0/{len(results)} · {first}"
+        else:
+            fails = [f"{(r.get('id') or '')[:8]}: {r.get('message')}" for r in results if not r.get("ok")]
+            msg = f"{action} 完成 {ok_n}/{len(results)}，失败 {fail_n} · " + "；".join(fails[:3])
+
         return json_response({
-            "ok": ok_n == len(results),
+            "ok": fail_n == 0,
             "action": action,
             "results": results,
-            "message": f"完成 {ok_n}/{len(results)}",
+            "message": msg,
             "snapshot": build_sessions_snapshot(self.plugin),
         })
 
@@ -773,18 +795,24 @@ async def run_lifecycle(plugin, sid: str, action: str) -> dict:
         if not ok:
             raise LifecycleError(msg, 502)
     elif action == "archive":
+        # 已归档/非 active：HAPI 可能返回失败；前端批量时给出明确文案
+        if session is not None and not session.get("active") and not session.get("thinking"):
+            raise LifecycleError("session 已是归档/非运行状态，无需再归档", 400)
         ok, msg = await session_ops.archive_session(plugin.client, sid)
         if not ok:
-            raise LifecycleError(msg, 502)
+            raise LifecycleError(msg or "归档失败", 502)
     elif action == "delete":
-        if session and session.get("active"):
+        if session and (session.get("active") or session.get("thinking")):
             ok_arc, msg_arc = await session_ops.archive_session(plugin.client, sid)
             if not ok_arc:
                 raise LifecycleError(f"归档失败，删除中止: {msg_arc}", 502)
         ok, msg = await session_ops.delete_session(plugin.client, sid)
         if not ok:
-            raise LifecycleError(msg, 502)
-        await plugin.state_mgr.unbind_session(sid)
+            raise LifecycleError(msg or "删除失败", 502)
+        try:
+            await plugin.state_mgr.unbind_session(sid)
+        except Exception as e:
+            logger.warning("unbind after delete failed sid=%s: %s", sid, e)
     elif action == "resume":
         if session and session.get("active"):
             raise LifecycleError("session 已是 active，无需恢复", 400)

@@ -1750,6 +1750,96 @@ select.ctrl-sm {
   border-radius: 2px;
 }
 
+/* 图片 CSS 分栏 */
+.css-part-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+
+.css-part-tab {
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.css-part-tab:hover {
+  border-color: var(--ink);
+  background: var(--surface-2);
+}
+
+.css-part-tab.is-on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+
+.css-part-panel {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.css-part-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+
+.css-part-note {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  line-height: 1.45;
+}
+
+.css-part-vars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.css-part-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.css-part-row code {
+  font-size: 10.5px;
+  color: var(--cursor-ink);
+  word-break: break-word;
+}
+
+.css-part-row span {
+  color: var(--muted);
+  font-family: var(--font-ui);
+}
+
+.css-part-actions {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+@media (max-width: 640px) {
+  .css-part-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .enum-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

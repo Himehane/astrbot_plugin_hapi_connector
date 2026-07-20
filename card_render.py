@@ -1939,8 +1939,8 @@ def _draw_session_list_png(
             m_toff = mb[1]
         except Exception:
             m_th, m_toff = meta_h, 0
-        # Pillow 基线偏上；+11 再往下对齐 meta 行视觉中线
-        cy = my - m_toff + m_th // 2 + 14
+        # Pillow 基线偏上：+6 偏上、+14 偏下 → 二分取 +10
+        cy = my - m_toff + m_th // 2 + 10
         draw.ellipse((tx, cy - dot_r, tx + dot_r * 2, cy + dot_r), fill=sc)
         draw.text((tx + 14, my), meta_line, font=font_meta, fill=sub_fg)
 
