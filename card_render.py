@@ -1079,7 +1079,7 @@ def _sanitize_for_mathtext(latex: str) -> str:
     if not s:
         return ""
 
-    # 间距 / 尺寸修饰：mathtext 常炸；\qquad 留成宽空，避免两式粘死
+    # 间距 / 尺寸修饰：mathtext 常炸
     for tok in (
         r"\!",
         r"\,",
@@ -1094,8 +1094,8 @@ def _sanitize_for_mathtext(latex: str) -> str:
         r"\limits",
     ):
         s = s.replace(tok, " ")
-    s = s.replace(r"\qquad", r"\quad")
-    s = s.replace(r"\quad", r"\;\;\;")
+    # 残留 \quad/\qquad（块级已拆行后）收成空格
+    s = s.replace(r"\qquad", " ").replace(r"\quad", " ")
 
     # \dfrac \tfrac → \frac
     s = s.replace(r"\dfrac", r"\frac").replace(r"\tfrac", r"\frac")
@@ -1384,11 +1384,12 @@ def render_message_matplotlib_png(
         except Exception:
             return False
 
-    def _math_area(latex: str):
+    def _math_area(latex: str, *, display: bool = False):
+        size = fs_math * (1.08 if display else 1.0)
         # 1) mathtext 多级候选
         for expr in _formula_to_mathtext(latex):
             if _math_ok(expr):
-                return _text_area(expr, size=fs_math, color=fg, math=True)
+                return _text_area(expr, size=size, color=fg, math=True)
         # 2) 可读近似（不要整段反斜杠源码糊脸）
         approx = _latex_approx_plain(latex)
         return _text_area(approx or "?", size=fs_body, color=fg)
@@ -1410,11 +1411,16 @@ def render_message_matplotlib_png(
 
         for kind, content in segs:
             if kind == "formula":
-                is_display = ("\n" in content) or content.lstrip().startswith("\\begin")
-                # 块级里 \qquad 常用来并排两式 → 拆成两行，避免粘成一团
+                is_display = (
+                    ("\n" in content)
+                    or content.lstrip().startswith("\\begin")
+                    or bool(re.search(r"\\\\|\\qquad|\\quad", content))
+                )
+                # 块级里 \qquad/\quad 常用来并排两式 → 拆行；丢掉纯标点碎片（如 \quad,\quad 中间的 ","）
                 if is_display and re.search(r"\\qquad|\\quad", content):
                     parts = re.split(r"\\qquad|\\quad", content)
-                    parts = [p.strip() for p in parts if p and p.strip()]
+                    parts = [p.strip(" \t\n\r,;，；") for p in parts]
+                    parts = [p for p in parts if p and not re.fullmatch(r"[,;，；.]+", p)]
                     if len(parts) > 1:
                         flush()
                         for p in parts:
@@ -1459,7 +1465,7 @@ def render_message_matplotlib_png(
             continue
         # 含公式：同行横排；块级公式单独一格
         if len(row) == 1 and row[0][0] == "formula":
-            children.append(_math_area(row[0][1]))
+            children.append(_math_area(row[0][1], display=True))
             continue
         row_items: list[Any] = []
         for kind, content in row:
@@ -1468,14 +1474,14 @@ def render_message_matplotlib_png(
                 if plain:
                     row_items.append(_text_area(plain, size=fs_body, color=fg))
             else:
-                row_items.append(_math_area(content))
+                row_items.append(_math_area(content, display=False))
         if not row_items:
             continue
         if len(row_items) == 1:
             children.append(row_items[0])
         else:
             children.append(
-                HPacker(children=row_items, align="center", pad=0, sep=3)
+                HPacker(children=row_items, align="center", pad=0, sep=4)
             )
 
     if footer.strip():
