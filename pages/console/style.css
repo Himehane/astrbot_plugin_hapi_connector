@@ -1788,21 +1788,13 @@ select.ctrl-sm {
   font-size: 12px;
   font-weight: 700;
   color: var(--ink);
-  margin-bottom: 4px;
-}
-
-.css-part-note {
-  margin: 0 0 8px;
-  font-size: 11px;
-  color: var(--muted);
-  font-family: var(--font-ui);
-  line-height: 1.45;
+  margin-bottom: 6px;
 }
 
 .css-part-vars {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .css-part-row {
@@ -1823,12 +1815,6 @@ select.ctrl-sm {
 .css-part-row span {
   color: var(--muted);
   font-family: var(--font-ui);
-}
-
-.css-part-actions {
-  display: flex;
-  gap: 8px;
-  margin: 0 0 8px;
 }
 
 @media (max-width: 640px) {

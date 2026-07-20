@@ -1659,86 +1659,96 @@ function renderSessions() {
 
 /* ---------- interact ---------- */
 
-/** 图片 CSS 分栏说明：出图真正读 :root 变量；选择器仅网页预览 */
+/** 图片 CSS 分栏：tab 只列这块用到的 :root 变量 */
 const CSS_PART_HELP = {
   all: {
-    title: "全局（全部图片）",
-    note: "改这些，所有推送图片都会变。",
+    title: "全局",
     vars: [
-      ["--card-bg / fg / accent / muted / border / code-bg", "背景、字色、强调色、次要字、边框、代码底"],
-      ["--card-width / pad / radius / font-scale", "宽度、内边距、圆角、整体字号倍率"],
-      ["--card-title-size / sub-size / body-size / meta-size / foot-size", "标题 / 副标题 / 正文 / 元信息 / 页脚字号"],
+      ["--card-bg", "背景"],
+      ["--card-fg", "字色"],
+      ["--card-accent", "强调色"],
+      ["--card-muted", "次要字"],
+      ["--card-border", "边框"],
+      ["--card-code-bg", "代码底"],
+      ["--card-width", "宽度"],
+      ["--card-pad", "内边距"],
+      ["--card-radius", "圆角"],
+      ["--card-font-scale", "字号倍率"],
+      ["--card-title-size", "标题"],
+      ["--card-sub-size", "副标题"],
+      ["--card-body-size", "正文"],
+      ["--card-meta-size", "元信息"],
+      ["--card-foot-size", "页脚"],
     ],
-    snippet:
-      "/* 全局 */\n/* --card-bg --card-fg --card-accent --card-muted --card-border --card-code-bg */\n/* --card-width --card-pad --card-radius --card-font-scale */\n/* --card-title-size --card-sub-size --card-body-size --card-meta-size --card-foot-size */\n",
   },
   session_list: {
     title: "Session 列表",
-    note: "序号框、行距、分组条。",
     vars: [
-      ["--card-idx-w / h / font / radius / top", "序号框宽、高、字号、圆角、距行顶"],
-      ["--card-row-pad-y / pad-x / gap", "行内上下/左右留白、行与行间距"],
-      ["--card-section-gap", "路径分组之间的间距"],
+      ["--card-idx-w", "序号宽"],
+      ["--card-idx-h", "序号高"],
+      ["--card-idx-font", "序号字号"],
+      ["--card-idx-radius", "序号圆角"],
+      ["--card-idx-top", "序号距行顶"],
+      ["--card-row-pad-y", "行上下留白"],
+      ["--card-row-pad-x", "行左右留白"],
+      ["--card-row-gap", "行间距"],
+      ["--card-section-gap", "分组间距"],
     ],
-    snippet:
-      "/* Session 列表 */\n/* --card-idx-w --card-idx-h --card-idx-font --card-idx-radius --card-idx-top */\n/* --card-row-pad-y --card-row-pad-x --card-row-gap --card-section-gap */\n",
   },
   pending: {
-    title: "待审批列表",
-    note: "颜色与字号用全局；行距可调 row。",
+    title: "待审批",
     vars: [
-      ["全局颜色 / 字号", "见「全局」"],
-      ["--card-row-pad-y / pad-x / gap", "列表行间距与内边距"],
+      ["（颜色/字号）", "见全局"],
+      ["--card-row-pad-y", "行上下留白"],
+      ["--card-row-pad-x", "行左右留白"],
+      ["--card-row-gap", "行间距"],
     ],
-    snippet: "/* 待审批 — 主要用全局变量；行距：--card-row-pad-y --card-row-pad-x --card-row-gap */\n",
   },
   status: {
     title: "状态",
-    note: "大状态徽章与圆点。",
     vars: [
-      ["--card-badge-h / pad-x / font / dot", "徽章高度、左右内边距、字号、圆点大小"],
-      ["全局颜色 / 字号", "标题副标题等"],
+      ["--card-badge-h", "徽章高度"],
+      ["--card-badge-pad-x", "徽章左右内边距"],
+      ["--card-badge-font", "徽章字号"],
+      ["--card-badge-dot", "圆点大小"],
+      ["（颜色/字号）", "见全局"],
     ],
-    snippet:
-      "/* 状态图片 */\n/* --card-badge-h --card-badge-pad-x --card-badge-font --card-badge-dot */\n",
   },
   permission: {
     title: "权限请求",
-    note: "结构行 + 通用颜色字号。",
     vars: [
-      ["全局颜色 / 字号", "见「全局」"],
-      ["--card-row-pad-y / pad-x / gap", "键值行间距"],
+      ["（颜色/字号）", "见全局"],
+      ["--card-row-pad-y", "行上下留白"],
+      ["--card-row-pad-x", "行左右留白"],
+      ["--card-row-gap", "行间距"],
     ],
-    snippet: "/* 权限请求 — 全局 + --card-row-* */\n",
   },
   routes: {
     title: "推送路由",
-    note: "同结构行布局。",
     vars: [
-      ["全局颜色 / 字号", "见「全局」"],
-      ["--card-row-pad-y / pad-x / gap", "行间距"],
+      ["（颜色/字号）", "见全局"],
+      ["--card-row-pad-y", "行上下留白"],
+      ["--card-row-pad-x", "行左右留白"],
+      ["--card-row-gap", "行间距"],
     ],
-    snippet: "/* 推送路由 — 全局 + --card-row-* */\n",
   },
   message: {
     title: "Agent 对话",
-    note: "Markdown 正文；代码块底色用 code-bg。",
     vars: [
-      ["--card-body-size / title-size / sub-size", "正文、标题、副标题"],
-      ["--card-code-bg / border / muted", "代码底、边框、次要字"],
+      ["--card-body-size", "正文"],
+      ["--card-title-size", "标题"],
+      ["--card-sub-size", "副标题"],
+      ["--card-code-bg", "代码底"],
+      ["--card-border", "边框"],
+      ["--card-muted", "次要字"],
     ],
-    snippet:
-      "/* Agent 对话 */\n/* --card-body-size --card-title-size --card-sub-size --card-code-bg --card-border --card-muted */\n",
   },
   preview: {
-    title: "网页预览（不出图）",
-    note: "只有左侧 DOM 预览读选择器；聊天出图不读 .card / .row。",
+    title: "网页预览",
     vars: [
-      [".card / .card-title / .row …", "仅网页预览排版"],
-      [":root --card-*", "预览与出图都会跟颜色变量（若预览注入了变量）"],
+      [".card / .row …", "仅 DOM 预览，出图不读"],
+      [":root --card-*", "变量预览与出图共用"],
     ],
-    snippet:
-      "/* 仅网页预览 — 出图忽略选择器 */\n/* .card { } .card-title { } .row { } .row-detail { } */\n",
   },
 };
 
@@ -1746,7 +1756,6 @@ function paintCssPartHelp(partId) {
   const part = CSS_PART_HELP[partId] || CSS_PART_HELP.all;
   const host = $("#ix-css-part-help");
   if (!host) return;
-  host.dataset.part = partId;
   const rows = (part.vars || [])
     .map(
       ([k, d]) =>
@@ -1755,7 +1764,6 @@ function paintCssPartHelp(partId) {
     .join("");
   host.innerHTML = `
     <div class="css-part-title">${esc(part.title)}</div>
-    <p class="css-part-note">${esc(part.note || "")}</p>
     <div class="css-part-vars">${rows}</div>
   `;
 }
@@ -1772,27 +1780,6 @@ function wireCssPartTabs() {
       paintCssPartHelp(tab.dataset.cssPart);
     };
   });
-  const insertBtn = $("#ix-css-insert");
-  if (insertBtn) {
-    insertBtn.onclick = () => {
-      const ta = $("#ix-css");
-      if (!ta) return;
-      const partId = $("#ix-css-part-help")?.dataset.part || "all";
-      const snip = (CSS_PART_HELP[partId] || CSS_PART_HELP.all).snippet || "";
-      const start = ta.selectionStart ?? ta.value.length;
-      const end = ta.selectionEnd ?? start;
-      const v = ta.value;
-      ta.value = v.slice(0, start) + snip + v.slice(end);
-      const pos = start + snip.length;
-      ta.focus();
-      try {
-        ta.setSelectionRange(pos, pos);
-      } catch (_) {
-        /* ignore */
-      }
-      toast("已插入「" + (CSS_PART_HELP[partId]?.title || partId) + "」说明");
-    };
-  }
 }
 
 function normalizeRenderMode(m) {
@@ -1904,6 +1891,13 @@ const FALLBACK_INSTALLABLE = [
     group: "dep",
     label: "Pillow（出图引擎）",
     desc: "pip install Pillow — 低延迟出图，不依赖浏览器",
+    installed: false,
+  },
+  {
+    id: "dep_matplotlib",
+    group: "dep",
+    label: "matplotlib（公式内嵌）",
+    desc: "pip install matplotlib — Agent 消息公式渲成内嵌图",
     installed: false,
   },
 ];
@@ -2633,13 +2627,13 @@ function renderInteract() {
             <div class="chk-grid">${kindChecks}</div>
           </div>
 
-          <div class="field">
-            <div class="field-label">公式渲染</div>
-            <select id="ix-fmode" class="ctrl" style="max-width:280px">
+          <div class="field" id="ix-fmode-wrap" ${rs.kinds.includes("message") ? "" : "hidden"}>
+            <div class="field-label">公式渲染（仅 Agent 对话）</div>
+            <select id="ix-fmode" class="ctrl" style="max-width:320px">
               ${[
-                { value: "off", title: "关闭（当普通文字，仍可出图）" },
-                { value: "detect", title: "渲染为内嵌图片" },
-                { value: "plain", title: "有公式则只发文字" },
+                { value: "off", title: "关闭（当普通文字）" },
+                { value: "detect", title: "有公式则用 matplotlib 内嵌图" },
+                { value: "plain", title: "有公式则整段只发文字" },
               ]
                 .map(
                   (o) =>
@@ -2649,13 +2643,18 @@ function renderInteract() {
                 )
                 .join("")}
             </select>
+            ${
+              engine.matplotlib
+                ? `<p class="field-help" style="margin-top:6px">matplotlib 已就绪。</p>`
+                : `<p class="field-help" style="margin-top:6px">选「内嵌图」需安装 matplotlib（下方可选依赖勾选安装）。未装时公式按源码文字显示。</p>`
+            }
           </div>
 
           <div class="field">
             <div class="field-label">图片 CSS（当前生效）</div>
             <p class="field-help">
-              ${rs.using_default_css ? "现在用的是内置默认样式。" : "现在用的是你保存过的自定义样式。"}
-              用下面分栏切换「要改哪一块」；点「插入说明」会在编辑器光标处贴上对应变量注释（真正改值仍在 <code>:root</code>）。
+              ${rs.using_default_css ? "内置默认样式。" : "已保存的自定义样式。"}
+              点分栏看这块用哪些变量；改值在下方 <code>:root</code> 编辑器。
             </p>
             <div class="css-part-tabs" id="ix-css-tabs" role="tablist">
               ${[
@@ -2675,9 +2674,6 @@ function renderInteract() {
                 .join("")}
             </div>
             <div class="css-part-panel" id="ix-css-part-help"></div>
-            <div class="css-part-actions">
-              <button type="button" class="btn btn-sm" id="ix-css-insert">插入说明到编辑器</button>
-            </div>
             <textarea id="ix-css" class="ctrl render-css-editor" rows="14" spellcheck="false">${esc(rs.effective_css)}</textarea>
           </div>
 
@@ -2826,6 +2822,20 @@ function renderInteract() {
     };
   });
   syncCardPanelVisibility(rs.render_mode);
+
+  // 勾选「Agent 对话」才显示公式渲染
+  const syncFormulaWrap = () => {
+    const wrap = $("#ix-fmode-wrap");
+    if (!wrap) return;
+    const msgOn = [...document.querySelectorAll("[data-rkind]")].some(
+      (el) => el.value === "message" && el.checked,
+    );
+    wrap.hidden = !msgOn;
+  };
+  $$("[data-rkind]").forEach((el) => {
+    el.addEventListener("change", syncFormulaWrap);
+  });
+  syncFormulaWrap();
 
   const bindPaint = () => {
     paintDomCardPreview();
