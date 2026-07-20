@@ -2230,19 +2230,35 @@ select.ctrl-sm {
 }
 
 /* ---------- dialog ---------- */
+/*
+  原生 <dialog> 关闭时 UA 是 display:none。作者样式里若写
+  .dlg { display:flex } 会盖掉 UA 规则（author > UA），关闭态仍参与
+  文档流 → 弹窗空壳一直趴在页面最底下占位（不点也看得见）。
+  正确做法：默认 none；仅 [open] 时 flex + fixed 视口居中。
+*/
 .dlg {
+  display: none;
   border: 1px solid var(--ink);
   border-radius: var(--radius);
   padding: 0;
   background: var(--surface);
   color: var(--ink);
   width: min(440px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  height: fit-content;
   max-height: min(88vh, 720px);
   box-shadow: 6px 6px 0 rgba(28, 25, 20, 0.12);
   font-family: var(--font);
+  overflow: hidden;
+  z-index: 1000;
+}
+
+.dlg[open] {
+  position: fixed;
+  inset: 0;
+  margin: auto;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 .dlg::backdrop {

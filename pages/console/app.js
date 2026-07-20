@@ -1310,7 +1310,7 @@ function openWindowVisibilityDialog() {
   const dlg = $("#dlg");
   dlg?.classList.add("dlg-win-vis");
   $("#dlg-body").innerHTML = `
-    <p class="field-help win-vis-help">勾选的窗口会出现在本页左侧列表和推送下拉框里。按 Bot 分组；默认全部显示。设置只存在本浏览器。列表可滚动，请往下看完。</p>
+    <p class="field-help win-vis-help">勾选的窗口会出现在本页左侧列表和推送下拉框里。按 Bot 分组；默认全部显示。设置只存在本浏览器。</p>
     <div class="win-vis-toolbar">
       <button type="button" class="btn btn-sm" id="vis-all">全部显示</button>
       <button type="button" class="btn btn-sm" id="vis-none">全部隐藏</button>
