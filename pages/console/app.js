@@ -7,7 +7,7 @@
  * 页面：概览 / 会话 / 交互 / 命令帮助 / 设置
  */
 
-import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.1";
+import { hasBridge, initBridge, createApi } from "./api.js?v=3.1.2";
 
 /* ---------- constants ---------- */
 
@@ -142,6 +142,24 @@ const SETTINGS = [
         label: "配置级默认推送窗口 ID",
         type: "text",
         help: "多数用聊天 /hapi bind 设默认推送窗口。这里是配置里的窗口 ID；不确定请留空。",
+      },
+      {
+        key: "render_mode",
+        label: "推送渲染模式",
+        type: "enum_cards",
+        need: true,
+        help: "纯文本=原样文字；出卡=下方类型渲成图片（需 Pillow）。与「交互优化」同源，保存后持久生效。",
+        options: [
+          { value: "text", title: "纯文本", desc: "全部文字推送。" },
+          { value: "card", title: "出卡", desc: "勾选类型渲成卡片；含 Agent 对话。" },
+        ],
+      },
+      {
+        key: "render_kinds",
+        label: "出卡类型（逗号分隔）",
+        type: "text",
+        help: "如 session_list,pending,status,permission,message。message=Agent 对话。也可在「交互优化」里勾选保存。",
+        showIf: { key: "render_mode", eq: "card" },
       },
     ],
   },
@@ -1499,20 +1517,26 @@ function paintDomCardPreview() {
 
 function collectRenderPatchFromForm() {
   const kindBoxes = [...document.querySelectorAll("[data-rkind]")];
-  const kinds = kindBoxes.filter((el) => el.checked).map((el) => el.value);
-  // 模式卡片（enum）或 select 兜底
+  let kinds = kindBoxes.filter((el) => el.checked).map((el) => el.value);
   const modeRadio = document.querySelector('input[name="ix-rmode"]:checked');
   const render_mode = normalizeRenderMode(modeRadio?.value || $("#ix-rmode")?.value || "text");
+  // 面板隐藏时 checkbox 可能未勾选：沿用已保存 kinds，避免误清空 message
+  if (render_mode === "card" && !kinds.length) {
+    const prev = state.data?.config?.render_kinds_list || String(state.data?.config?.render_kinds || "").split(",");
+    kinds = (Array.isArray(prev) ? prev : []).map((x) => String(x).trim()).filter(Boolean);
+  }
+  if (render_mode === "card" && !kinds.length) {
+    kinds = ["session_list", "pending", "status", "permission", "message"];
+  }
   const defaultCss =
     (state.meta && state.meta.render && state.meta.render.default_css) ||
     DEFAULT_CARD_CSS_FALLBACK;
   let css = $("#ix-css")?.value ?? "";
-  // 与默认完全一致时存空，表示「用内置默认」
   if (css.trim() === String(defaultCss).trim()) css = "";
   return {
     render_mode,
     formula_mode: $("#ix-fmode")?.value || "off",
-    render_kinds: kinds.join(",") || "session_list,pending,message",
+    render_kinds: render_mode === "card" ? kinds.join(",") : String(state.data?.config?.render_kinds || kinds.join(",") || "session_list,pending,message"),
     card_custom_css: css,
     card_font_path: ($("#ix-font-path")?.value || "").trim(),
   };
@@ -1795,39 +1819,56 @@ function renderInteract() {
     ($("#ix-install-selected").onclick = async () => {
       const boxes = [...document.querySelectorAll("[data-install-id]")];
       const ids = boxes.filter((el) => el.checked).map((el) => el.value);
-      const log = $("#ix-install-log");
+      const logEl = $("#ix-install-log");
+      const btn = $("#ix-install-selected");
       if (!ids.length) {
-        if (log) log.textContent = "请先勾选要安装的项（中文字体 / Pillow）。";
+        if (logEl) logEl.textContent = "请先勾选：中文字体 和/或 Pillow。";
         return;
       }
-      if (log) log.textContent = "安装中… " + ids.join(", ");
-      const btn = $("#ix-install-selected");
-      if (btn) btn.disabled = true;
+      const setLog = (s) => {
+        if (logEl) logEl.textContent = s;
+      };
+      setLog("安装中…\n" + ids.map((id) => "· " + id).join("\n"));
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add("is-busy");
+        btn.dataset._old = btn.textContent || "";
+        btn.textContent = "安装中…";
+      }
       try {
-        let res;
-        if (!liveMode || !api) {
-          res = { ok: false, message: "本地预览无法安装；请在 AstrBot 插件面板操作。" };
-        } else if (typeof api.renderInstall === "function") {
-          res = await api.renderInstall({ ids });
-        } else if (typeof api.post === "function") {
-          res = await api.post("render/install", { ids });
-        } else {
-          res = { ok: false, message: "API 未就绪。请重载插件并硬刷新面板（Ctrl+Shift+R）。" };
+        // 与 self_learning 一样：直接 bridge.apiPost，不绕花活封装
+        const bridge = window.AstrBotPluginPage;
+        if (!liveMode || !bridge || typeof bridge.apiPost !== "function") {
+          throw new Error("不在 AstrBot 插件面板内，或 bridge 不可用");
         }
+        let raw = await bridge.apiPost("render/install", { ids, force: false });
+        // 解包 { code, data } 若有
+        if (raw && typeof raw === "object" && raw.data != null && (raw.code === 0 || raw.code === 200 || raw.success === true)) {
+          raw = raw.data;
+        }
+        const res = raw || {};
         const lines = [];
-        lines.push(res?.message || (res?.ok ? "完成" : "失败"));
-        for (const r of res?.results || []) {
-          lines.push(`· ${r.id}: ${r.message || (r.ok ? "ok" : r.error || "fail")}`);
+        lines.push(res.message || (res.ok || res.success ? "完成" : "失败"));
+        if (res.output) lines.push(String(res.output));
+        else if (Array.isArray(res.log)) lines.push(res.log.join("\n"));
+        else {
+          for (const r of res.results || []) {
+            lines.push(`· ${r.id}: ${r.message || (r.ok ? "ok" : r.error || "fail")}`);
+            if (Array.isArray(r.log)) lines.push(r.log.join("\n"));
+          }
         }
-        if (log) log.textContent = lines.join("\n");
-        toast(res?.ok ? "安装完成" : "安装有失败，见日志");
-        // 刷新引擎状态
+        setLog(lines.filter(Boolean).join("\n"));
+        toast(res.ok || res.success ? "安装完成" : "安装有失败，见下方日志");
         await refresh({ silent: true, repaint: true });
       } catch (e) {
-        if (log) log.textContent = "安装失败: " + (e.message || e);
+        setLog("安装失败: " + (e.message || e));
         toast("安装失败: " + (e.message || e));
       } finally {
-        if (btn) btn.disabled = false;
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove("is-busy");
+          if (btn.dataset._old) btn.textContent = btn.dataset._old;
+        }
       }
     });
 
@@ -1838,7 +1879,7 @@ function renderInteract() {
         let res = null;
         if (liveMode && api) {
           res = await api.saveConfig(patch);
-          toast(res?.message || "已保存");
+          toast((res?.message || "已保存") + "（已写入插件配置）");
         } else {
           store.saveConfig({
             ...patch,

@@ -23,6 +23,8 @@ class SSEListener:
         self.client = client
         self.sessions_cache = sessions_cache
         self.notify_callback = notify_callback
+        # 可选：插件引用，用于推送呈现（卡片/对话渲染）。由 main 注入。
+        self.plugin = None
         self.output_level: str = "detail"
         # {session_id: {request_id: {tool, arguments, ...}}}
         self.pending: dict[str, dict] = {}
@@ -643,15 +645,26 @@ class SSEListener:
             if len(visible_msgs) == 1:
                 msg, text = visible_msgs[0]
                 output = f"{label}\n{format_agent_line(text)}"
+                body = text
             else:
                 lines = [f"{label}\n━━━ {len(visible_msgs)} 条新消息 ━━━"]
+                body_parts = []
                 for msg, text in sorted(visible_msgs, key=lambda x: x[0].get("seq", 0)):
                     lines.append(format_agent_line(text))
+                    body_parts.append(text)
                 lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 output = "\n\n".join(lines)
+                body = "\n\n---\n\n".join(body_parts)
 
             self._mark_messages_notified(sid, latest_visible_seq)
-            await self._push_notification(output, sid)
+            await self._push_message_card(
+                session_id=sid,
+                label=label,
+                body=body,
+                fallback_text=output,
+                title="Agent 消息" if len(visible_msgs) == 1 else f"Agent 消息 · {len(visible_msgs)} 条",
+                footer="output=detail",
+            )
             return True
 
         except Exception as e:
@@ -699,15 +712,26 @@ class SSEListener:
             if len(agent_texts) == 1:
                 _, text = agent_texts[0]
                 output = f"{label}\n[Message]: {text}"
+                body = text
             else:
                 lines = [f"{label}\n━━━ {len(agent_texts)} 条新消息 ━━━"]
+                body_parts = []
                 for _, text in agent_texts:
                     lines.append(f"[Message]: {text}")
+                    body_parts.append(text)
                 lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 output = "\n\n".join(lines)
+                body = "\n\n---\n\n".join(body_parts)
 
             self._mark_messages_notified(sid, latest_visible_seq)
-            await self._push_notification(output, sid)
+            await self._push_message_card(
+                session_id=sid,
+                label=label,
+                body=body,
+                fallback_text=output,
+                title="Agent 消息" if len(agent_texts) == 1 else f"Agent 消息 · {len(agent_texts)} 条",
+                footer="output=simple",
+            )
             return True
 
         except Exception as e:
@@ -753,15 +777,26 @@ class SSEListener:
             if len(agent_texts) == 1:
                 _, text = agent_texts[0]
                 output = f"{label}\n{format_agent_line(text)}"
+                body = text
             else:
                 lines = [f"{label}\n━━━ 最近 {len(agent_texts)} 条消息 ━━━"]
+                body_parts = []
                 for _, text in agent_texts:
                     lines.append(format_agent_line(text))
+                    body_parts.append(text)
                 lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 output = "\n\n".join(lines)
+                body = "\n\n---\n\n".join(body_parts)
 
             self._mark_messages_notified(sid, latest_visible_seq)
-            await self._push_notification(output, sid)
+            await self._push_message_card(
+                session_id=sid,
+                label=label,
+                body=body,
+                fallback_text=output,
+                title="Agent 消息" if len(agent_texts) == 1 else f"最近 {len(agent_texts)} 条消息",
+                footer="output=summary",
+            )
             return True
 
         except Exception as e:
@@ -827,6 +862,44 @@ class SSEListener:
     async def _push_notification(self, text: str, session_id: str):
         """通过回调向所有已注册的管理员推送消息"""
         await self.notify_callback(text, session_id)
+
+    async def _push_message_card(
+        self,
+        *,
+        session_id: str,
+        label: str,
+        body: str,
+        fallback_text: str,
+        title: str = "Agent 消息",
+        footer: str = "",
+    ):
+        """Agent 对话推送：按 render_mode / render_kinds 尝试出卡，失败回退文本。"""
+        plugin = self.plugin
+        if plugin is None:
+            logger.warning("message card: sse_listener.plugin 未注入，回退文本")
+            await self._push_notification(fallback_text, session_id)
+            return
+        try:
+            from . import output_present
+
+            payload = output_present.build_message_payload(
+                label=label,
+                body=body,
+                title=title,
+                footer=footer,
+            )
+            await output_present.present_push(
+                plugin,
+                plugin.notification_mgr,
+                "message",
+                payload,
+                fallback_text,
+                session_id,
+                self.sessions_cache,
+            )
+        except Exception as e:
+            logger.warning("message card push failed: %s", e)
+            await self._push_notification(fallback_text, session_id)
 
     async def load_existing_pending(self):
         """启动时从已有 session 加载待审批请求"""
