@@ -105,7 +105,7 @@ export const CONFIG_SCHEMA_FALLBACK = {
             {
               "value": "silence",
               "title": "静默",
-              "desc": "几乎不推正文，主要保留权限请求等关键提醒。"
+              "desc": "几乎不推正文，主要保留权限请求等关键提醒。此模式可作为 agent 完成任务 / 需要审批时的通知。"
             },
             {
               "value": "simple",

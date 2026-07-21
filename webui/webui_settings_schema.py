@@ -118,7 +118,10 @@ FIELD_OVERLAY: dict[str, dict[str, Any]] = {
         "need": True,
         "control": "enum_cards",
         "option_meta": {
-            "silence": {"title": "静默", "desc": "几乎不推正文，主要保留权限请求等关键提醒。"},
+            "silence": {
+                "title": "静默",
+                "desc": "几乎不推正文，主要保留权限请求等关键提醒。此模式可作为 agent 完成任务 / 需要审批时的通知。",
+            },
             "simple": {"title": "简洁（推荐）", "desc": "推送 AI 纯文本与系统事件，过滤工具调用细节。"},
             "summary": {"title": "摘要", "desc": "任务收尾时，推送 LLM 最后几条消息（条数见下一项）。"},
             "detail": {"title": "详细", "desc": "尽量实时全推，群里可能很吵。"},

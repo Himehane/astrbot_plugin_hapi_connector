@@ -721,7 +721,7 @@ class CommandHandlers:
     # ── output ──
 
     _OUTPUT_LEVELS = {
-        "silence": "仅推送权限请求和任务完成提醒",
+        "silence": "几乎不推正文，主要保留权限请求等关键提醒；可作为 agent 完成任务/需要审批时的通知",
         "summary": "任务完成时推送最近的 agent 消息",
         "simple": "仅推送 agent 文本消息，不包含复杂的工具调用信息",
         "detail": "实时推送所有新消息（信息量较大）",
