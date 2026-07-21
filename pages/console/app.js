@@ -103,6 +103,16 @@ async function boot() {
         console.warn("help load failed, using bundled", e);
       }
       try {
+        const docs = await api.docsList();
+        if (docs?.docs?.length) {
+          state._docsList = docs.docs;
+          state._docsDefault = docs.default || "install";
+          if (!state.helpDocId) state.helpDocId = state._docsDefault;
+        }
+      } catch (e) {
+        console.warn("docs list load failed", e);
+      }
+      try {
         const meta = await api.meta();
         state.meta = meta || null;
         if (meta?.permission_modes) {

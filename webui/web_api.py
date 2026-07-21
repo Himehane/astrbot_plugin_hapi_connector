@@ -116,6 +116,8 @@ def register_pages(plugin) -> None:
         (f"{prefix}/config", api.get_config, ["GET"], "WebUI get config"),
         (f"{prefix}/config", api.post_config, ["POST"], "WebUI save config"),
         (f"{prefix}/help", api.help_data, ["GET"], "WebUI help"),
+        (f"{prefix}/docs", api.docs_list, ["GET"], "WebUI docs list"),
+        (f"{prefix}/docs/<doc_id>", api.docs_get, ["GET"], "WebUI doc body"),
         (f"{prefix}/connection/wake", api.connection_wake, ["POST"], "WebUI wake SSE"),
         (f"{prefix}/connection/reconnect", api.connection_reconnect, ["POST"], "WebUI reconnect HAPI"),
         (f"{prefix}/sessions/snapshot", api.sessions_snapshot, ["GET"], "WebUI sessions snapshot"),
@@ -383,6 +385,23 @@ class WebApi:
         from astrbot.api.web import json_response
 
         return json_response(formatters.export_help_data())
+
+    async def docs_list(self):
+        from astrbot.api.web import json_response
+
+        from .docs_content import list_docs
+
+        return json_response(list_docs())
+
+    async def docs_get(self, doc_id: str):
+        from astrbot.api.web import error_response, json_response
+
+        from .docs_content import get_doc
+
+        doc = get_doc(doc_id)
+        if not doc:
+            return error_response(f"文档不存在: {doc_id}", status_code=404)
+        return json_response(doc)
 
     async def connection_wake(self):
         from astrbot.api.web import error_response, json_response
