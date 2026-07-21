@@ -1,45 +1,20 @@
 # 更新日志
 
-## v3.1.2 — WebUI 改 endpoint/token 后自动重连 SSE
+## v3.0.0 大更新 - webui支持、可个性化的交互优化、推送图片渲染支持
+感谢还在使用插件的各位朋友，本次更新维护的主题是配置直观性和使用体验的调整优化。
 
-1. **配置保存自动重连**：WebUI 修改 `hapi_endpoint` / `access_token` / 代理 / CF Access / JWT 等连接类项并保存后，立即按新配置重建 `AsyncHapiClient` 并重启 SSE，不再继续挂在旧连接上  
-2. **失败可重试**：配置已落盘；若自动重连失败，返回 `reconnect_required` + 错误信息，概览「重连」仍可用  
-3. **前端提示**：设置页保存成功且已自动重连时不再弹「请手动重连」；仅失败时提示  
+1、Web 管理面板（AstrBot Plugin Pages）
+插件添加了设置面板，请将astrbot提升至支持webui的版本，以更好地管理各项设置与session情况。欢迎使用和体验
 
-## v3.1.1 — 推送呈现修正：自定义 CSS / 对话卡 / 可移植中文字体
+2、引入了将 AI 输出的 Markdown 文字/公式渲染为图片的初步支持。可在webui中预览和启用。依赖包与字体可在webui页进行可选下载。
 
-1. **自定义 CSS**：`card_custom_css` 完整可编辑；Playwright 完整生效，Pillow 识别 `--card-*` 变量（低延迟快路径）  
-2. **对话也出卡**：`render_kinds` 增加 `message`；SSE simple/detail/summary 的 Agent 消息与结构卡同一管线；`main` 注入 `sse_listener.plugin`  
-3. **`/hapi list all` 出卡**：与 `list` 共用结构卡引擎；全局 path 分组 + 序号  
-4. **Session 列表卡美化**：分组条、序号块、状态色点、当前高亮——**不再照抄文本列表**  
-5. **设置页出卡类型勾选**：`render_kinds` 从逗号输入改为多选勾选（与「交互优化」一致）  
-6. **中文字体（轻量）**：`card_font_path` → `assets/fonts` → 系统已装 CJK；**不自动下载**；都没有则回退纯文本  
-7. **可选安装（多选勾选）**：WebUI 勾选「中文字体」和/或「Pillow」，点安装；字体进 `assets/fonts/`，Pillow 走 pip——**不含 Chromium**  
-8. **引擎**：Pillow 出卡（低延迟）；WebUI：CSS 编辑器、字体路径、对话出卡、实卡预览  
+3、添加了对指令别名的支持。现在你可以将任意字符设置为指令的别名，以个性化地精简调用和输入。
 
-
-## v3.1.0 — 推送呈现（可选卡片）+ 戳一戳可映射
-
-1. **推送呈现**：配置 `render_mode`（text/card）、出卡类型、卡片样式；默认 `text`  
-2. **可选依赖**：`requirements-render.txt`（Pillow）。未安装时插件正常运行，出图自动回退纯文本  
-3. **WebUI「交互优化」**：样式预设 / 颜色 / 宽度 / 字号、DOM 即时预览、「生成实卡」走 `POST render/preview`  
-4. **聊天侧**：`/hapi list`、`/hapi pending` 及 SSE Agent 消息在 card 且类型启用时尝试发结构卡（失败回退原文）  
-5. **公式**：`formula_mode` 配置项存在，当前未接数学引擎  
-6. **戳一戳快捷操作**：`poke_action` 可映射 approve/pending/list/status/stop/output_cycle/none（**不含 deny**，防误触）；`poke_approve` 为总开关；WebUI 卡片式选择  
-
-## v3.0.0 — Web 管理面板（AstrBot Plugin Pages）
-
-大版本：在 AstrBot 插件详情页提供 **管理面板**（`pages/console` + `web_api.py`），补「批量看、批量改、改配置」短板；**不替代** `/hapi` 聊天遥控。
-
-1. **概览**：SSE 连接状态、活跃/思考/待审/未投递指标、常用开关、唤醒休眠 SSE、按配置重连 HAPI  
-2. **会话管理**：按聊天窗口分栏、权限模式切换、session 绑定/解绑、resume/archive/delete/abort（含批量）、推送路由展示与单用户可写  
-3. **HAPI 网页**：`GET hub/launch` 按已保存 `hapi_endpoint` / `access_token` 生成官方 HAPI Web 启动链（`?token=` 自动登录 + `?hub=`）；面板内 iframe 嵌入，支持新窗口 / 复制链接  
-4. **交互 / 设置**：戳一戳、快捷前缀；`_conf_schema.json` 全量配置（敏感字段不回显，落盘 `save_config_async` 与官方设置页同源）  
-5. **命令帮助**：服务端 `formatters.export_help_data()` 单一来源  
-6. **规范**：`window.AstrBotPluginPage` bridge、`astrbot.api.web`、亮暗 `data-theme`、可见性感知轮询（不强制 wake SSE）  
-7. **入口**：WebUI → 插件 → hapi connector → 管理面板；i18n `pages.console.title/description`
-
-> 聊天指令与 HAPI 0.21–0.23 对齐见下方 v2.3.0；本大版本的主能力是管理面板。
+默认开启的关键词监听映射有：
+stop，停 -> /hapi stop 命令
+sw -> /hapi sw 命令
+cl -> /hapi to 1 /clear 命令，即对当前agent发送/clear指令清除会话上下文
+hapi指令别名 -> /hapi alias 命令，即查看当前别名关键词映射情况
 
 ## v2.3.0 — 同步 HAPI 0.21–0.23 遥控器能力
 
@@ -52,8 +27,7 @@
    - Claude effort：`low` / `medium` / `high` / `xhigh` / `max`（+ auto）
    - Pi thinking：`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`
    - Codex/OpenCode reasoning：补 `max`，允许动态透传
-   - Claude 模型预设：补 `fable` / `fable[1m]`
-5. **status / help / README** 同步展示 service tier、effort 与新指令
+   - Claude 模型预设：补充了 `fable` / `fable[1m]`
 
 ## v2.2.0 — Agent 类型兼容拓展
 

@@ -165,6 +165,14 @@ class WebApi:
                 logger.warning("font_manager installable failed: %s", e)
                 render_meta.setdefault("installable", [])
 
+            try:
+                from .webui_settings_schema import export_config_schema
+
+                config_schema = export_config_schema()
+            except Exception as e:
+                logger.warning("config_schema export failed: %s", e)
+                config_schema = {"groups": [], "defaults": {}, "field_keys": []}
+
             return json_response({
                 "plugin_name": PLUGIN_NAME,
                 "plugin_version": _plugin_version(self.plugin),
@@ -172,6 +180,7 @@ class WebApi:
                 "render": render_meta,
                 "poke_actions": poke_actions_meta(),
                 "command_catalog": _command_catalog_safe(),
+                "config_schema": config_schema,
                 **profiles,
             })
         except Exception as e:
@@ -1064,28 +1073,33 @@ def public_config(plugin) -> dict[str, Any]:
 
     cf_id = str(_cfg_get(cfg, "cf_access_client_id", "") or "").strip()
     defaults = card_render.config_defaults()
-    # 非卡片类的 schema 默认，避免 key 缺失时前端显示 undefined
-    schema_defaults: dict[str, Any] = {
-        "hapi_endpoint": "http://127.0.0.1:3006",
-        "proxy_url": "",
-        "cf_access_client_id": "",
-        "max_reconnect_attempts": 30,
-        "jwt_lifetime": 900,
-        "refresh_before_expiry": 180,
-        "output_level": "simple",
-        "summary_msg_count": 5,
-        "quick_prefix": ">",
-        "poke_approve": True,
-        "poke_action": "approve",
-        "cmd_keyword_maps": None,  # 下面用 keyword_maps 默认填充
-        "remind_pending": True,
-        "remind_interval": 180,
-        "auto_approve_enabled": False,
-        "auto_approve_start": "23:00",
-        "auto_approve_end": "07:00",
-        "default_notification_window": "",
-        **defaults,
-    }
+    # 默认值优先 _conf_schema.json，卡片类再叠 card_render.config_defaults
+    try:
+        from .webui_settings_schema import schema_defaults as _schema_defaults
+
+        schema_defaults: dict[str, Any] = {**_schema_defaults(), **defaults}
+    except Exception:
+        schema_defaults = {
+            "hapi_endpoint": "http://127.0.0.1:3006",
+            "proxy_url": "",
+            "cf_access_client_id": "",
+            "max_reconnect_attempts": 30,
+            "jwt_lifetime": 900,
+            "refresh_before_expiry": 180,
+            "output_level": "simple",
+            "summary_msg_count": 5,
+            "quick_prefix": ">",
+            "poke_approve": True,
+            "poke_action": "approve",
+            "cmd_keyword_maps": None,
+            "remind_pending": True,
+            "remind_interval": 180,
+            "auto_approve_enabled": False,
+            "auto_approve_start": "23:00",
+            "auto_approve_end": "07:00",
+            "default_notification_window": "",
+            **defaults,
+        }
     out: dict[str, Any] = {}
     for key in CONFIG_KEYS:
         if key in SENSITIVE_KEYS:
@@ -1124,22 +1138,28 @@ def public_config(plugin) -> dict[str, Any]:
                     "id": "font_noto_sc",
                     "group": "font",
                     "label": "中文字体 Noto Sans SC",
-                    "desc": "下载到插件 assets/fonts/",
+                    "desc": "下载到插件 assets/fonts/（约 8MB）",
                     "installed": False,
+                    "approx_mb": 8,
+                    "approx_label": "约 8MB",
                 },
                 {
                     "id": "dep_pillow",
                     "group": "dep",
                     "label": "Pillow（出图引擎）",
-                    "desc": "pip install Pillow",
+                    "desc": "pip install Pillow — 低延迟出图（约 3MB）",
                     "installed": False,
+                    "approx_mb": 3,
+                    "approx_label": "约 3MB",
                 },
                 {
                     "id": "dep_matplotlib",
                     "group": "dep",
                     "label": "matplotlib（公式）",
-                    "desc": "pip install matplotlib — 公式用它渲染",
+                    "desc": "pip install matplotlib — 含 numpy 等（约 40MB）",
                     "installed": False,
+                    "approx_mb": 40,
+                    "approx_label": "约 40MB",
                 },
             ]
     try:

@@ -209,11 +209,76 @@ def ensure_default_fonts(*, allow_download: bool = False) -> dict[str, Any]:
     return status
 
 
-@lru_cache(maxsize=32)
-def _load_truetype(path_str: str, size: int, index: int):
+@lru_cache(maxsize=96)
+def _load_truetype(path_str: str, size: int, index: int, weight: int):
+    """返回 (font, weight_applied)。weight_applied：可变字重轴是否成功。"""
     from PIL import ImageFont  # type: ignore
 
-    return ImageFont.truetype(path_str, size=size, index=index)
+    font = ImageFont.truetype(path_str, size=size, index=index)
+    weight_applied = False
+    # 可变字体（如 NotoSansCJK-VF）：显式设字重。
+    # 默认轴常是 Thin(100)，不设则正文偏细；bold 用 700 真正加粗。
+    target_w = int(weight) if weight else 400
+    if hasattr(font, "set_variation_by_axes"):
+        try:
+            axes = font.get_variation_axes() if hasattr(font, "get_variation_axes") else []
+            for ax in axes or []:
+                name = ax.get("name") if isinstance(ax, dict) else None
+                # name 可能是 bytes
+                n = (
+                    name.decode("ascii", "ignore")
+                    if isinstance(name, (bytes, bytearray))
+                    else str(name or "")
+                )
+                if n.lower() in ("weight", "wght"):
+                    lo = float(ax.get("minimum", 100))
+                    hi = float(ax.get("maximum", 900))
+                    w = max(lo, min(hi, float(target_w)))
+                    font.set_variation_by_axes([w])
+                    # 仅当请求粗体且成功落到 ≥600 时算「粗体已生效」
+                    weight_applied = target_w >= 600
+                    break
+        except Exception:
+            weight_applied = False
+    return font, weight_applied
+
+
+def _bold_sibling_path(path: Path) -> Path | None:
+    """同目录找 Bold / Medium 兄弟文件（静态字体无字重轴时用）。"""
+    if path is None:
+        return None
+    name = path.name
+    stem = path.stem
+    parent = path.parent
+    low = name.lower()
+    # 已是粗体
+    if any(k in low for k in ("bold", "black", "heavy", "semibold", "medium")):
+        return path
+    candidates = [
+        parent / name.replace("Regular", "Bold"),
+        parent / name.replace("regular", "bold"),
+        parent / name.replace("Regular", "Medium"),
+        parent / f"{stem}-Bold{path.suffix}",
+        parent / f"{stem}Bold{path.suffix}",
+        parent / f"{stem}-bold{path.suffix}",
+        parent / f"{stem}_Bold{path.suffix}",
+        # Windows 雅黑粗体
+        parent / "msyhbd.ttc",
+        parent / "msyhbd.ttf",
+        parent / "simhei.ttf",
+    ]
+    seen: set[str] = set()
+    for c in candidates:
+        key = str(c)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if c.is_file() and c.stat().st_size > 1024 and c != path:
+                return c
+        except OSError:
+            continue
+    return None
 
 
 def load_image_font(
@@ -222,12 +287,25 @@ def load_image_font(
     mono: bool = False,
     user_path: str | None = None,
     allow_download: bool = False,
+    bold: bool = False,
+    weight: int | None = None,
 ):
-    """加载 Pillow ImageFont；失败抛 RuntimeError（含修复提示）。"""
+    """加载 Pillow ImageFont；失败抛 RuntimeError（含修复提示）。
+
+    bold=True 或 weight>=600 时尽量用粗体：
+    1) 可变字体字重轴（wght）
+    2) 同目录 Bold 兄弟文件
+    3) 仍失败则回退常规字（调用方可 stroke 合成）
+    """
     try:
         from PIL import ImageFont  # type: ignore
     except ImportError as e:
         raise RuntimeError("未安装 Pillow") from e
+
+    _ = allow_download
+    want_w = int(weight) if weight is not None else (700 if bold else 400)
+    want_w = max(100, min(900, want_w))
+    want_bold = want_w >= 600
 
     path = resolve_font_path(
         mono=mono, user_path=user_path, allow_download=False
@@ -242,14 +320,35 @@ def load_image_font(
         st = ensure_default_fonts()
         raise RuntimeError(st.get("error") or "无可用字体")
 
+    load_path = path
+    if want_bold:
+        sib = _bold_sibling_path(path)
+        if sib is not None:
+            load_path = sib
+
     last_err: Exception | None = None
-    for idx in (0, 1, 2, 3, 4):
-        try:
-            return _load_truetype(str(path), int(size), idx)
-        except Exception as e:
-            last_err = e
-            if path.suffix.lower() not in (".ttc", ".otc"):
-                break
+    for try_path in (load_path, path) if load_path != path else (path,):
+        used_sibling = try_path != path and want_bold
+        for idx in (0, 1, 2, 3, 4):
+            try:
+                font, weight_applied = _load_truetype(
+                    str(try_path),
+                    int(size),
+                    idx,
+                    want_w if want_bold else 400,
+                )
+                # 供 card_render 决定是否 stroke 合成加粗
+                effective = (not want_bold) or weight_applied or used_sibling
+                try:
+                    font.hapi_bold_effective = effective  # type: ignore[attr-defined]
+                    font.hapi_want_bold = want_bold  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                return font
+            except Exception as e:
+                last_err = e
+                if try_path.suffix.lower() not in (".ttc", ".otc"):
+                    break
     raise RuntimeError(f"无法加载字体 {path}: {last_err}")
 
 
@@ -264,6 +363,21 @@ def _source_label(src: str | None) -> str:
 
 def clear_font_cache_meta() -> None:
     _load_truetype.cache_clear()
+
+
+# pip 包体积粗估（wheel + 常见依赖，供 WebUI 展示；非精确）
+_DEP_SIZE_HINTS = {
+    "dep_pillow": {
+        "approx_mb": 3,
+        "approx_label": "约 3MB",
+        "desc_extra": "低延迟出图，不依赖浏览器",
+    },
+    "dep_matplotlib": {
+        "approx_mb": 40,
+        "approx_label": "约 40MB",
+        "desc_extra": "含 numpy 等依赖；公式用它渲染（可选）",
+    },
+}
 
 
 def _font_entry(path: Path, where: str, where_label: str) -> dict[str, Any] | None:
@@ -420,6 +534,8 @@ def installable_items() -> list[dict[str, Any]]:
         mpl_ok = False
         mpl_ver = None
 
+    pillow_hint = _DEP_SIZE_HINTS["dep_pillow"]
+    mpl_hint = _DEP_SIZE_HINTS["dep_matplotlib"]
     return [
         {
             "id": "font_noto_sc",
@@ -429,24 +545,36 @@ def installable_items() -> list[dict[str, Any]]:
             "target": str(_BUNDLED_DIR / _FONT_PACK["filename"]),
             "installed": font_present,
             "detail": str(bundled) if bundled else None,
+            "approx_mb": _FONT_PACK["approx_mb"],
+            "approx_label": f"约 {_FONT_PACK['approx_mb']}MB",
         },
         {
             "id": "dep_pillow",
             "group": "dep",
             "label": "Pillow（出图引擎）",
-            "desc": "pip install Pillow — 低延迟出图，不依赖浏览器",
+            "desc": (
+                f"pip install Pillow — {pillow_hint['desc_extra']}"
+                f"（{pillow_hint['approx_label']}）"
+            ),
             "target": "pip:Pillow",
             "installed": pillow_ok,
             "detail": f"v{pillow_ver}" if pillow_ok else None,
+            "approx_mb": pillow_hint["approx_mb"],
+            "approx_label": pillow_hint["approx_label"],
         },
         {
             "id": "dep_matplotlib",
             "group": "dep",
             "label": "matplotlib（公式）",
-            "desc": "pip install matplotlib — 公式用它渲染（可选）",
+            "desc": (
+                f"pip install matplotlib — {mpl_hint['desc_extra']}"
+                f"（{mpl_hint['approx_label']}）"
+            ),
             "target": "pip:matplotlib",
             "installed": mpl_ok,
             "detail": f"v{mpl_ver}" if mpl_ok else None,
+            "approx_mb": mpl_hint["approx_mb"],
+            "approx_label": mpl_hint["approx_label"],
         },
     ]
 

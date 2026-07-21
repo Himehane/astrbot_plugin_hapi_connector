@@ -2091,10 +2091,11 @@ def _try_parse_md_table(lines: list[str], start: int) -> tuple[dict[str, Any], i
 
 
 def _plain_inline(s: str) -> str:
-    """Pillow 用：去掉 ** ` 等标记，保留纯文本。"""
+    """Pillow 用：去掉 ** ` 等标记，保留纯文本（测宽 / 回退）。"""
     plain = re.sub(r"\*\*([^*]+)\*\*", r"\1", s or "")
     plain = re.sub(r"`([^`]+)`", r"\1", plain)
     plain = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", plain)
+    plain = re.sub(r"__([^_]+)__", r"\1", plain)
     plain = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", plain)
     return plain
 
@@ -2232,17 +2233,271 @@ def _hex_to_rgb(h: str) -> tuple[int, int, int]:
     return int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
 
 
-def _load_font(size: int, mono: bool, style: CardStyle):
+def _load_font(size: int, mono: bool, style: CardStyle, *, bold: bool = False):
     return font_manager.load_image_font(
         size,
         mono=mono,
         user_path=style.font_path or None,
+        bold=bold,
+        weight=700 if bold else 400,
     )
 
 
-def _text_size(draw, text: str, font) -> tuple[int, int]:
-    bbox = draw.textbbox((0, 0), text or " ", font=font)
+def _text_size(draw, text: str, font, *, stroke_width: int = 0) -> tuple[int, int]:
+    kwargs: dict[str, Any] = {}
+    if stroke_width:
+        kwargs["stroke_width"] = stroke_width
+    try:
+        bbox = draw.textbbox((0, 0), text or " ", font=font, **kwargs)
+    except TypeError:
+        bbox = draw.textbbox((0, 0), text or " ", font=font)
     return bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+
+def _draw_text(
+    draw,
+    xy: tuple[float, float],
+    text: str,
+    font,
+    fill,
+    *,
+    bold_stroke: bool = False,
+) -> None:
+    """绘制文字；bold_stroke 时用 1px stroke 合成加粗（无粗体字文件时的兜底）。"""
+    if not text:
+        return
+    if bold_stroke:
+        try:
+            draw.text(
+                xy,
+                text,
+                font=font,
+                fill=fill,
+                stroke_width=1,
+                stroke_fill=fill,
+            )
+            return
+        except TypeError:
+            pass
+    draw.text(xy, text, font=font, fill=fill)
+
+
+# 行内：`code` / **bold** / __bold__ / *em*（不含嵌套）
+_RE_INLINE_RUNS = re.compile(
+    r"(`[^`]+`)"
+    r"|(\*\*[^*]+\*\*)"
+    r"|(__[^_]+__)"
+    r"|(?<!\*)(\*[^*]+\*)(?!\*)"
+)
+
+
+def parse_inline_runs(text: str) -> list[dict[str, str]]:
+    """Markdown 行内 → [{type: text|bold|code|em, text}]，去掉标记符。"""
+    s = text or ""
+    if not s:
+        return []
+    runs: list[dict[str, str]] = []
+    pos = 0
+    for m in _RE_INLINE_RUNS.finditer(s):
+        if m.start() > pos:
+            runs.append({"type": "text", "text": s[pos : m.start()]})
+        raw = m.group(0)
+        if raw.startswith("`"):
+            runs.append({"type": "code", "text": raw[1:-1]})
+        elif raw.startswith("**") or raw.startswith("__"):
+            runs.append({"type": "bold", "text": raw[2:-2]})
+        elif raw.startswith("*"):
+            runs.append({"type": "em", "text": raw[1:-1]})
+        else:
+            runs.append({"type": "text", "text": raw})
+        pos = m.end()
+    if pos < len(s):
+        runs.append({"type": "text", "text": s[pos:]})
+    return runs or [{"type": "text", "text": s}]
+
+
+def _font_for_run(run_type: str, font_body, font_bold, font_code):
+    if run_type == "code":
+        return font_code or font_body
+    if run_type == "bold":
+        return font_bold or font_body
+    return font_body
+
+
+def _run_needs_stroke(run_type: str, font_body, font_bold) -> bool:
+    """粗体 run 若字体未真正加粗（无字重轴/无 Bold 文件），用 stroke 合成。"""
+    if run_type != "bold":
+        return False
+    if font_bold is None:
+        return True
+    # font_manager 打的标记：可变字重或 Bold 兄弟文件成功时为 True
+    effective = getattr(font_bold, "hapi_bold_effective", None)
+    if effective is False:
+        return True
+    if effective is True:
+        return False
+    # 兼容旧路径：同一对象则 stroke
+    return font_bold is font_body
+
+
+def _wrap_inline_runs(
+    draw,
+    runs: list[dict[str, str]],
+    *,
+    font_body,
+    font_bold,
+    font_code,
+    max_width: int,
+) -> list[list[dict[str, Any]]]:
+    """把行内 runs 折成多行；每行是 [{type, text, font, stroke}]。"""
+    if max_width <= 0:
+        max_width = 1
+    lines: list[list[dict[str, Any]]] = []
+    cur: list[dict[str, Any]] = []
+    cur_w = 0
+
+    def flush() -> None:
+        nonlocal cur, cur_w
+        if cur:
+            lines.append(cur)
+        cur = []
+        cur_w = 0
+
+    def append_piece(rtype: str, piece: str) -> None:
+        nonlocal cur_w
+        if not piece:
+            return
+        font = _font_for_run(rtype, font_body, font_bold, font_code)
+        stroke = _run_needs_stroke(rtype, font_body, font_bold)
+        sw = 1 if stroke else 0
+        w, _ = _text_size(draw, piece, font, stroke_width=sw)
+        # 空行首不硬折单字符
+        if cur and cur_w + w > max_width and piece.strip():
+            flush()
+            w, _ = _text_size(draw, piece, font, stroke_width=sw)
+        cur.append({"type": rtype, "text": piece, "font": font, "stroke": stroke})
+        cur_w += w
+
+    for run in runs or []:
+        rtype = str(run.get("type") or "text")
+        text = str(run.get("text") or "")
+        if not text:
+            continue
+        font = _font_for_run(rtype, font_body, font_bold, font_code)
+        stroke = _run_needs_stroke(rtype, font_body, font_bold)
+        sw = 1 if stroke else 0
+        # 代码尽量整段；过长仍按字符折
+        if rtype == "code":
+            w, _ = _text_size(draw, text, font, stroke_width=sw)
+            if w <= max_width - cur_w or not cur:
+                append_piece(rtype, text)
+                continue
+            # 放不下：换行后按字切
+            flush()
+        # 按字符前进（CJK 友好）
+        buf = ""
+        for ch in text:
+            trial = buf + ch
+            tw, _ = _text_size(draw, trial, font, stroke_width=sw)
+            if cur_w + tw <= max_width or not buf:
+                buf = trial
+            else:
+                append_piece(rtype, buf)
+                flush()
+                buf = ch
+        if buf:
+            append_piece(rtype, buf)
+    flush()
+    return lines or [[]]
+
+
+def _measure_inline_runs(
+    draw,
+    runs: list[dict[str, str]],
+    *,
+    font_body,
+    font_bold,
+    font_code,
+    max_width: int,
+    line_extra: int = 4,
+) -> int:
+    lines = _wrap_inline_runs(
+        draw,
+        runs,
+        font_body=font_body,
+        font_bold=font_bold,
+        font_code=font_code,
+        max_width=max_width,
+    )
+    h = 0
+    for line in lines:
+        lh = 0
+        for piece in line:
+            sw = 1 if piece.get("stroke") else 0
+            _, ph = _text_size(draw, piece.get("text") or " ", piece["font"], stroke_width=sw)
+            lh = max(lh, ph)
+        h += max(lh, _text_size(draw, "测", font_body)[1]) + line_extra
+    return h
+
+
+def _draw_inline_runs(
+    draw,
+    x: int,
+    y: int,
+    runs: list[dict[str, str]],
+    *,
+    font_body,
+    font_bold,
+    font_code,
+    fill,
+    code_bg: tuple[int, int, int] | None = None,
+    max_width: int,
+    line_extra: int = 4,
+) -> int:
+    """绘制行内 runs，返回消耗的高度。"""
+    lines = _wrap_inline_runs(
+        draw,
+        runs,
+        font_body=font_body,
+        font_bold=font_bold,
+        font_code=font_code,
+        max_width=max_width,
+    )
+    yy = y
+    for line in lines:
+        lh = 0
+        pieces_m: list[tuple[dict[str, Any], int, int]] = []
+        for piece in line:
+            sw = 1 if piece.get("stroke") else 0
+            pw, ph = _text_size(
+                draw, piece.get("text") or " ", piece["font"], stroke_width=sw
+            )
+            pieces_m.append((piece, pw, ph))
+            lh = max(lh, ph)
+        if lh <= 0:
+            lh = _text_size(draw, "测", font_body)[1]
+        xx = x
+        for piece, pw, ph in pieces_m:
+            ty = yy + max(0, (lh - ph) // 2)
+            txt = piece.get("text") or ""
+            if piece.get("type") == "code" and code_bg is not None and txt:
+                pad_x, pad_y = 3, 1
+                draw.rounded_rectangle(
+                    (xx - pad_x, ty - pad_y, xx + pw + pad_x, ty + ph + pad_y),
+                    radius=3,
+                    fill=code_bg,
+                )
+            _draw_text(
+                draw,
+                (xx, ty),
+                txt,
+                piece["font"],
+                fill,
+                bold_stroke=bool(piece.get("stroke")),
+            )
+            xx += pw
+        yy += lh + line_extra
+    return max(0, yy - y)
 
 
 def _wrap_text(draw, text: str, font, max_width: int) -> list[str]:
@@ -3044,13 +3299,14 @@ def _draw_message_png(
     tmp = Image.new("RGB", (width, 100), _hex_to_rgb(style.bg))
     d0 = ImageDraw.Draw(tmp)
 
-    # 标题/正文优先非等宽；代码等宽
-    font_title = _load_font(title_size, False, style)
+    # 标题/正文优先非等宽；代码等宽；bold 供 **粗体** / 标题
+    font_title = _load_font(title_size, False, style, bold=True)
     font_sub = _load_font(sub_size, False, style)
     font_body = _load_font(body_size, False, style)
+    font_body_bold = _load_font(body_size, False, style, bold=True)
     font_code = _load_font(code_size, True, style)
-    font_h1 = _load_font(h1_size, False, style)
-    font_h2 = _load_font(h2_size, False, style)
+    font_h1 = _load_font(h1_size, False, style, bold=True)
+    font_h2 = _load_font(h2_size, False, style, bold=True)
     font_foot = _load_font(foot_size, False, style)
 
     title = str(data.get("title") or "Agent 消息")
@@ -3136,21 +3392,43 @@ def _draw_message_png(
             return h + 24
         if b["type"] in ("h1", "h2", "h3"):
             f = font_h1 if b["type"] == "h1" else font_h2
-            for line in _wrap_text(d0, b["text"], f, content_w):
-                h += _text_size(d0, line or " ", f)[1] + line_extra
-            return h + 12
+            runs = list(b.get("runs") or parse_inline_runs(b.get("text") or ""))
+            return (
+                _measure_inline_runs(
+                    d0,
+                    runs,
+                    font_body=f,
+                    font_bold=f,
+                    font_code=font_code,
+                    max_width=content_w,
+                    line_extra=line_extra,
+                )
+                + 12
+            )
         if b["type"] == "hr":
             return 18
-        f = font_body
         prefix = ""
+        max_w = content_w
         if b["type"] == "li":
             prefix = "- "
         elif b["type"] == "quote":
-            prefix = "| "
-        text = prefix + b.get("text", "")
-        for line in _wrap_text(d0, text, f, content_w):
-            h += _text_size(d0, line or " ", f)[1] + line_extra
-        return h + 10
+            prefix = ""
+            max_w = content_w - 16
+        runs = list(b.get("runs") or parse_inline_runs(b.get("text") or ""))
+        if prefix:
+            runs = [{"type": "text", "text": prefix}] + runs
+        return (
+            _measure_inline_runs(
+                d0,
+                runs,
+                font_body=font_body,
+                font_bold=font_body_bold,
+                font_code=font_code,
+                max_width=max_w,
+                line_extra=line_extra,
+            )
+            + 10
+        )
 
     y = pad
     y += _text_size(d0, title, font_title)[1] + 8
@@ -3234,15 +3512,60 @@ def _draw_message_png(
                     t = str(p.get("text") or "")
                     if not t:
                         continue
-                    # 简单按字符前进；过长则 wrap 到后续
-                    tw, th = _text_size(draw, t, font_body)
-                    if x > pad and x + tw > width - pad:
-                        # 尝试在空格处折，否则硬折
+                    # 同行内 ** / `：按 run 分段画；过长则从下一行 pad 起重新折
+                    runs = parse_inline_runs(t)
+                    remain_w = max(40, width - pad - x)
+                    lines = _wrap_inline_runs(
+                        draw,
+                        runs,
+                        font_body=font_body,
+                        font_bold=font_body_bold,
+                        font_code=font_code,
+                        max_width=remain_w,
+                    )
+                    if len(lines) > 1 and x > pad:
+                        # 先换行再按整行宽折，避免半截起笔
                         y += line_h + 4
                         x = pad
-                    yy = y + max(0, (line_h - th) // 2)
-                    draw.text((x, yy), t, font=font_body, fill=fg)
-                    x += tw
+                        lines = _wrap_inline_runs(
+                            draw,
+                            runs,
+                            font_body=font_body,
+                            font_bold=font_body_bold,
+                            font_code=font_code,
+                            max_width=content_w,
+                        )
+                    for li, line in enumerate(lines):
+                        if li > 0:
+                            y += line_h + 4
+                            x = pad
+                            line_h = _text_size(draw, "测", font_body)[1]
+                        for piece in line:
+                            sw = 1 if piece.get("stroke") else 0
+                            pw, ph = _text_size(
+                                draw,
+                                piece.get("text") or " ",
+                                piece["font"],
+                                stroke_width=sw,
+                            )
+                            line_h = max(line_h, ph)
+                            yy = y + max(0, (line_h - ph) // 2)
+                            txt = piece.get("text") or ""
+                            if piece.get("type") == "code" and txt:
+                                draw.rounded_rectangle(
+                                    (x - 2, yy - 1, x + pw + 2, yy + ph + 1),
+                                    radius=3,
+                                    fill=code_bg,
+                                )
+                            _draw_text(
+                                draw,
+                                (x, yy),
+                                txt,
+                                piece["font"],
+                                fg,
+                                bold_stroke=bool(piece.get("stroke")),
+                            )
+                            x += pw
             y += line_h + 6
             continue
         if b["type"] == "formula_img":
@@ -3350,36 +3673,67 @@ def _draw_message_png(
             continue
         if b["type"] in ("h1", "h2", "h3"):
             f = font_h1 if b["type"] == "h1" else font_h2
-            for line in _wrap_text(draw, b["text"], f, content_w):
-                draw.text((pad, y), line, font=f, fill=fg)
-                y += _text_size(draw, line or " ", f)[1] + line_extra
-            y += 10
+            runs = list(b.get("runs") or parse_inline_runs(b.get("text") or ""))
+            used = _draw_inline_runs(
+                draw,
+                pad,
+                y,
+                runs,
+                font_body=f,
+                font_bold=f,
+                font_code=font_code,
+                fill=fg,
+                code_bg=code_bg,
+                max_width=content_w,
+                line_extra=line_extra,
+            )
+            y += used + 10
             continue
-        prefix = ""
-        xoff = 0
-        color = fg
-        if b["type"] == "li":
-            prefix = "- "
-        elif b["type"] == "quote":
-            prefix = ""
-            color = sub_fg
-            # 左侧强调条，高度按内容估
-            q_lines = _wrap_text(draw, b["text"], font_body, content_w - 16) or [""]
-            q_h = sum(
-                _text_size(draw, ln or " ", font_body)[1] + line_extra for ln in q_lines
+        if b["type"] == "quote":
+            runs = list(b.get("runs") or parse_inline_runs(b.get("text") or ""))
+            q_h = _measure_inline_runs(
+                draw,
+                runs,
+                font_body=font_body,
+                font_bold=font_body_bold,
+                font_code=font_code,
+                max_width=content_w - 16,
+                line_extra=line_extra,
             )
             draw.rectangle((pad, y, pad + 4, y + max(q_h, 18)), fill=accent)
-            xoff = 14
-            for line in q_lines:
-                draw.text((pad + xoff, y), line, font=font_body, fill=color)
-                y += _text_size(draw, line or " ", font_body)[1] + line_extra
-            y += 8
+            used = _draw_inline_runs(
+                draw,
+                pad + 14,
+                y,
+                runs,
+                font_body=font_body,
+                font_bold=font_body_bold,
+                font_code=font_code,
+                fill=sub_fg,
+                code_bg=code_bg,
+                max_width=content_w - 16,
+                line_extra=line_extra,
+            )
+            y += max(used, q_h) + 8
             continue
-        text = prefix + b["text"]
-        for line in _wrap_text(draw, text, font_body, content_w - xoff):
-            draw.text((pad + xoff, y), line, font=font_body, fill=color)
-            y += _text_size(draw, line or " ", font_body)[1] + line_extra
-        y += 8
+        prefix = "- " if b["type"] == "li" else ""
+        runs = list(b.get("runs") or parse_inline_runs(b.get("text") or ""))
+        if prefix:
+            runs = [{"type": "text", "text": prefix}] + runs
+        used = _draw_inline_runs(
+            draw,
+            pad,
+            y,
+            runs,
+            font_body=font_body,
+            font_bold=font_body_bold,
+            font_code=font_code,
+            fill=fg,
+            code_bg=code_bg,
+            max_width=content_w,
+            line_extra=line_extra,
+        )
+        y += used + 8
 
     if footer and y < height - pad:
         draw.line((pad, y + 6, width - pad, y + 6), fill=border, width=1)
@@ -3434,28 +3788,58 @@ def _parse_md_blocks(text: str) -> list[dict[str, Any]]:
         m = re.match(r"^(#{1,3})\s+(.*)$", line)
         if m:
             level = len(m.group(1))
-            blocks.append({"type": f"h{level}", "text": m.group(2)})
+            raw = m.group(2)
+            blocks.append(
+                {
+                    "type": f"h{level}",
+                    "text": _plain_inline(raw),
+                    "runs": parse_inline_runs(raw),
+                }
+            )
             i += 1
             continue
         if line.lstrip().startswith(">"):
+            raw = re.sub(r"^\s*>\s?", "", line)
             blocks.append(
-                {"type": "quote", "text": re.sub(r"^\s*>\s?", "", line)}
+                {
+                    "type": "quote",
+                    "text": _plain_inline(raw),
+                    "runs": parse_inline_runs(raw),
+                }
             )
             i += 1
             continue
         m = re.match(r"^\s*[-*+]\s+(.*)$", line)
         if m:
-            blocks.append({"type": "li", "text": m.group(1)})
+            raw = m.group(1)
+            blocks.append(
+                {
+                    "type": "li",
+                    "text": _plain_inline(raw),
+                    "runs": parse_inline_runs(raw),
+                }
+            )
             i += 1
             continue
         m = re.match(r"^\s*\d+\.\s+(.*)$", line)
         if m:
-            blocks.append({"type": "li", "text": m.group(1)})
+            raw = m.group(1)
+            blocks.append(
+                {
+                    "type": "li",
+                    "text": _plain_inline(raw),
+                    "runs": parse_inline_runs(raw),
+                }
+            )
             i += 1
             continue
-        # strip simple ** for pillow plain text
-        plain = re.sub(r"\*\*([^*]+)\*\*", r"\1", line)
-        plain = re.sub(r"`([^`]+)`", r"\1", plain)
-        blocks.append({"type": "p", "text": plain})
+        # 保留 ** / ` 标记到 runs，绘制时真正加粗；text 为纯文本兜底
+        blocks.append(
+            {
+                "type": "p",
+                "text": _plain_inline(line),
+                "runs": parse_inline_runs(line),
+            }
+        )
         i += 1
-    return blocks or [{"type": "p", "text": ""}]
+    return blocks or [{"type": "p", "text": "", "runs": []}]
