@@ -3055,6 +3055,60 @@ html[data-theme="dark"] .save-status[data-state="error"] {
   gap: 12px;
 }
 
+/* 简易变量：折叠 details；高级 CSS 在面板外 */
+.css-simple-fold {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.css-simple-fold-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+}
+
+.css-simple-fold-summary::-webkit-details-marker {
+  display: none;
+}
+
+.css-simple-fold-summary:hover {
+  background: var(--surface-2);
+}
+
+.css-simple-fold[open] > .css-simple-fold-summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.css-simple-fold[open] > .css-simple-fold-summary .adv-chevron {
+  transform: rotate(90deg);
+}
+
+.css-simple-fold-title {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.css-simple-fold-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.css-simple-fold-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
 .css-simple-group-title {
   font-size: 11px;
   font-weight: 700;

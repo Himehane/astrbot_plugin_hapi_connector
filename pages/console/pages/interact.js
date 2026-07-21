@@ -260,7 +260,7 @@ function wireCssEditorMode() {
 }
 
 function renderSimpleCssFormHtml() {
-  return CSS_SIMPLE_FIELDS.map((g) => {
+  const groupsHtml = CSS_SIMPLE_FIELDS.map((g) => {
     const cells = g.items
       .map((it) => {
         if (it.type === "color") {
@@ -312,6 +312,18 @@ function renderSimpleCssFormHtml() {
       "</div></div>"
     );
   }).join("");
+  // 折叠：颜色/尺寸/字号/间距 装进 details；高级 CSS 在面板外，不装这里
+  return (
+    '<details class="css-simple-fold" id="ix-css-simple-fold">' +
+    '<summary class="css-simple-fold-summary">' +
+    '<span class="adv-chevron" aria-hidden="true">▸</span>' +
+    '<span class="css-simple-fold-title">常用样式变量</span>' +
+    '<span class="css-simple-fold-hint">颜色 · 尺寸 · 字号 · 间距 · 点击展开</span>' +
+    "</summary>" +
+    '<div class="css-simple-fold-body">' +
+    groupsHtml +
+    "</div></details>"
+  );
 }
 
 function normalizeRenderMode(m) {
@@ -1403,7 +1415,7 @@ function renderInteract() {
             <div class="field-label">图片字体</div>
             <p class="field-help">会在下列路径扫描可选字体。</p>
             <ul class="font-scan-locs">
-              $${(fonts.scan_locations || [
+              ${(fonts.scan_locations || [
                 {
                   label: "插件目录",
                   path: fonts.bundled_dir || "assets/fonts",
