@@ -1927,14 +1927,12 @@ def aggregate_route_defaults(plugin) -> dict:
         for fk, umo in plugin.state_mgr.normalized_flavor_primary_umos(st).items():
             flavor.setdefault(fk, umo)
 
-    # 有已知用户即可在 Web 改（多用户时写到第一个 known user，提示见 writable_reason）
+    # 有已知用户即可在 Web 改；多用户时仍可写，不再弹「写入第一个」提示
     writable = len(known) >= 1
     reason = ""
     if len(known) == 0:
         reason = "尚无已知用户；请先在聊天里 /hapi bind 一次"
         writable = False
-    elif len(known) > 1:
-        reason = f"有 {len(known)} 个用户路由，Web 将写入其中第一个；也可继续用聊天 /hapi bind"
 
     return {
         "primary": primary,
