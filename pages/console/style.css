@@ -65,11 +65,13 @@ body {
 }
 
 /* ---------- 全局终端粒子 / CRT 扫描（不挡交互） ---------- */
+/* 必须压在 .app-shell(z:1) / 侧栏 / 顶栏之上，否则会被不透明底色整层盖住；
+   对话框/toast 在 1000+，仍高于本层。pointer-events:none 不挡点击。 */
 .fx-layer {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 0;
+  z-index: 30;
   overflow: hidden;
 }
 
@@ -148,6 +150,7 @@ body {
     0 0 12px color-mix(in srgb, var(--cursor) 45%, transparent);
   animation: fx-rise var(--t, 12s) linear infinite;
   animation-delay: var(--d, 0s);
+  /* 盖在实色卡片上时略提可见度（关键帧在 keyframes 里） */
 }
 
 /* 较大的磷光团 */
@@ -175,10 +178,10 @@ body {
     opacity: 0;
   }
   6% {
-    opacity: 0.75;
+    opacity: 0.9;
   }
   55% {
-    opacity: 0.4;
+    opacity: 0.55;
   }
   100% {
     transform: translate3d(var(--dx, 18px), -115vh, 0) scale(0.45);
@@ -419,13 +422,15 @@ button {
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
   min-height: 100vh;
-  background: var(--bg);
+  /* 透出 body 网格；粒子/扫描在 fx-layer(z:30) 叠加于内容之上 */
+  background: transparent;
   position: relative;
   z-index: 1;
 }
 
 .sidebar {
-  background: var(--surface);
+  /* 略透，侧栏区也能隐约看到粒子/扫描 */
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
   border-right: 1px solid var(--line-strong);
   display: flex;
   flex-direction: column;
@@ -435,6 +440,7 @@ button {
   top: 0;
   height: 100vh;
   z-index: 5;
+  backdrop-filter: blur(6px);
 }
 
 .sidebar-brand {
@@ -573,7 +579,7 @@ button {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 18px;
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line-strong);
 }
