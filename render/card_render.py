@@ -49,7 +49,7 @@ except ImportError:  # pragma: no cover — 脚本直跑 / 未作为包部署
                 return []
             def bundled_dir(self):
                 from pathlib import Path
-                return Path(__file__).resolve().parent / "assets" / "fonts"
+                return Path(__file__).resolve().parent.parent / "assets" / "fonts"
             def resolve_font_path(self, *a, **k):
                 return None
             def ensure_default_fonts(self):

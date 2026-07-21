@@ -329,25 +329,17 @@ hapi codex    # Open Codex
 
 ```
 astrbot_plugin_hapi_connector/
-├── main.py                 # 插件入口：生命周期、LLM 工具注册、戳一戳/快捷前缀处理
-├── command_handlers.py     # 所有 /hapi 子命令处理器
-├── llm_integration.py      # LLM Function Calling 工具集成（10个工具）
-├── state_manager.py        # 用户状态管理（当前 session、flavor、路由）
-├── notification_manager.py # 通知推送与消息分发
-├── pending_manager.py      # 待审批请求管理（序号分配、批准/拒绝）
-├── binding_manager.py      # 聊天窗口与 session 绑定管理
-├── hapi_client.py          # 异步 HAPI HTTP 客户端 + JWT 自动刷新
-├── cf_access.py            # Cloudflare Zero Trust Access 认证
-├── sse_listener.py         # 后台 SSE 监听 + 实时事件推送
-├── session_ops.py          # Session CRUD 操作封装
-├── file_ops.py             # 文件查询、上传、下载
-├── approval_ops.py         # 审批业务逻辑
-├── create_wizard.py        # 创建会话交互式向导
-├── formatters.py           # 格式化输出工具
-├── flavor_profiles.py      # Agent flavor 能力表（权限/模型/effort/plan/可创建）
-├── constants.py            # 兼容导出 + SESSION_TYPES
+├── main.py                 # 插件入口：生命周期、LLM 工具、戳一戳/快捷前缀
+├── constants.py            # 兼容导出（能力表见 chat/flavor_profiles）
+├── core/                   # HAPI 连接、SSE、绑定/状态、session/file/approval
+├── chat/                   # 指令、向导、关键词、戳一戳、LLM 工具、flavor 能力
+├── render/                 # formatters、卡片/字体出图、UMO 展示
+├── webui/                  # Plugin Pages API 与设置 schema
+├── pages/console/          # Web 管理面板静态资源
+├── assets/fonts/           # 可选中文字体（WebUI 可下载）
 ├── _conf_schema.json       # 插件配置 schema
-└── metadata.yaml           # 插件元信息
+├── metadata.yaml           # 插件元信息
+└── requirements.txt        # 依赖（出图见 requirements-render.txt）
 ```
 
 ---

@@ -9,16 +9,16 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.message_components import Poke
 import astrbot.api.message_components as Comp
 
-from .hapi_client import AsyncHapiClient
-from .cf_access import CfAccessManager
-from .sse_listener import SSEListener
-from .binding_manager import BindingManager
-from .state_manager import StateManager
-from .notification_manager import NotificationManager
-from .pending_manager import PendingManager
-from .command_handlers import CommandHandlers
-from . import session_ops
-from . import formatters
+from .core.hapi_client import AsyncHapiClient
+from .core.cf_access import CfAccessManager
+from .core.sse_listener import SSEListener
+from .core.binding_manager import BindingManager
+from .core.state_manager import StateManager
+from .core.notification_manager import NotificationManager
+from .core.pending_manager import PendingManager
+from .chat.command_handlers import CommandHandlers
+from .core import session_ops
+from .render import formatters
 
 
 # ── AstrBot v4.18.3 pydantic v1 的 __setattr__ 会拦截 File 的 property setter，
@@ -105,12 +105,12 @@ class HapiConnectorPlugin(Star):
 
         # 戳一戳：总开关 + 映射动作（默认 approve 兼容旧行为）
         self._poke_approve = self.config.get("poke_approve", True)
-        from .poke_actions import normalize_poke_action
+        from .chat.poke_actions import normalize_poke_action
 
         self._poke_action = normalize_poke_action(self.config.get("poke_action", "approve"))
 
         # 快捷关键词映射（默认 stop/停、sw、cl→1 clear、继续→1 继续）
-        from .keyword_maps import DEFAULT_KEYWORD_MAPS, normalize_maps
+        from .chat.keyword_maps import DEFAULT_KEYWORD_MAPS, normalize_maps
 
         raw_kw = self.config.get("cmd_keyword_maps", None)
         maps = normalize_maps(raw_kw)
@@ -128,13 +128,13 @@ class HapiConnectorPlugin(Star):
         self.notification_mgr._event_cache = {}
 
         # LLM 工具集成
-        from .llm_integration import LLMIntegration
+        from .chat.llm_integration import LLMIntegration
         self.llm_integration = LLMIntegration(self)
 
         # WebUI Plugin Pages：按官方示例在 __init__ 注册 API
         # 静态页由 AstrBot 扫描 pages/console/index.html 自动发现
         try:
-            from .web_api import register_pages
+            from .webui.web_api import register_pages
             register_pages(self)
         except Exception as e:
             logger.exception("注册 WebUI API 失败: %s", e)
@@ -467,7 +467,7 @@ class HapiConnectorPlugin(Star):
             return
 
         await self.state_mgr.set_user_state(event)
-        from .poke_actions import run_poke_action
+        from .chat.poke_actions import run_poke_action
 
         async for result in run_poke_action(self, event, self._poke_action):
             yield result
@@ -521,7 +521,7 @@ class HapiConnectorPlugin(Star):
             return
         if not self._window_has_interactive_session(event):
             return
-        from .keyword_maps import find_mapped_command
+        from .chat.keyword_maps import find_mapped_command
 
         hit = find_mapped_command(maps, raw)
         if not hit:
@@ -557,7 +557,7 @@ class HapiConnectorPlugin(Star):
     @filter.event_message_type(filter.EventMessageType.ALL, priority=10)
     async def quick_prefix_handler(self, event: AstrMessageEvent):
         """快捷前缀: > 消息 或 >N 消息 (仅管理员)"""
-        from . import file_ops
+        from .core import file_ops
         self.notification_mgr._event_cache[event.unified_msg_origin] = event
         prefix = self._quick_prefix
         raw = event.message_str

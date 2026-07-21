@@ -3,10 +3,10 @@
 
 from astrbot.api.event import AstrMessageEvent
 from astrbot.core.utils.session_waiter import session_waiter, SessionController
-from . import formatters
-from . import session_ops
-from .formatters import is_compact_request
-from .hapi_routes import ROUTE_HANDLERS, ROUTE_TAKES_ARG
+from ..render import formatters
+from ..core import session_ops
+from ..render.formatters import is_compact_request
+from ..core.hapi_routes import ROUTE_HANDLERS, ROUTE_TAKES_ARG
 
 
 def _session_resume_state(session: dict) -> str:
@@ -115,8 +115,7 @@ class CommandHandlers:
             text = await self.plugin._format_bind_status_text(event)
             if machine_hint:
                 text += "\n\n" + machine_hint
-            from . import output_present
-
+            from ..render import output_present
             current_sid = self.state_mgr.effective_sid(event)
             payload = output_present.build_session_list_payload(
                 self.sessions_cache,
@@ -151,8 +150,7 @@ class CommandHandlers:
             text += "\n\n" + machine_hint
 
         # 可选结构卡（Pillow）；失败/未安装/render_mode=text 时回退纯文本
-        from . import output_present
-
+        from ..render import output_present
         payload = output_present.build_session_list_payload(
             visible_sessions,
             current_sid,
@@ -229,8 +227,7 @@ class CommandHandlers:
         try:
             detail = await session_ops.fetch_session_detail(self.client, sid)
             text = formatters.format_session_status(detail)
-            from . import output_present
-
+            from ..render import output_present
             payload = output_present.build_status_payload(detail)
             async for result in output_present.present(
                 self.plugin, event, "status", payload, text
@@ -265,7 +262,7 @@ class CommandHandlers:
             total = len(selected)
             for i, round_msgs in enumerate(selected, 1):
                 text = formatters.format_round(round_msgs, i, total)
-                from .notification_manager import NotificationManager
+                from ..core.notification_manager import NotificationManager
                 for chunk in NotificationManager.split_message(text):
                     yield event.plain_result(chunk)
         except Exception as e:
@@ -796,8 +793,7 @@ class CommandHandlers:
         visible_sids.add(event.unified_msg_origin)  # 包含当前窗口 ID（LLM 工具请求）
         pending = self.plugin.pending_mgr.get_pending_for_window(event, visible_sids)
         text = formatters.format_pending_requests(pending, self.sessions_cache)
-        from . import output_present
-
+        from ..render import output_present
         payload = output_present.build_pending_payload(pending, self.sessions_cache)
         async for result in output_present.present(
             self.plugin, event, "pending", payload, text
@@ -1461,7 +1457,7 @@ class CommandHandlers:
 
     async def cmd_files(self, event: AstrMessageEvent, path: str = "."):
         """浏览远端目录: /hapi files [-l] [路径]"""
-        from . import file_ops
+        from ..core import file_ops
         await self.state_mgr.set_user_state(event)
         if w := self.plugin._conn_warning():
             yield event.plain_result(w)
@@ -1477,7 +1473,7 @@ class CommandHandlers:
         try:
             entries = await session_ops.list_directory(self.client, sid, path=path)
             text = formatters.format_directory(entries, path=path, detail=detail, sid=sid)
-            from .notification_manager import NotificationManager
+            from ..core.notification_manager import NotificationManager
             for chunk in NotificationManager.split_message(text):
                 yield event.plain_result(chunk)
         except Exception as e:
@@ -1500,7 +1496,7 @@ class CommandHandlers:
         try:
             files = await session_ops.list_files(self.client, sid, query=query)
             text = formatters.format_file_search(files, query=query)
-            from .notification_manager import NotificationManager
+            from ..core.notification_manager import NotificationManager
             for chunk in NotificationManager.split_message(text):
                 yield event.plain_result(chunk)
         except Exception as e:
@@ -1512,7 +1508,7 @@ class CommandHandlers:
         """下载远端文件到聊天: /hapi download <路径>"""
         import os
         import astrbot.api.message_components as Comp
-        from . import file_ops
+        from ..core import file_ops
         await self.state_mgr.set_user_state(event)
         if w := self.plugin._conn_warning():
             yield event.plain_result(w)
@@ -1558,7 +1554,7 @@ class CommandHandlers:
 
     async def cmd_upload(self, event: AstrMessageEvent, action: str = ""):
         """上传文件到当前 session: /hapi upload [cancel]"""
-        from . import file_ops
+        from ..core import file_ops
         await self.state_mgr.ensure_primary_session(event)
         sid = self.state_mgr.effective_sid(event)
         if not sid:
@@ -1737,8 +1733,8 @@ class CommandHandlers:
         await self.state_mgr.ensure_primary_session(event)
         await self.plugin._refresh_sessions()
 
-        from . import output_present
-        from .umo_display import format_umo_title, resolve_umo_names
+        from ..render import output_present
+        from ..render.umo_display import format_umo_title, resolve_umo_names
 
         # 收集全部相关 UMO，批量解析群名/别名
         umos_needed: set[str] = set()

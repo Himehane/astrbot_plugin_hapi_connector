@@ -9,7 +9,7 @@ from collections.abc import Callable, Awaitable
 from astrbot.api import logger
 
 from .hapi_client import AsyncHapiClient, ContentTypeError
-from .formatters import (extract_text_preview, session_label_short, format_request_detail,
+from ..render.formatters import (extract_text_preview, session_label_short, format_request_detail,
                          format_agent_line, is_question_request, format_question_notification,
                          format_permission_notification)
 from . import session_ops
@@ -910,8 +910,8 @@ class SSEListener:
             await self._push_notification(fallback_text, session_id)
             return
         try:
-            from . import output_present, formatters as fmt
-
+            from ..render import output_present
+            from ..render import formatters as fmt
             sess = next(
                 (s for s in self.sessions_cache if s.get("id") == session_id),
                 None,
@@ -961,8 +961,7 @@ class SSEListener:
             await self._push_notification(fallback_text, session_id)
             return
         try:
-            from . import output_present
-
+            from ..render import output_present
             kind = "question" if is_question else "permission"
             # 卡片 kind 统一用 permission（CARD_KINDS 已有）；question 也走同一结构卡
             payload = output_present.build_permission_payload(

@@ -4,7 +4,7 @@
 本文件保留旧名导出，避免外部与历史 import 断裂。
 """
 
-from .flavor_profiles import (  # noqa: F401
+from .chat.flavor_profiles import (  # noqa: F401
     AGENTS,
     CLAUDE_EFFORT_OPTIONS,
     CLAUDE_EFFORT_VALUES,

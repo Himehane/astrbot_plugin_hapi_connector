@@ -29,7 +29,7 @@ def default_maps_storage() -> str:
 
 
 def _takes_arg_map() -> dict[str, bool]:
-    from .hapi_routes import ROUTE_TAKES_ARG
+    from ..core.hapi_routes import ROUTE_TAKES_ARG
 
     return dict(ROUTE_TAKES_ARG)
 
@@ -39,8 +39,7 @@ def export_command_catalog() -> dict[str, Any]:
 
     路由表里有、帮助表未单独列出的别名（如 stop）也会补进目录。
     """
-    from . import formatters
-
+    from ..render import formatters
     help_data = formatters.export_help_data()
     topics = help_data.get("topics") or []
     takes = _takes_arg_map()

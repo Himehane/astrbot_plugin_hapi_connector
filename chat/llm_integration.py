@@ -4,10 +4,8 @@ import asyncio
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.provider import ProviderRequest
 from astrbot.api import logger
-from . import session_ops
-from . import formatters
-
-
+from ..core import session_ops
+from ..render import formatters
 class LLMIntegration:
     """LLM 工具集成管理器"""
 

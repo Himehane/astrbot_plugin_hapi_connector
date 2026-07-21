@@ -12,8 +12,8 @@ from urllib.parse import urlparse
 
 from astrbot.api import logger
 
-from . import formatters, flavor_profiles
-
+from ..render import formatters
+from ..chat import flavor_profiles
 PLUGIN_NAME = "astrbot_plugin_hapi_connector"
 
 # 与 _conf_schema.json 对齐的可读写键
@@ -96,7 +96,7 @@ INT_KEYS = frozenset({
 
 def _command_catalog_safe() -> dict:
     try:
-        from .keyword_maps import export_command_catalog
+        from ..chat.keyword_maps import export_command_catalog
 
         return export_command_catalog()
     except Exception as e:
@@ -148,8 +148,8 @@ class WebApi:
         from astrbot.api.web import error_response, json_response
 
         try:
-            from . import card_render
-            from .poke_actions import poke_actions_meta
+            from ..render import card_render
+            from ..chat.poke_actions import poke_actions_meta
 
             profiles = flavor_profiles.export_profiles_meta()
             try:
@@ -158,8 +158,7 @@ class WebApi:
                 logger.warning("card_render.render_meta failed: %s", e)
                 render_meta = {"engine": {"pillow": False}, "error": str(e)}
             try:
-                from . import font_manager
-
+                from ..render import font_manager
                 render_meta["installable"] = font_manager.installable_items()
             except Exception as e:
                 logger.warning("font_manager installable failed: %s", e)
@@ -191,12 +190,10 @@ class WebApi:
         from astrbot.api.web import error_response, json_response
 
         try:
-            from . import card_render
-
+            from ..render import card_render
             meta = card_render.render_meta()
             try:
-                from . import font_manager
-
+                from ..render import font_manager
                 meta["installable"] = font_manager.installable_items()
             except Exception as e:
                 logger.warning("render_meta font_manager: %s", e)
@@ -214,8 +211,8 @@ class WebApi:
         """
         import asyncio
         from astrbot.api.web import error_response, json_response, request
-        from . import card_render, font_manager
-
+        from ..render import card_render
+        from ..render import font_manager
         payload = await request.json(default={})
         if not isinstance(payload, dict):
             return error_response("请求体必须是对象", status_code=400)
@@ -259,8 +256,7 @@ class WebApi:
         """按当前或请求内样式生成结构卡/对话卡 PNG（base64）。"""
         import base64
         from astrbot.api.web import error_response, json_response, request
-        from . import card_render
-
+        from ..render import card_render
         try:
             payload = await request.json(default={})
             if not isinstance(payload, dict):
@@ -442,8 +438,7 @@ class WebApi:
 
     async def session_detail(self, sid: str):
         from astrbot.api.web import error_response, json_response
-        from . import session_ops
-
+        from ..core import session_ops
         sid = (sid or "").strip()
         if not sid:
             return error_response("缺少 session id", status_code=400)
@@ -466,8 +461,7 @@ class WebApi:
 
     async def session_permission(self, sid: str):
         from astrbot.api.web import error_response, json_response, request
-        from . import session_ops
-
+        from ..core import session_ops
         sid = (sid or "").strip()
         payload = await request.json(default={})
         mode = str((payload or {}).get("mode") or "").strip()
@@ -792,8 +786,7 @@ async def run_lifecycle(plugin, sid: str, action: str) -> dict:
 
     与聊天 /hapi archive|resume|delete 共用 session_ops，不在这里硬编码 HAPI 路径。
     """
-    from . import session_ops
-
+    from ..core import session_ops
     action = str(action or "").strip().lower()
     raw_sid = str(sid or "").strip()
     if not raw_sid:
@@ -920,7 +913,7 @@ async def set_primary_route(plugin, umo: str | None, user_id=None) -> dict:
 
 
 async def set_flavor_route(plugin, flavor: str, umo: str | None, user_id=None) -> dict:
-    from .flavor_profiles import is_bindable_flavor, normalize_flavor
+    from ..chat.flavor_profiles import is_bindable_flavor, normalize_flavor
 
     flavor = normalize_flavor(flavor)
     if not is_bindable_flavor(flavor):
@@ -949,8 +942,8 @@ async def set_flavor_route(plugin, flavor: str, umo: str | None, user_id=None) -
 
 async def reconnect_hapi(plugin) -> dict:
     """按当前已落盘配置重建 client 并重启 SSE。"""
-    from .hapi_client import AsyncHapiClient
-    from .cf_access import CfAccessManager
+    from ..core.hapi_client import AsyncHapiClient
+    from ..core.cf_access import CfAccessManager
 
     endpoint = str(plugin.config.get("hapi_endpoint") or "").strip()
     token = str(plugin.config.get("access_token") or "")
@@ -1062,8 +1055,8 @@ def public_config(plugin) -> dict[str, Any]:
     access_token 明文返回（管理面板仅管理员可见）；CF secret 仍不回显。
     附带 hapi_web_url：可点击的官方 HAPI 启动链（含 token 自动登录）。
     """
-    from . import card_render
-    from .poke_actions import normalize_poke_action, poke_actions_meta
+    from ..render import card_render
+    from ..chat.poke_actions import normalize_poke_action, poke_actions_meta
 
     cfg = getattr(plugin, "config", None)
     token = str(_cfg_get(cfg, "access_token", "") or "")
@@ -1129,8 +1122,7 @@ def public_config(plugin) -> dict[str, Any]:
     # 保证前端总能拿到勾选项（即使 engine_status 旧缓存/异常）
     if not out["render_engine"].get("installable"):
         try:
-            from . import font_manager
-
+            from ..render import font_manager
             out["render_engine"]["installable"] = font_manager.installable_items()
         except Exception:
             out["render_engine"]["installable"] = [
@@ -1177,7 +1169,7 @@ def public_config(plugin) -> dict[str, Any]:
         out["poke_actions"] = []
 
     try:
-        from .keyword_maps import (
+        from ..chat.keyword_maps import (
             DEFAULT_KEYWORD_MAPS,
             maps_to_storage,
             normalize_maps,
@@ -1195,7 +1187,7 @@ def public_config(plugin) -> dict[str, Any]:
         out["cmd_keyword_maps"] = maps_to_storage(maps)
         out["cmd_keyword_maps_list"] = maps
     except Exception:
-        from .keyword_maps import DEFAULT_KEYWORD_MAPS, maps_to_storage, normalize_maps
+        from ..chat.keyword_maps import DEFAULT_KEYWORD_MAPS, maps_to_storage, normalize_maps
 
         maps = normalize_maps(DEFAULT_KEYWORD_MAPS)
         out["cmd_keyword_maps"] = maps_to_storage(maps)
@@ -1399,7 +1391,7 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
             continue
 
         if key == "poke_action":
-            from .poke_actions import POKE_ACTIONS, normalize_poke_action
+            from ..chat.poke_actions import POKE_ACTIONS, normalize_poke_action
 
             val = normalize_poke_action(raw_val)
             if val not in POKE_ACTIONS:
@@ -1410,14 +1402,13 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
             continue
 
         if key == "cmd_keyword_maps":
-            from .keyword_maps import maps_to_storage, normalize_maps
+            from ..chat.keyword_maps import maps_to_storage, normalize_maps
 
             cleaned[key] = maps_to_storage(normalize_maps(raw_val))
             continue
 
         if key == "render_mode":
-            from . import card_render
-
+            from ..render import card_render
             val = card_render.normalize_render_mode(raw_val)
             if val not in RENDER_MODES:
                 raise ConfigValidationError(
@@ -1427,8 +1418,7 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
             continue
 
         if key == "formula_mode":
-            from . import card_render
-
+            from ..render import card_render
             val = card_render.normalize_formula_mode(raw_val)
             if val not in FORMULA_MODES:
                 raise ConfigValidationError(
@@ -1438,8 +1428,7 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
             continue
 
         if key == "render_kinds":
-            from . import card_render
-
+            from ..render import card_render
             kinds = card_render.parse_kinds(raw_val)
             cleaned[key] = card_render.kinds_to_storage(kinds)
             continue
@@ -1485,7 +1474,7 @@ def validate_config_patch(patch: dict) -> dict[str, Any]:
             if len(s) not in (4, 7):
                 raise ConfigValidationError(f"{key} 须为 #RGB 或 #RRGGBB")
             try:
-                from .card_render import _hex_to_rgb
+                from ..render.card_render import _hex_to_rgb
 
                 _hex_to_rgb(s)
             except Exception as e:
@@ -1538,11 +1527,11 @@ def apply_runtime_config(plugin, patch: dict) -> None:
     if "poke_approve" in patch:
         plugin._poke_approve = patch["poke_approve"]
     if "poke_action" in patch:
-        from .poke_actions import normalize_poke_action
+        from ..chat.poke_actions import normalize_poke_action
 
         plugin._poke_action = normalize_poke_action(patch["poke_action"])
     if "cmd_keyword_maps" in patch:
-        from .keyword_maps import DEFAULT_KEYWORD_MAPS, normalize_maps
+        from ..chat.keyword_maps import DEFAULT_KEYWORD_MAPS, normalize_maps
 
         maps = normalize_maps(patch["cmd_keyword_maps"])
         # 保存空数组表示清空；运行时仍允许空
@@ -1617,7 +1606,7 @@ def _plugin_version(plugin) -> str:
     try:
         from pathlib import Path
 
-        text = Path(__file__).with_name("metadata.yaml").read_text(encoding="utf-8")
+        text = (Path(__file__).resolve().parent.parent / "metadata.yaml").read_text(encoding="utf-8")
         for line in text.splitlines():
             if line.strip().startswith("version:"):
                 return line.split(":", 1)[1].strip().strip("\"'").lstrip("v")
@@ -1725,7 +1714,7 @@ async def ensure_umo_name_map(plugin, *, force: bool = False) -> dict[str, str]:
         return {k: v for k, v in cache.items() if v}
 
     try:
-        from .umo_display import resolve_umo_names
+        from ..render.umo_display import resolve_umo_names
 
         ctx = getattr(plugin, "context", None)
         to_query = list(umos) if force else missing or list(umos)
@@ -2053,6 +2042,6 @@ def build_window_options(
 
 def window_display_title(umo: str | None, name: str | None = None) -> str:
     """Bot:平台-群聊/私聊-名称|ID（与 umo_display 一致）。"""
-    from .umo_display import format_umo_title
+    from ..render.umo_display import format_umo_title
 
     return format_umo_title(umo, name=name)

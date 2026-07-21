@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parent.parent
 _CONF_SCHEMA_PATH = _ROOT / "_conf_schema.json"
 
 # access_token 在 WebUI 明文编辑（与 public_config 策略一致）；CF secret 仍敏感

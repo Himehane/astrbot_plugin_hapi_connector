@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover
 
     logger = logging.getLogger("hapi_connector.font_manager")
 
-_PLUGIN_ROOT = Path(__file__).resolve().parent
+_PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 _BUNDLED_DIR = _PLUGIN_ROOT / "assets" / "fonts"
 
 # 系统兜底：有就用，没有跳过。不是「依赖开发者本机」，而是「用户机器上若系统已装则免费用」。

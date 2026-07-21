@@ -3,7 +3,7 @@
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 from .binding_manager import BindingManager
-from .flavor_profiles import is_bindable_flavor, normalize_flavor
+from ..chat.flavor_profiles import is_bindable_flavor, normalize_flavor
 
 
 class StateManager:
@@ -244,7 +244,7 @@ class StateManager:
         name: str | None = None,
     ) -> str:
         """Bot:平台-群聊/私聊-名称|ID；过长时截断尾部。"""
-        from .umo_display import format_umo_title
+        from ..render.umo_display import format_umo_title
 
         title = format_umo_title(umo, name=name)
         if not title or title == "—":

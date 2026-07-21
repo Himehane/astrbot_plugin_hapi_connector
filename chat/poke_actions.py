@@ -15,8 +15,8 @@ try:
 except ImportError:  # pragma: no cover
     AstrMessageEvent = object  # type: ignore
 
-from . import formatters
-from . import session_ops
+from ..render import formatters
+from ..core import session_ops
 # id → 元数据（WebUI / 文档同源）
 POKE_ACTIONS: dict[str, dict[str, str]] = {
     "approve": {
@@ -166,8 +166,7 @@ async def _act_approve(plugin, event, tag: str) -> AsyncIterator[Any]:
 
 
 async def _act_pending(plugin, event, tag: str) -> AsyncIterator[Any]:
-    from . import output_present
-
+    from ..render import output_present
     visible_sids = _visible_sids(plugin, event)
     pending = plugin.pending_mgr.get_pending_for_window(event, visible_sids)
     text = formatters.format_pending_requests(pending, plugin.sessions_cache)
@@ -179,8 +178,7 @@ async def _act_pending(plugin, event, tag: str) -> AsyncIterator[Any]:
 
 
 async def _act_list(plugin, event, tag: str) -> AsyncIterator[Any]:
-    from . import output_present
-
+    from ..render import output_present
     await plugin._refresh_sessions()
     visible = plugin.state_mgr.visible_sessions_for_window(event, plugin.sessions_cache)
     if not visible:
@@ -246,7 +244,7 @@ async def _act_output_cycle(plugin, event, tag: str) -> AsyncIterator[Any]:
     except Exception:
         pass
     try:
-        from .web_api import _persist_config
+        from ..webui.web_api import _persist_config
 
         await _persist_config(plugin)
     except Exception:
