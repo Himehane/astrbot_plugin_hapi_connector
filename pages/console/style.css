@@ -64,9 +64,8 @@ body {
   position: relative;
 }
 
-/* ---------- 全局终端粒子 / CRT 扫描（不挡交互） ---------- */
-/* 必须压在 .app-shell(z:1) / 侧栏 / 顶栏之上，否则会被不透明底色整层盖住；
-   对话框/toast 在 1000+，仍高于本层。pointer-events:none 不挡点击。 */
+/* ---------- 全局终端粒子 / CRT（默认关闭 body.fx-off；开后不压暗页面） ---------- */
+/* z:30 压在 shell 上；对话框 1000+；pointer-events:none。无 vignette/大绿团/噪点 multiply。 */
 .fx-layer {
   position: fixed;
   inset: 0;
@@ -75,60 +74,73 @@ body {
   overflow: hidden;
 }
 
-/* 细扫描线 + 缓慢漂移 */
+body.fx-off .fx-layer,
+.fx-layer[hidden] {
+  display: none !important;
+}
+
+/* 左下角开关（可点） */
+.fx-toggle {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 45;
+  pointer-events: auto;
+  border: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--ink-soft);
+  font: 600 11px/1 var(--font-ui);
+  padding: 7px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+}
+
+.fx-toggle:hover {
+  border-color: var(--cursor);
+  color: var(--ink);
+}
+
+.fx-toggle[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--cursor) 55%, var(--line-strong));
+  color: var(--cursor-ink);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cursor) 25%, transparent);
+}
+
+/* 细扫描线 — 很轻，不显著压暗 */
 .fx-scan {
   position: absolute;
   inset: 0;
   background: repeating-linear-gradient(
     0deg,
     transparent 0,
-    transparent 2px,
-    rgba(26, 127, 75, 0.035) 2px,
-    rgba(26, 127, 75, 0.035) 3px
+    transparent 3px,
+    color-mix(in srgb, var(--cursor) 4%, transparent) 3px,
+    color-mix(in srgb, var(--cursor) 4%, transparent) 4px
   );
-  animation: fx-scan-drift 10s linear infinite;
-  opacity: 0.9;
+  animation: fx-scan-drift 12s linear infinite;
+  opacity: 0.55;
 }
 
-/* 横向磷光扫过 */
+/* 横向磷光扫过 — 更淡 */
 .fx-beam {
   position: absolute;
   left: -20%;
   width: 140%;
-  height: 18%;
+  height: 14%;
   top: -20%;
   background: linear-gradient(
     180deg,
     transparent 0%,
-    color-mix(in srgb, var(--cursor) 8%, transparent) 45%,
-    color-mix(in srgb, var(--cursor) 14%, transparent) 50%,
-    color-mix(in srgb, var(--cursor) 8%, transparent) 55%,
+    color-mix(in srgb, var(--cursor) 5%, transparent) 45%,
+    color-mix(in srgb, var(--cursor) 9%, transparent) 50%,
+    color-mix(in srgb, var(--cursor) 5%, transparent) 55%,
     transparent 100%
   );
   filter: blur(0.5px);
-  animation: fx-beam-sweep 7.5s ease-in-out infinite;
-  opacity: 0.85;
-}
-
-.fx-vignette {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 75% 55% at 50% 38%, transparent 35%, rgba(28, 25, 20, 0.09) 100%),
-    linear-gradient(180deg, rgba(26, 127, 75, 0.05), transparent 22%, transparent 78%, rgba(26, 127, 75, 0.06)),
-    radial-gradient(circle at 8% 12%, color-mix(in srgb, var(--cursor) 12%, transparent), transparent 28%),
-    radial-gradient(circle at 92% 88%, color-mix(in srgb, var(--cursor) 10%, transparent), transparent 30%);
-}
-
-/* 轻微噪点 */
-.fx-noise {
-  position: absolute;
-  inset: -20%;
-  opacity: 0.045;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
-  background-size: 180px 180px;
-  animation: fx-noise-shift 0.9s steps(2) infinite;
-  mix-blend-mode: multiply;
+  animation: fx-beam-sweep 9s ease-in-out infinite;
+  opacity: 0.65;
 }
 
 .fx-particles {
@@ -146,29 +158,9 @@ body {
   background: var(--cursor);
   opacity: 0;
   box-shadow:
-    0 0 4px color-mix(in srgb, var(--cursor) 80%, transparent),
-    0 0 12px color-mix(in srgb, var(--cursor) 45%, transparent);
+    0 0 3px color-mix(in srgb, var(--cursor) 70%, transparent),
+    0 0 8px color-mix(in srgb, var(--cursor) 35%, transparent);
   animation: fx-rise var(--t, 12s) linear infinite;
-  animation-delay: var(--d, 0s);
-  /* 盖在实色卡片上时略提可见度（关键帧在 keyframes 里） */
-}
-
-/* 较大的磷光团 */
-.fx-blob {
-  position: absolute;
-  left: var(--x, 40%);
-  top: var(--y, 30%);
-  width: var(--s, 120px);
-  height: var(--s, 120px);
-  border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    color-mix(in srgb, var(--cursor) 22%, transparent) 0%,
-    transparent 70%
-  );
-  filter: blur(2px);
-  opacity: 0.55;
-  animation: fx-blob-drift var(--t, 16s) ease-in-out infinite;
   animation-delay: var(--d, 0s);
 }
 
@@ -177,11 +169,11 @@ body {
     transform: translate3d(0, 0, 0) scale(0.7);
     opacity: 0;
   }
-  6% {
-    opacity: 0.9;
+  8% {
+    opacity: 0.7;
   }
   55% {
-    opacity: 0.55;
+    opacity: 0.35;
   }
   100% {
     transform: translate3d(var(--dx, 18px), -115vh, 0) scale(0.45);
@@ -203,34 +195,15 @@ body {
     transform: translateY(0);
     opacity: 0;
   }
-  8% {
-    opacity: 0.9;
+  10% {
+    opacity: 0.7;
   }
   50% {
-    opacity: 0.55;
+    opacity: 0.4;
   }
   100% {
     transform: translateY(620%);
     opacity: 0;
-  }
-}
-
-@keyframes fx-blob-drift {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(var(--dx, 40px), var(--dy, -28px), 0) scale(1.15);
-  }
-}
-
-@keyframes fx-noise-shift {
-  0% {
-    transform: translate(0, 0);
-  }
-  100% {
-    transform: translate(-2%, 1%);
   }
 }
 
@@ -422,15 +395,18 @@ button {
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
   min-height: 100vh;
-  /* 透出 body 网格；粒子/扫描在 fx-layer(z:30) 叠加于内容之上 */
-  background: transparent;
+  background: var(--bg);
   position: relative;
   z-index: 1;
 }
 
+/* 动效开启时 shell 透出网格，粒子叠在内容上；关闭时实色不发灰 */
+body.has-fx .app-shell {
+  background: transparent;
+}
+
 .sidebar {
-  /* 略透，侧栏区也能隐约看到粒子/扫描 */
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  background: var(--surface);
   border-right: 1px solid var(--line-strong);
   display: flex;
   flex-direction: column;
@@ -440,6 +416,10 @@ button {
   top: 0;
   height: 100vh;
   z-index: 5;
+}
+
+body.has-fx .sidebar {
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(6px);
 }
 
@@ -579,9 +559,13 @@ button {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 18px;
-  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line-strong);
+}
+
+body.has-fx .topnav {
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
 }
 
 .topnav-left {
@@ -3375,43 +3359,83 @@ html[data-theme="dark"] .save-status[data-state="error"] {
    Dark theme (AstrBot data-theme="dark")
    ========================================================= */
 [data-theme="dark"] {
-  --bg: #14120e;
-  --bg-deep: #0f0e0b;
-  --surface: #1c1914;
-  --surface-2: #242018;
-  --ink: #f0ebe0;
-  --ink-soft: #d4cfc0;
-  --muted: #9a9486;
-  --faint: #6b665a;
-  --line: #3d3a32;
-  --line-strong: #524e44;
-  --cursor: #3ecf8e;
-  --cursor-dim: #1a3d2c;
-  --cursor-ink: #7ddea8;
-  --amber: #e6a23c;
-  --amber-bg: #3d2e12;
-  --danger: #f56c6c;
-  --danger-bg: #3d1a18;
-  --bind: #6ea8fe;
-  --bind-bg: #1a2744;
-  --agent: #b794f6;
-  --agent-bg: #2a1f44;
+  /* 深色终端：墨底 + 磷绿强调 */
+  --bg: #121410;
+  --bg-deep: #0c0e0b;
+  --surface: #1a1d18;
+  --surface-2: #22261f;
+  --ink: #e8efe6;
+  --ink-soft: #c5d0c2;
+  --muted: #8a9686;
+  --faint: #5c6658;
+  --line: #2e342c;
+  --line-strong: #3f473c;
+  --cursor: #3ddc97;
+  --cursor-dim: #163528;
+  --cursor-ink: #8af0c0;
+  --amber: #e6b84a;
+  --amber-bg: #3a2f14;
+  --danger: #ff6b6b;
+  --danger-bg: #3a1818;
+  --bind: #6eb6ff;
+  --bind-bg: #152536;
+  --agent: #c4a0ff;
+  --agent-bg: #251a3a;
   --scrim: rgba(0, 0, 0, 0.55);
-  --shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
 }
 
 [data-theme="dark"] body {
   background-color: var(--bg);
+  /* 暗色网格更淡，避免脏感 */
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--line) 65%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--line) 65%, transparent) 1px, transparent 1px);
 }
 
 [data-theme="dark"] .side-link.is-active {
-  color: var(--ink);
-  background: var(--surface-2);
-  border-color: var(--line-strong);
+  color: var(--bg-deep);
+  background: var(--cursor);
+  border-color: var(--cursor);
+}
+
+[data-theme="dark"] .side-link.is-active .side-ico {
+  color: var(--bg-deep);
 }
 
 [data-theme="dark"] .brand-mark {
-  color: #14120e;
+  color: #0c0e0b;
+}
+
+/* 暗色动效：磷光更亮一点，仍不压暗整页 */
+[data-theme="dark"] .fx-scan {
+  opacity: 0.45;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0,
+    transparent 3px,
+    color-mix(in srgb, var(--cursor) 7%, transparent) 3px,
+    color-mix(in srgb, var(--cursor) 7%, transparent) 4px
+  );
+}
+
+[data-theme="dark"] .fx-beam {
+  opacity: 0.55;
+}
+
+[data-theme="dark"] .fx-dot {
+  box-shadow:
+    0 0 4px color-mix(in srgb, var(--cursor) 90%, transparent),
+    0 0 14px color-mix(in srgb, var(--cursor) 50%, transparent);
+}
+
+[data-theme="dark"] .fx-toggle {
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  border-color: var(--line-strong);
+}
+
+[data-theme="dark"] .fx-toggle[aria-pressed="true"] {
+  color: var(--cursor-ink);
 }
 
 /* =========================================================

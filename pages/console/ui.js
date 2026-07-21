@@ -100,43 +100,83 @@ function closeSidebar() {
 
 export { connLabel, connIsOk, renderTopConn, renderAlert, setPageChrome, closeSidebar };
 
+const FX_STORAGE_KEY = "hapi_console_fx";
+
+/** 动效默认关闭；localStorage "1"=开 "0"/缺省=关 */
+function isFxEnabled() {
+  try {
+    return localStorage.getItem(FX_STORAGE_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function setFxEnabled(on) {
+  try {
+    localStorage.setItem(FX_STORAGE_KEY, on ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+  applyFxEnabled(on);
+}
+
+function applyFxEnabled(on) {
+  const layer = document.getElementById("fx-layer");
+  const btn = document.getElementById("fx-toggle");
+  document.body.classList.toggle("has-fx", Boolean(on));
+  document.body.classList.toggle("fx-off", !on);
+  if (layer) layer.hidden = !on;
+  if (btn) {
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.title = on ? "关闭终端动效" : "开启终端动效";
+    btn.textContent = on ? "动效 · 开" : "动效 · 关";
+  }
+}
+
+/**
+ * 创建粒子层 + 左下角开关。默认关闭，不主动压暗页面。
+ * 无大绿团 / vignette；仅扫描线 + 光束 + 粒子。
+ */
 function ensureFxLayer() {
-  if (document.getElementById("fx-layer")) return;
-  const layer = document.createElement("div");
-  layer.id = "fx-layer";
-  layer.className = "fx-layer";
-  layer.setAttribute("aria-hidden", "true");
-  const dots = Array.from({ length: 48 }, (_, i) => {
-    const left = ((i * 41 + (i % 7) * 3) % 100) + (i % 5) * 0.25;
-    const delay = ((i * 0.37) % 10).toFixed(2);
-    const dur = (8 + (i % 9) * 1.35).toFixed(1);
-    const size = 1 + (i % 4);
-    const dx = ((i % 9) - 4) * 6;
-    return `<span class="fx-dot" style="--x:${left.toFixed(1)}%;--d:${delay}s;--t:${dur}s;--s:${size}px;--dx:${dx}px"></span>`;
-  }).join("");
-  const blobs = Array.from({ length: 5 }, (_, i) => {
-    const x = 8 + ((i * 23) % 80);
-    const y = 10 + ((i * 31) % 70);
-    const s = 90 + (i % 4) * 36;
-    const d = (i * 1.7).toFixed(1);
-    const t = (14 + i * 2.4).toFixed(1);
-    const dx = (i % 2 === 0 ? 1 : -1) * (30 + i * 12);
-    const dy = (i % 2 === 0 ? -1 : 1) * (18 + i * 8);
-    return `<span class="fx-blob" style="--x:${x}%;--y:${y}%;--s:${s}px;--d:${d}s;--t:${t}s;--dx:${dx}px;--dy:${dy}px"></span>`;
-  }).join("");
-  layer.innerHTML = `
-    <div class="fx-scan"></div>
-    <div class="fx-beam"></div>
-    <div class="fx-vignette"></div>
-    <div class="fx-noise"></div>
-    <div class="fx-particles">${blobs}${dots}</div>
-  `;
-  document.body.prepend(layer);
-  document.body.classList.add("has-fx");
+  if (!document.getElementById("fx-layer")) {
+    const layer = document.createElement("div");
+    layer.id = "fx-layer";
+    layer.className = "fx-layer";
+    layer.setAttribute("aria-hidden", "true");
+    const dots = Array.from({ length: 36 }, (_, i) => {
+      const left = ((i * 41 + (i % 7) * 3) % 100) + (i % 5) * 0.25;
+      const delay = ((i * 0.37) % 10).toFixed(2);
+      const dur = (8 + (i % 9) * 1.35).toFixed(1);
+      const size = 1 + (i % 3);
+      const dx = ((i % 9) - 4) * 6;
+      return `<span class="fx-dot" style="--x:${left.toFixed(1)}%;--d:${delay}s;--t:${dur}s;--s:${size}px;--dx:${dx}px"></span>`;
+    }).join("");
+    // 无 fx-blob / vignette / noise（会压暗画面）
+    layer.innerHTML = `
+      <div class="fx-scan"></div>
+      <div class="fx-beam"></div>
+      <div class="fx-particles">${dots}</div>
+    `;
+    document.body.prepend(layer);
+  }
+
+  if (!document.getElementById("fx-toggle")) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = "fx-toggle";
+    btn.className = "fx-toggle";
+    btn.setAttribute("aria-label", "切换终端动效");
+    btn.addEventListener("click", () => {
+      setFxEnabled(!isFxEnabled());
+    });
+    document.body.appendChild(btn);
+  }
+
+  applyFxEnabled(isFxEnabled());
 }
 
 
-export { ensureFxLayer };
+export { ensureFxLayer, isFxEnabled, setFxEnabled };
 
 function askConfirm(message, opts = {}) {
   const msg = String(message || "确定？");
