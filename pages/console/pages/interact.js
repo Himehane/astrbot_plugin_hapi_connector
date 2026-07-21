@@ -1438,6 +1438,9 @@ function renderInteract() {
               </p>
               <textarea id="ix-css" class="ctrl render-css-editor" rows="18" spellcheck="false" placeholder="粘贴或编辑完整 CSS…"></textarea>
             </div>
+            <div class="render-actions" style="margin-top:10px">
+              <button type="button" class="btn" id="ix-reset-style">恢复默认样式</button>
+            </div>
           </div>
 
           <div class="field">
@@ -1498,10 +1501,6 @@ function renderInteract() {
           </div>
 
           </div><!-- /ix-card-panel -->
-
-          <div class="render-actions">
-            <button type="button" class="btn" id="ix-reset-style">恢复默认样式</button>
-          </div>
         </div>
 
         <div class="render-preview-pane" id="ix-preview-pane" ${rs.render_mode === "card" ? "" : "hidden"}>
