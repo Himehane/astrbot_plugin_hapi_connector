@@ -921,6 +921,18 @@ button {
 }
 
 /* ---------- machine health (overview) ---------- */
+/* 悬停弹层会向下溢出：整块 section 抬升，避免被后面的「常用设置」等卡片盖住 */
+.mh-section {
+  position: relative;
+  z-index: 2;
+  overflow: visible;
+}
+
+.mh-section:hover,
+.mh-section:focus-within {
+  z-index: 40;
+}
+
 .mh-section .card-head {
   margin-bottom: 14px;
 }
@@ -929,10 +941,15 @@ button {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 12px;
+  overflow: visible;
+  position: relative;
+  /* 压过 card-fx 子元素默认 z-index:1 */
+  z-index: 2;
 }
 
 .mh-card {
   position: relative;
+  z-index: 1;
   border: 1px solid var(--line);
   border-radius: calc(var(--radius) + 2px);
   background:
@@ -943,11 +960,12 @@ button {
   overflow: visible;
 }
 
-.mh-card:hover {
+.mh-card:hover,
+.mh-card:focus-within {
   border-color: color-mix(in srgb, var(--cursor) 45%, var(--line-strong));
   box-shadow: 0 8px 24px rgba(28, 25, 20, 0.08);
   transform: translateY(-1px);
-  z-index: 3;
+  z-index: 50;
 }
 
 .mh-card.tone-warn {
@@ -1151,23 +1169,26 @@ button {
   left: 10px;
   right: 10px;
   top: calc(100% + 6px);
-  z-index: 5;
+  z-index: 60;
   padding: 12px 14px;
   border-radius: 10px;
   border: 1px solid var(--line-strong);
-  background: color-mix(in srgb, var(--surface) 92%, #fff);
-  box-shadow: 0 14px 36px rgba(28, 25, 20, 0.16);
+  background: color-mix(in srgb, var(--surface) 96%, #fff);
+  box-shadow: 0 14px 36px rgba(28, 25, 20, 0.18);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
   transform: translateY(4px);
   transition: opacity 0.14s ease, transform 0.14s ease, visibility 0.14s;
+  /* 独立层，避免被同卡其它内容盖住 */
+  isolation: isolate;
 }
 
 .mh-card:hover .mh-popover,
 .mh-card:focus-within .mh-popover {
   opacity: 1;
   visibility: visible;
+  pointer-events: auto;
   transform: translateY(0);
 }
 
