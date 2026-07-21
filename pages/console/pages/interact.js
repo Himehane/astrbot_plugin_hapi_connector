@@ -647,7 +647,7 @@ function paintKwMapList() {
           isTo
             ? `<label class="kw-map-field kw-map-args">
           <span class="kw-map-label">发送消息</span>
-          <input type="text" class="ctrl js-kw-args" data-idx="${i}" value="${attr(args)}" placeholder="如 1 clear" />
+          <input type="text" class="ctrl js-kw-args" data-idx="${i}" value="${attr(args)}" placeholder="如 1 /clear" />
         </label>`
             : ""
         }

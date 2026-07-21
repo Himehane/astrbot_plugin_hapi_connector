@@ -7,7 +7,7 @@
 匹配：
 - 无参命令：整句严格匹配关键词
 - 可带参命令：关键词整句，或「关键词 + 空白 + 参数」
-- 映射可带固定 args（如 cl → to + 1 clear）；有固定 args 时仅整句匹配关键词
+- 映射可带固定 args（如 cl → to + 1 /clear）；有固定 args 时仅整句匹配关键词
 """
 
 from __future__ import annotations
@@ -19,8 +19,9 @@ from typing import Any
 DEFAULT_KEYWORD_MAPS: list[dict[str, Any]] = [
     {"keywords": ["stop", "停"], "command": "stop", "args": ""},
     {"keywords": ["sw"], "command": "sw", "args": ""},
-    {"keywords": ["cl"], "command": "to", "args": "1 clear"},
+    {"keywords": ["cl"], "command": "to", "args": "1 /clear"},
     {"keywords": ["继续"], "command": "to", "args": "1 继续"},
+    {"keywords": ["hapi指令别名"], "command": "alias", "args": ""},
 ]
 
 
@@ -138,7 +139,7 @@ def normalize_maps(raw: Any) -> list[dict[str, Any]]:
                 keywords.append(t)
         if not keywords:
             continue
-        # 固定发送消息（仅 to 等可带参命令；如 to → 1 clear）
+        # 固定发送消息（仅 to 等可带参命令；如 to → 1 /clear）
         args = str(item.get("args") or item.get("argument") or "").strip()
         entry: dict[str, Any] = {"keywords": keywords, "command": cmd}
         if args:

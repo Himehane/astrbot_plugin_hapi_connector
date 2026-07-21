@@ -257,7 +257,7 @@ export const CONFIG_SCHEMA_FALLBACK = {
     "quick_prefix": ">",
     "poke_approve": true,
     "poke_action": "approve",
-    "cmd_keyword_maps": "[{\"keywords\":[\"stop\",\"停\"],\"command\":\"stop\"},{\"keywords\":[\"sw\"],\"command\":\"sw\"},{\"keywords\":[\"cl\"],\"command\":\"to\",\"args\":\"1 clear\"},{\"keywords\":[\"继续\"],\"command\":\"to\",\"args\":\"1 继续\"}]",
+    "cmd_keyword_maps": "[{\"keywords\":[\"stop\",\"停\"],\"command\":\"stop\"},{\"keywords\":[\"sw\"],\"command\":\"sw\"},{\"keywords\":[\"cl\"],\"command\":\"to\",\"args\":\"1 /clear\"},{\"keywords\":[\"hapi指令别名\"],\"command\":\"alias\"},{\"keywords\":[\"继续\"],\"command\":\"to\",\"args\":\"1 继续\"}]",
     "remind_pending": true,
     "remind_interval": 180,
     "auto_approve_enabled": false,
