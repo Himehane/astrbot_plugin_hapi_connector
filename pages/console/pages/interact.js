@@ -62,20 +62,32 @@ const CSS_SIMPLE_FIELDS = [
     ],
   },
   {
-    group: "工具条 / 差异",
+    group: "Tool 条 / Edit diff",
     items: [
-      { key: "--card-tool-bg", label: "工具底", type: "color", fallback: "#e8f0e9" },
-      { key: "--card-tool-fg", label: "工具字", type: "color", fallback: "#14120f" },
-      { key: "--card-tool-accent", label: "工具强调", type: "color", fallback: "#0f6b3c" },
-      { key: "--card-tool-border", label: "工具边框", type: "color", fallback: "#c9c2b0" },
-      { key: "--card-ask-bg", label: "Ask 底", type: "color", fallback: "#eef3e8" },
-      { key: "--card-diff-add", label: "差异 +", type: "color", fallback: "#0f6b3c" },
-      { key: "--card-diff-del", label: "差异 -", type: "color", fallback: "#6b4a3a" },
-      { key: "--card-tool-radius", label: "工具圆角", type: "text", fallback: "8px" },
-      { key: "--card-tool-pad-y", label: "工具上下内边距", type: "text", fallback: "10px" },
-      { key: "--card-tool-pad-x", label: "工具左右内边距", type: "text", fallback: "14px" },
-      { key: "--card-tool-gap", label: "工具间距", type: "text", fallback: "12px" },
-      { key: "--card-tool-bar-w", label: "左侧条宽", type: "text", fallback: "4px", hint: "0 关闭" },
+      { key: "--card-tool-bg", label: "Tool 背景", type: "color", fallback: "#e8f0e9" },
+      { key: "--card-tool-fg", label: "Tool 文字", type: "color", fallback: "#14120f" },
+      { key: "--card-tool-accent", label: "Tool 强调色", type: "color", fallback: "#0f6b3c" },
+      { key: "--card-tool-border", label: "Tool 边框", type: "color", fallback: "#c9c2b0" },
+      { key: "--card-ask-bg", label: "Ask 背景", type: "color", fallback: "#eef3e8" },
+      {
+        key: "--card-diff-add",
+        label: "Edit diff +",
+        type: "color",
+        fallback: "#0f6b3c",
+        hint: "新增行颜色",
+      },
+      {
+        key: "--card-diff-del",
+        label: "Edit diff -",
+        type: "color",
+        fallback: "#6b4a3a",
+        hint: "删除行颜色",
+      },
+      { key: "--card-tool-radius", label: "Tool 圆角", type: "text", fallback: "8px" },
+      { key: "--card-tool-pad-y", label: "Tool 上下内边距", type: "text", fallback: "10px" },
+      { key: "--card-tool-pad-x", label: "Tool 左右内边距", type: "text", fallback: "14px" },
+      { key: "--card-tool-gap", label: "Tool 间距", type: "text", fallback: "12px" },
+      { key: "--card-tool-bar-w", label: "Tool 左侧条宽", type: "text", fallback: "4px", hint: "0=关闭" },
     ],
   },
 ];
@@ -335,7 +347,7 @@ function renderSimpleCssFormHtml() {
     '<summary class="css-simple-fold-summary">' +
     '<span class="adv-chevron" aria-hidden="true">▸</span>' +
     '<span class="css-simple-fold-title">常用样式变量</span>' +
-    '<span class="css-simple-fold-hint">颜色 · 尺寸 · 字号 · 间距 · 点击展开</span>' +
+    '<span class="css-simple-fold-hint">颜色 · 尺寸 · 字号 · 间距 · Tool/Edit diff · 点击展开</span>' +
     "</summary>" +
     '<div class="css-simple-fold-body">' +
     groupsHtml +
