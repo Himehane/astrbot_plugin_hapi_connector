@@ -3047,6 +3047,11 @@ def _draw_struct_png(
     *,
     formula_mode: str = "off",
 ) -> tuple[bytes, int, int]:
+    """结构卡（pending / permission / routes 等）。
+
+    高度预估与绘制共用同一套公式，并按实际内容扩展/裁剪（同 session_list），
+    避免 footer 多行或长详情时底部被截断。
+    """
     scale = style.font_scale
     dense = style.density == "compact"
     pad = style.padding
@@ -3058,7 +3063,10 @@ def _draw_struct_png(
     body_size = max(11, int(14 * scale))
     foot_size = max(10, int(12 * scale))
     line_gap = 6 if dense else 10
-    row_gap = 8 if dense else 12
+    row_gap = 10 if dense else 14  # 行间距略放宽，避免块之间挤
+    row_pad_y = 8 if dense else 10  # 行内上下内边距（与绘制一致）
+    foot_gap_before = 12  # 内容与 footer 分隔线间距
+    foot_gap_after = 12  # 分隔线到 footer 文案
 
     tmp = Image.new("RGB", (width, 100), _hex_to_rgb(style.bg))
     d0 = ImageDraw.Draw(tmp)
@@ -3072,46 +3080,64 @@ def _draw_struct_png(
     rows = list(data.get("rows") or [])
     footer = str(data.get("footer") or "")
 
-    y = pad
-    y += _text_size(d0, title, font_title)[1] + 6
-    if subtitle:
-        for _ in _wrap_text(d0, subtitle, font_sub, content_w):
-            y += _text_size(d0, "测", font_sub)[1] + 2
-        y += 8
-    y += 2 + line_gap
-
     def _row_head(row: dict) -> str:
         rtype = str(row.get("type") or "row")
         label = str(row.get("label") or "")
         detail = str(row.get("detail") or "")
         if rtype == "section":
             if detail:
-                return f"{label}  ·  {detail}" if not str(detail).startswith("(") else f"{label} {detail}"
+                return (
+                    f"{label}  ·  {detail}"
+                    if not str(detail).startswith("(")
+                    else f"{label} {detail}"
+                )
             return label
         idx = row.get("index") or 0
         if idx:
             return f"{idx}.  {label}"
         return label
 
-    for row in rows:
-        rtype = str(row.get("type") or "row")
+    def _block_h(row: dict) -> int:
+        """普通行底条高度（与绘制 block_h 一致）。"""
         head = _row_head(row)
         detail = str(row.get("detail") or "")
-        f_head = font_body if rtype != "section" else font_sub
-        for _ in _wrap_text(d0, head, f_head, content_w):
-            y += _text_size(d0, "测", f_head)[1] + 2
-        if detail and rtype != "section":
-            for _ in _wrap_text(d0, detail, font_sub, content_w - 12):
+        head_lines = _wrap_text(d0, head, font_body, content_w - 16) or [""]
+        detail_lines = (
+            _wrap_text(d0, detail, font_sub, content_w - 20) if detail else []
+        )
+        return (
+            row_pad_y * 2
+            + sum(_text_size(d0, ln or " ", font_body)[1] + 2 for ln in head_lines)
+            + sum(_text_size(d0, ln or " ", font_sub)[1] + 2 for ln in detail_lines)
+        )
+
+    # 预估高度 = 与绘制同一套推进 + 底部安全边距
+    y = pad
+    y += _text_size(d0, title, font_title)[1] + 6
+    if subtitle:
+        for _ in _wrap_text(d0, subtitle, font_sub, content_w):
+            y += _text_size(d0, "测", font_sub)[1] + 2
+        y += 8
+    y += 3 + line_gap  # accent bar
+    for row in rows:
+        rtype = str(row.get("type") or "row")
+        if rtype == "section":
+            head = _row_head(row)
+            for _ in _wrap_text(d0, head, font_sub, content_w):
                 y += _text_size(d0, "测", font_sub)[1] + 2
-        y += row_gap if rtype != "section" else (row_gap // 2)
+            y += row_gap // 2
+            continue
+        y += _block_h(row) + row_gap
     if footer:
-        y += 4
+        y += foot_gap_before + 1 + foot_gap_after
         for _ in _wrap_text(d0, footer, font_foot, content_w):
-            y += _text_size(d0, "测", font_foot)[1] + 2
+            y += _text_size(d0, "测", font_foot)[1] + 3
+        y += 6
     if style.show_brand:
-        y += 10 + _text_size(d0, "hapi", font_foot)[1]
-    y += pad
-    height = max(y, 120)
+        y += 12 + _text_size(d0, "hapi connector", font_foot)[1]
+    y += pad + 24  # 底部安全边距（同 session_list 思路）
+    height = max(int(y), 140)
+    height = min(height, 12000)
 
     bg = _hex_to_rgb(style.bg)
     fg = _hex_to_rgb(style.fg)
@@ -3122,14 +3148,6 @@ def _draw_struct_png(
 
     img = Image.new("RGB", (width, height), bg)
     draw = ImageDraw.Draw(img)
-    _draw_rounded_rect(
-        draw,
-        (1, 1, width - 2, height - 2),
-        radius=style.radius,
-        fill=bg,
-        outline=border,
-        width=2,
-    )
 
     y = pad
     draw.text((pad, y), title, font=font_title, fill=fg)
@@ -3152,13 +3170,12 @@ def _draw_struct_png(
                 y += _text_size(draw, line or " ", font_sub)[1] + 2
             y += row_gap // 2
             continue
-        # 普通行：浅底条
-        head_lines = _wrap_text(draw, head, font_body, content_w - 16)
+        head_lines = _wrap_text(draw, head, font_body, content_w - 16) or [""]
         detail_lines = (
             _wrap_text(draw, detail, font_sub, content_w - 20) if detail else []
         )
         block_h = (
-            10
+            row_pad_y * 2
             + sum(_text_size(draw, ln or " ", font_body)[1] + 2 for ln in head_lines)
             + sum(_text_size(draw, ln or " ", font_sub)[1] + 2 for ln in detail_lines)
         )
@@ -3169,7 +3186,7 @@ def _draw_struct_png(
             fill=row_bg,
             outline=None,
         )
-        yy = y + 6
+        yy = y + row_pad_y
         for line in head_lines:
             draw.text((pad + 10, yy), line, font=font_body, fill=fg)
             yy += _text_size(draw, line or " ", font_body)[1] + 2
@@ -3179,19 +3196,51 @@ def _draw_struct_png(
         y += block_h + row_gap
 
     if footer:
-        y += 4
+        y += foot_gap_before
         draw.line((pad, y, width - pad, y), fill=border, width=1)
-        y += 8
+        y += foot_gap_after
         for line in _wrap_text(draw, footer, font_foot, content_w):
             draw.text((pad, y), line, font=font_foot, fill=accent)
-            y += _text_size(draw, line or " ", font_foot)[1] + 2
+            y += _text_size(draw, line or " ", font_foot)[1] + 3
+
+    brand_h = 0
+    if style.show_brand:
+        brand = "hapi connector"
+        bw, bh = _text_size(draw, brand, font_foot)
+        brand_h = bh + 4
+
+    # 按实际内容高度扩展/裁剪（与 session_list 一致）
+    content_bottom = int(y + pad + brand_h + 8)
+    if content_bottom > height:
+        bigger = Image.new("RGB", (width, content_bottom), bg)
+        bigger.paste(img, (0, 0))
+        img = bigger
+        height = content_bottom
+        draw = ImageDraw.Draw(img)
+    elif content_bottom < height:
+        height = max(content_bottom, 140)
+        img = img.crop((0, 0, width, height))
+        draw = ImageDraw.Draw(img)
 
     if style.show_brand:
         brand = "hapi connector"
         bw, bh = _text_size(draw, brand, font_foot)
         draw.text(
-            (width - pad - bw, height - pad - bh), brand, font=font_foot, fill=muted
+            (width - pad - bw, height - pad - bh),
+            brand,
+            font=font_foot,
+            fill=muted,
         )
+
+    # 外框最后画，避免扩展后丢失
+    _draw_rounded_rect(
+        draw,
+        (1, 1, width - 2, height - 2),
+        radius=style.radius,
+        fill=None,
+        outline=border,
+        width=2,
+    )
 
     _ = formula_mode
     buf = io.BytesIO()

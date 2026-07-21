@@ -228,7 +228,9 @@ function renderOverview() {
     });
 
   $$("#view-overview [data-go]").forEach((b) => {
-    b.onclick = () => go(b.dataset.go);
+    b.onclick = () => {
+      void go(b.dataset.go);
+    };
   });
   $("#btn-reconnect")?.addEventListener("click", async () => {
     const ok = await askConfirm("按当前已保存配置重建连接并重启 SSE？", { title: "重连", yes: "重连" });

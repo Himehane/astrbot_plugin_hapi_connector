@@ -11,6 +11,7 @@ import {
   renderAlert,
   showAlert,
   toast,
+  paintSaveStatus,
   setRefresh,
 } from "./ui.js?v=3.0.0";
 
@@ -140,9 +141,11 @@ function wireLiveMutations() {
   };
 }
 
-async function saveSettings() {
-  const prev = state.data.config;
+/** 从 draft / 敏感输入收集相对当前 config 的 patch（无变更返回 {}） */
+function buildSettingsPatch() {
+  const prev = state.data?.config || {};
   const draft = state.draft;
+  if (!draft) return {};
   const kindBoxes = [...document.querySelectorAll("[data-settings-kind]")];
   if (kindBoxes.length) {
     const kinds = kindBoxes.filter((el) => el.checked).map((el) => el.value);
@@ -155,17 +158,49 @@ async function saveSettings() {
     if (draft[f.key] !== prev[f.key]) patch[f.key] = draft[f.key];
   }
   const token = document.querySelector('#settings-form input[name="access_token"]')?.value;
-  const secret = document.querySelector('#settings-form input[name="cf_access_client_secret"]')?.value;
+  const secret = document.querySelector(
+    '#settings-form input[name="cf_access_client_secret"]',
+  )?.value;
   if (token) patch.access_token = token;
   if (secret) patch.cf_access_client_secret = secret;
-  if (!Object.keys(patch).length) {
-    toast("没有变更");
+  return patch;
+}
+
+function isSettingsDirty() {
+  return Object.keys(buildSettingsPatch()).length > 0;
+}
+
+function paintSettingsSaveStatus(status) {
+  paintSaveStatus($("#settings-save-status"), status);
+}
+
+function syncSettingsSaveStatus() {
+  if (state.page !== "settings") return;
+  if (isSettingsDirty()) {
+    paintSettingsSaveStatus("dirty");
     return;
   }
+  // 无脏：保留「已保存」；保存中不打断
+  const el = $("#settings-save-status");
+  const st = el?.dataset.state || "";
+  if (st === "saved" || st === "saving") return;
+  paintSettingsSaveStatus("");
+}
+
+/**
+ * @returns {Promise<boolean>} 是否保存成功（无变更也算成功）
+ */
+async function saveSettings() {
+  const patch = buildSettingsPatch();
+  if (!Object.keys(patch).length) {
+    paintSettingsSaveStatus("saved");
+    toast("没有变更");
+    return true;
+  }
+  paintSettingsSaveStatus("saving");
   try {
     if (isLive() && getApi()) {
       const res = await getApi().saveConfig(patch);
-      toast(res.message || "已保存");
       if (res.reconnect_error || (res.reconnect_required && !res.reconnected)) {
         showAlert(
           res.message ||
@@ -174,13 +209,17 @@ async function saveSettings() {
       }
     } else {
       store.saveConfig(patch);
-      toast("已保存");
     }
     state.draft = null;
-    await refresh();
+    // silent：不整页重绘（避免冲掉「已保存」状态）；再手动重绘表单
+    await refresh({ silent: true });
     _repaintPage("settings");
+    paintSettingsSaveStatus("saved");
+    return true;
   } catch (e) {
+    paintSettingsSaveStatus("error");
     toast("保存失败: " + (e.message || e));
+    return false;
   }
 }
 
@@ -192,6 +231,10 @@ export {
   startPolling,
   onVisibility,
   wireLiveMutations,
+  buildSettingsPatch,
+  isSettingsDirty,
+  paintSettingsSaveStatus,
+  syncSettingsSaveStatus,
   saveSettings,
   hasBridge,
   initBridge,

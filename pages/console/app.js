@@ -30,6 +30,7 @@ import {
   stopPolling,
   onVisibility,
   saveSettings,
+  paintSettingsSaveStatus,
 } from "./data.js?v=3.0.0";
 import "./nav.js?v=3.0.0"; // register go / repaint
 import { go } from "./go.js?v=3.0.0";
@@ -38,7 +39,9 @@ import { renderSettings } from "./pages/settings.js?v=3.0.0";
 function bindShell() {
   ensureFxLayer();
   $$("#nav .side-link").forEach((b) => {
-    b.onclick = () => go(b.dataset.page);
+    b.onclick = () => {
+      void go(b.dataset.page);
+    };
   });
 
   $("#btn-menu")?.addEventListener("click", () => {
@@ -50,11 +53,14 @@ function bindShell() {
     refresh({ fresh: true });
   });
   $("#dlg-close")?.addEventListener("click", () => $("#dlg").close());
-  $("#btn-settings-save")?.addEventListener("click", () => saveSettings());
+  $("#btn-settings-save")?.addEventListener("click", () => {
+    void saveSettings();
+  });
   $("#btn-settings-reset")?.addEventListener("click", async () => {
     const snap = await fetchSnapshot();
     state.draft = structuredClone(snap.config);
     renderSettings();
+    paintSettingsSaveStatus("");
     toast("已撤销未保存修改");
   });
 }

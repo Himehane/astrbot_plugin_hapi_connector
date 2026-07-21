@@ -4,7 +4,7 @@
 import { RENDER_KIND_LABELS } from "../constants.js?v=3.0.0";
 import { state, store } from "../state.js?v=3.0.0";
 import { $, $$, esc, attr } from "../utils.js?v=3.0.0";
-import { renderTopConn, renderAlert, toast } from "../ui.js?v=3.0.0";
+import { renderTopConn, renderAlert, toast, paintSaveStatus } from "../ui.js?v=3.0.0";
 import { refresh } from "../data.js?v=3.0.0";
 import { isLive, getApi } from "../live.js?v=3.0.0";
 import { helpTopics, helpCommands } from "./help.js?v=3.0.0";
@@ -237,6 +237,7 @@ function wireCssEditorMode() {
       const key = picker.dataset.cssColorFor;
       const text = document.querySelector('[data-css-var="' + key + '"]');
       if (text) text.value = picker.value;
+      syncInteractSaveStatus();
     };
   });
   $$('[data-css-var][data-css-kind="color"]').forEach((text) => {
@@ -252,6 +253,7 @@ function wireCssEditorMode() {
       else if (/^#([0-9a-fA-F]{3})$/.test(v)) {
         picker.value = "#" + [...v.slice(1)].map((c) => c + c).join("");
       }
+      syncInteractSaveStatus();
     };
   });
   applyCssEditorModeUI();
@@ -576,7 +578,10 @@ function bindCmdCombos(host) {
         const prev = state._ixKwMaps[idx].command;
         state._ixKwMaps[idx].command = cmdId || "";
         if (cmdId !== "to") state._ixKwMaps[idx].args = "";
-        if (prev !== cmdId) paintKwMapList();
+        if (prev !== cmdId) {
+          paintKwMapList();
+          syncInteractSaveStatus();
+        }
       }
     };
 
@@ -664,6 +669,7 @@ function paintKwMapList() {
         .split(/[,，]/)
         .map((s) => s.trim())
         .filter(Boolean);
+      syncInteractSaveStatus();
     };
   });
   bindCmdCombos($("#ix-kw-list"));
@@ -672,6 +678,7 @@ function paintKwMapList() {
       const i = Number(inp.dataset.idx);
       if (!state._ixKwMaps?.[i]) return;
       state._ixKwMaps[i].args = String(inp.value || "").trim();
+      syncInteractSaveStatus();
     };
   });
   $$("#ix-kw-list .js-kw-del").forEach((btn) => {
@@ -680,6 +687,7 @@ function paintKwMapList() {
       if (!Array.isArray(state._ixKwMaps)) return;
       state._ixKwMaps.splice(i, 1);
       paintKwMapList();
+      syncInteractSaveStatus();
     };
   });
 }
@@ -730,6 +738,198 @@ function collectQuickOpsPatchFromForm() {
     cmd_keyword_maps: maps,
     cmd_keyword_maps_list: maps,
   };
+}
+
+function stableJson(v) {
+  return JSON.stringify(v ?? null);
+}
+
+/** 用于脏比较的归一化快照（相对进入页/保存后的 baseline） */
+function quickOpsSnapshot() {
+  const patch = collectQuickOpsPatchFromForm();
+  const maps = (patch.cmd_keyword_maps_list || []).map((m) => ({
+    keywords: [...(m.keywords || [])].map(String).filter(Boolean),
+    command: String(m.command || "").trim().toLowerCase(),
+    args: String(m.args || "").trim(),
+  }));
+  return {
+    poke_approve: Boolean(patch.poke_approve),
+    poke_action: String(patch.poke_action || "approve"),
+    quick_prefix: String(patch.quick_prefix || ">"),
+    maps,
+  };
+}
+
+function renderSnapshot() {
+  const patch = collectRenderPatchFromForm();
+  const kinds = String(patch.render_kinds || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .sort();
+  return {
+    render_mode: normalizeRenderMode(patch.render_mode),
+    formula_mode: String(patch.formula_mode || "off"),
+    card_font_path: String(patch.card_font_path || ""),
+    card_custom_css: String(patch.card_custom_css || "").trim(),
+    kinds: normalizeRenderMode(patch.render_mode) === "card" ? kinds : [],
+  };
+}
+
+function captureInteractBaseline() {
+  try {
+    state._ixBaselineQuick = quickOpsSnapshot();
+    state._ixBaselineRender = renderSnapshot();
+  } catch (_) {
+    state._ixBaselineQuick = null;
+    state._ixBaselineRender = null;
+  }
+}
+
+function isQuickOpsDirty() {
+  if (!$("#ix-save-quick")) return false;
+  if (!state._ixBaselineQuick) return false;
+  try {
+    return stableJson(quickOpsSnapshot()) !== stableJson(state._ixBaselineQuick);
+  } catch (_) {
+    return false;
+  }
+}
+
+function isRenderDirty() {
+  if (!$("#ix-save-render")) return false;
+  if (!state._ixBaselineRender) return false;
+  try {
+    return stableJson(renderSnapshot()) !== stableJson(state._ixBaselineRender);
+  } catch (_) {
+    return false;
+  }
+}
+
+function isInteractDirty() {
+  if (state.page !== "interact") return false;
+  try {
+    return isQuickOpsDirty() || isRenderDirty();
+  } catch (_) {
+    return false;
+  }
+}
+
+function paintQuickSaveStatus(status) {
+  paintSaveStatus($("#ix-save-quick-status"), status);
+}
+
+function paintRenderSaveStatus(status) {
+  paintSaveStatus($("#ix-save-render-status"), status);
+}
+
+function syncInteractSaveStatus() {
+  if (state.page !== "interact") return;
+  const qEl = $("#ix-save-quick-status");
+  const rEl = $("#ix-save-render-status");
+  const qState = qEl?.dataset.state || "";
+  const rState = rEl?.dataset.state || "";
+  // 保存中不打断
+  if (qState !== "saving") {
+    if (isQuickOpsDirty()) paintQuickSaveStatus("dirty");
+    else if (qState === "saved") paintQuickSaveStatus("saved");
+    else paintQuickSaveStatus("");
+  }
+  if (rState !== "saving") {
+    if (isRenderDirty()) paintRenderSaveStatus("dirty");
+    else if (rState === "saved") paintRenderSaveStatus("saved");
+    else paintRenderSaveStatus("");
+  }
+}
+
+async function saveQuickOps() {
+  const patch = collectQuickOpsPatchFromForm();
+  paintQuickSaveStatus("saving");
+  try {
+    let res = null;
+    if (isLive() && getApi()) {
+      res = await getApi().saveConfig(patch);
+    } else {
+      store.saveConfig({
+        ...patch,
+        cmd_keyword_maps_list: patch.cmd_keyword_maps_list || [],
+      });
+    }
+    if (res?.config && state.data) state.data.config = { ...state.data.config, ...res.config };
+    else if (state.data?.config) Object.assign(state.data.config, patch);
+    if (state.draft) Object.assign(state.draft, patch);
+    if (Array.isArray(patch.cmd_keyword_maps_list)) {
+      state._ixKwMaps = patch.cmd_keyword_maps_list.map((m) => ({
+        keywords: [...(m.keywords || [])],
+        command: m.command || "",
+        args: m.args || "",
+      }));
+    }
+    await refresh({ silent: true });
+    try {
+      state._ixBaselineQuick = quickOpsSnapshot();
+    } catch (_) {
+      /* ignore */
+    }
+    paintQuickSaveStatus("saved");
+    return true;
+  } catch (e) {
+    paintQuickSaveStatus("error");
+    toast("保存失败: " + (e.message || e));
+    return false;
+  }
+}
+
+async function saveRenderSettings() {
+  const patch = collectRenderPatchFromForm();
+  paintRenderSaveStatus("saving");
+  try {
+    let res = null;
+    if (isLive() && getApi()) {
+      res = await getApi().saveConfig(patch);
+    } else {
+      const engine = state.data?.config?.render_engine || {};
+      store.saveConfig({
+        ...patch,
+        render_kinds_list: patch.render_kinds.split(","),
+        render_engine: engine,
+      });
+    }
+    if (res?.config && state.data) state.data.config = { ...state.data.config, ...res.config };
+    else if (state.data?.config) Object.assign(state.data.config, patch);
+    if (state.draft) Object.assign(state.draft, patch);
+    await refresh({ silent: true });
+    syncCardPanelVisibility(patch.render_mode);
+    try {
+      state._ixBaselineRender = renderSnapshot();
+    } catch (_) {
+      /* ignore */
+    }
+    paintRenderSaveStatus("saved");
+    return true;
+  } catch (e) {
+    paintRenderSaveStatus("error");
+    toast("保存失败: " + (e.message || e));
+    return false;
+  }
+}
+
+/** 离开交互页前保存全部脏分区 */
+async function saveAllInteractDirty() {
+  let ok = true;
+  if (isQuickOpsDirty()) {
+    if (!(await saveQuickOps())) ok = false;
+  }
+  if (isRenderDirty()) {
+    if (!(await saveRenderSettings())) ok = false;
+  }
+  return ok;
+}
+
+function discardInteractDraft() {
+  // 重绘会从 state.data.config 重建表单
+  paintQuickSaveStatus("");
+  paintRenderSaveStatus("");
 }
 
 function interactRenderState(cfg) {
@@ -1111,6 +1311,7 @@ function renderInteract() {
       </div>
 
       <div class="section-actions">
+        <span class="save-status" id="ix-save-quick-status" data-state="" aria-live="polite"></span>
         <button type="button" class="btn btn-primary" id="ix-save-quick">保存快捷操作</button>
       </div>
     </div>
@@ -1278,6 +1479,7 @@ function renderInteract() {
       </div>
 
       <div class="section-actions">
+        <span class="save-status" id="ix-save-render-status" data-state="" aria-live="polite"></span>
         <button type="button" class="btn btn-primary" id="ix-save-render">保存推送设置</button>
       </div>
     </div>
@@ -1291,50 +1493,33 @@ function renderInteract() {
       if (txt) txt.textContent = on ? "开启" : "关闭";
       const wrap = $("#ix-poke-action-wrap");
       if (wrap) wrap.hidden = !on;
+      syncInteractSaveStatus();
     });
   $$("#ix-poke-actions input[name='ix-poke-action']").forEach((inp) => {
     inp.onchange = () => {
       $$("#ix-poke-actions .poke-action-card").forEach((c) => c.classList.remove("is-on"));
       inp.closest(".poke-action-card")?.classList.add("is-on");
+      syncInteractSaveStatus();
     };
   });
 
+  $("#ix-prefix") &&
+    ($("#ix-prefix").oninput = () => {
+      syncInteractSaveStatus();
+    });
+
   paintKwMapList();
-  $("#ix-kw-add") && ($("#ix-kw-add").onclick = () => {
-    if (!Array.isArray(state._ixKwMaps)) state._ixKwMaps = [];
-    state._ixKwMaps.push({ keywords: [], command: "", args: "" });
-    paintKwMapList();
-  });
+  $("#ix-kw-add") &&
+    ($("#ix-kw-add").onclick = () => {
+      if (!Array.isArray(state._ixKwMaps)) state._ixKwMaps = [];
+      state._ixKwMaps.push({ keywords: [], command: "", args: "" });
+      paintKwMapList();
+      syncInteractSaveStatus();
+    });
 
   $("#ix-save-quick") &&
     ($("#ix-save-quick").onclick = async () => {
-      const patch = collectQuickOpsPatchFromForm();
-      try {
-        let res = null;
-        if (isLive() && getApi()) {
-          res = await getApi().saveConfig(patch);
-          toast(res?.message || "已保存快捷操作");
-        } else {
-          store.saveConfig({
-            ...patch,
-            cmd_keyword_maps_list: patch.cmd_keyword_maps_list || [],
-          });
-          toast("已保存快捷操作（本地 mock）");
-        }
-        if (res?.config && state.data) state.data.config = { ...state.data.config, ...res.config };
-        else if (state.data?.config) Object.assign(state.data.config, patch);
-        if (state.draft) Object.assign(state.draft, patch);
-        if (Array.isArray(patch.cmd_keyword_maps_list)) {
-          state._ixKwMaps = patch.cmd_keyword_maps_list.map((m) => ({
-            keywords: [...(m.keywords || [])],
-            command: m.command || "",
-            args: m.args || "",
-          }));
-        }
-        await refresh({ silent: true });
-      } catch (e) {
-        toast("保存失败: " + (e.message || e));
-      }
+      await saveQuickOps();
     });
 
   // 渲染模式：本地立即显隐，不必先保存
@@ -1342,6 +1527,7 @@ function renderInteract() {
     inp.onchange = () => {
       const mode = normalizeRenderMode(inp.value);
       syncCardPanelVisibility(mode);
+      syncInteractSaveStatus();
     };
   });
   syncCardPanelVisibility(rs.render_mode);
@@ -1356,22 +1542,27 @@ function renderInteract() {
     wrap.hidden = !msgOn;
   };
   $$("[data-rkind]").forEach((el) => {
-    el.addEventListener("change", syncFormulaWrap);
+    el.addEventListener("change", () => {
+      syncFormulaWrap();
+      syncInteractSaveStatus();
+    });
   });
   syncFormulaWrap();
+
+  $("#ix-fmode") &&
+    ($("#ix-fmode").onchange = () => {
+      syncInteractSaveStatus();
+    });
 
   const bindPaint = () => {
     paintDomCardPreview();
   };
-  ["ix-sample"].forEach(
-    (id) => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      el.addEventListener("input", bindPaint);
-      el.addEventListener("change", bindPaint);
-    },
-  );
-
+  ["ix-sample"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("input", bindPaint);
+    el.addEventListener("change", bindPaint);
+  });
 
   const cssTa = $("#ix-css");
   const initCss = rs.effective_css || rs.default_css || DEFAULT_CARD_CSS_FALLBACK;
@@ -1380,6 +1571,18 @@ function renderInteract() {
   if (!state._cssEditorMode) state._cssEditorMode = "simple";
   fillSimpleCssForm(initCss);
   wireCssEditorMode();
+
+  // CSS / 简易变量编辑 → 标脏
+  if (cssTa) {
+    cssTa.oninput = () => syncInteractSaveStatus();
+  }
+  $$("[data-css-var]").forEach((el) => {
+    el.addEventListener("input", () => syncInteractSaveStatus());
+    el.addEventListener("change", () => syncInteractSaveStatus());
+  });
+  $$("[data-css-color-for]").forEach((el) => {
+    el.addEventListener("input", () => syncInteractSaveStatus());
+  });
 
   $("#ix-reset-style") &&
     ($("#ix-reset-style").onclick = () => {
@@ -1390,8 +1593,8 @@ function renderInteract() {
       if ($("#ix-font-path")) $("#ix-font-path").value = "";
       if ($("#ix-font-custom-wrap")) $("#ix-font-custom-wrap").hidden = true;
       bindPaint();
+      syncInteractSaveStatus();
     });
-
 
   // 字体下拉：选「自定义」时显示路径框
   const fontSel = $("#ix-font-select");
@@ -1402,8 +1605,13 @@ function renderInteract() {
       if (fontSel.value && fontSel.value !== "__custom__" && $("#ix-font-path")) {
         $("#ix-font-path").value = fontSel.value;
       }
+      syncInteractSaveStatus();
     };
   }
+  $("#ix-font-path") &&
+    ($("#ix-font-path").oninput = () => {
+      syncInteractSaveStatus();
+    });
 
   $("#ix-install-selected") &&
     ($("#ix-install-selected").onclick = async () => {
@@ -1433,7 +1641,12 @@ function renderInteract() {
         }
         let raw = await bridge.apiPost("render/install", { ids, force: false });
         // 解包 { code, data } 若有
-        if (raw && typeof raw === "object" && raw.data != null && (raw.code === 0 || raw.code === 200 || raw.success === true)) {
+        if (
+          raw &&
+          typeof raw === "object" &&
+          raw.data != null &&
+          (raw.code === 0 || raw.code === 200 || raw.success === true)
+        ) {
           raw = raw.data;
         }
         const res = raw || {};
@@ -1464,28 +1677,7 @@ function renderInteract() {
 
   $("#ix-save-render") &&
     ($("#ix-save-render").onclick = async () => {
-      const patch = collectRenderPatchFromForm();
-      try {
-        let res = null;
-        if (isLive() && getApi()) {
-          res = await getApi().saveConfig(patch);
-          toast(res?.message || "已保存推送设置");
-        } else {
-          store.saveConfig({
-            ...patch,
-            render_kinds_list: patch.render_kinds.split(","),
-            render_engine: engine,
-          });
-          toast("已保存推送设置（本地 mock）");
-        }
-        if (res?.config && state.data) state.data.config = { ...state.data.config, ...res.config };
-        else if (state.data?.config) Object.assign(state.data.config, patch);
-        if (state.draft) Object.assign(state.draft, patch);
-        await refresh({ silent: true });
-        syncCardPanelVisibility(patch.render_mode);
-      } catch (e) {
-        toast("保存失败: " + (e.message || e));
-      }
+      await saveRenderSettings();
     });
 
   $("#ix-gen-card") &&
@@ -1508,7 +1700,8 @@ function renderInteract() {
           // mock：无服务端时只提示用 DOM 预览
           res = {
             ok: false,
-            error: "本地预览模式无 Pillow 后端；请在 AstrBot 插件面板内生成实图，或安装依赖后重试。",
+            error:
+              "本地预览模式无 Pillow 后端；请在 AstrBot 插件面板内生成实图，或安装依赖后重试。",
             ms: 0,
             engine: "none",
             fallback_text: sampleTitle(kind) + "\n" + sampleSub(kind),
@@ -1536,6 +1729,17 @@ function renderInteract() {
     });
 
   paintDomCardPreview();
+  // 以当前表单为基线：未改动时状态区留空
+  captureInteractBaseline();
+  paintQuickSaveStatus("");
+  paintRenderSaveStatus("");
 }
 
-export { renderInteract };
+export {
+  renderInteract,
+  isInteractDirty,
+  saveAllInteractDirty,
+  discardInteractDraft,
+  saveQuickOps,
+  saveRenderSettings,
+};

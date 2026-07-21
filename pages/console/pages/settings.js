@@ -6,6 +6,7 @@ import { RENDER_KIND_LABELS } from "../constants.js?v=3.0.0";
 import { state } from "../state.js?v=3.0.0";
 import { $, $$, esc, attr } from "../utils.js?v=3.0.0";
 import { renderTopConn, renderAlert } from "../ui.js?v=3.0.0";
+import { syncSettingsSaveStatus } from "../data.js?v=3.0.0";
 import { CONFIG_SCHEMA_FALLBACK } from "../settings_schema_fallback.js?v=3.0.0";
 
 /** 当前生效的设置 schema（live meta 优先，否则 fallback） */
@@ -173,38 +174,49 @@ function renderSettings() {
     })
     .join("");
 
+  const onFieldChange = (input) => {
+    if (input.dataset.settingsKind != null) {
+      const kinds = [...document.querySelectorAll("[data-settings-kind]")]
+        .filter((el) => el.checked)
+        .map((el) => el.value);
+      state.draft.render_kinds = kinds.join(",") || "session_list,pending,message";
+      state.draft.render_kinds_list = kinds;
+      syncSettingsSaveStatus();
+      return;
+    }
+    if (input.type === "checkbox") {
+      state.draft[input.name] = input.checked;
+      const sw = input.closest(".switch");
+      const txt = sw?.querySelector(".switch-text");
+      if (txt) {
+        const f = allSettingsFields().find((x) => x.key === input.name);
+        const [offL, onL] = f?.boolLabels || ["关闭", "开启"];
+        txt.textContent = input.checked ? onL : offL;
+      }
+    } else if (input.type === "radio") state.draft[input.name] = input.value;
+    else if (input.type === "number") state.draft[input.name] = Number(input.value);
+    else state.draft[input.name] = input.value;
+    if (
+      input.name === "auto_approve_enabled" ||
+      input.name === "output_level" ||
+      input.name === "remind_pending" ||
+      input.name === "render_mode"
+    ) {
+      renderSettings();
+      return;
+    }
+    syncSettingsSaveStatus();
+  };
+
   $$("#settings-form input, #settings-form select").forEach((input) => {
-    input.onchange = () => {
-      if (input.dataset.settingsKind != null) {
-        const kinds = [...document.querySelectorAll("[data-settings-kind]")]
-          .filter((el) => el.checked)
-          .map((el) => el.value);
-        state.draft.render_kinds = kinds.join(",") || "session_list,pending,message";
-        state.draft.render_kinds_list = kinds;
-        return;
-      }
-      if (input.type === "checkbox") {
-        state.draft[input.name] = input.checked;
-        const sw = input.closest(".switch");
-        const txt = sw?.querySelector(".switch-text");
-        if (txt) {
-          const f = allSettingsFields().find((x) => x.key === input.name);
-          const [offL, onL] = f?.boolLabels || ["关闭", "开启"];
-          txt.textContent = input.checked ? onL : offL;
-        }
-      } else if (input.type === "radio") state.draft[input.name] = input.value;
-      else if (input.type === "number") state.draft[input.name] = Number(input.value);
-      else state.draft[input.name] = input.value;
-      if (
-        input.name === "auto_approve_enabled" ||
-        input.name === "output_level" ||
-        input.name === "remind_pending" ||
-        input.name === "render_mode"
-      ) {
-        renderSettings();
-      }
-    };
+    input.onchange = () => onFieldChange(input);
+    // 文本/密码边输边标脏
+    if (input.type === "text" || input.type === "password" || input.type === "number" || input.type === "time") {
+      input.oninput = () => onFieldChange(input);
+    }
   });
+
+  syncSettingsSaveStatus();
 }
 
 function allSettingsFields() {

@@ -95,10 +95,10 @@
             <div class="settings-layout">
               <nav id="settings-nav" class="settings-nav" aria-label="设置分组"></nav>
               <div class="settings-body">
-                <div id="settings-toast" class="toast" hidden></div>
                 <form id="settings-form" class="settings-form"></form>
                 <div class="settings-actions">
                   <button type="button" class="btn" id="btn-settings-reset">撤销未保存</button>
+                  <span class="save-status" id="settings-save-status" data-state="" aria-live="polite"></span>
                   <button type="button" class="btn btn-primary" id="btn-settings-save">保存设置</button>
                 </div>
               </div>
@@ -126,11 +126,14 @@
       <div class="dlg-body">
         <p id="dlg-confirm-msg" class="dlg-why"></p>
         <div class="dlg-actions">
+          <button type="button" class="btn btn-sm" id="dlg-confirm-discard" hidden>丢弃更改</button>
           <button type="button" class="btn btn-sm" id="dlg-confirm-no">取消</button>
           <button type="button" class="btn btn-sm btn-primary" id="dlg-confirm-yes">确定</button>
         </div>
       </div>
     </dialog>
+
+    <div id="global-toast" class="global-toast" hidden role="status" aria-live="polite"></div>
 
     <script type="module" src="./app.js?v=3.0.0"></script>
   </body>

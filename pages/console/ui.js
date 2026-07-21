@@ -144,6 +144,7 @@ function askConfirm(message, opts = {}) {
   const title = opts.title || "确认";
   const yesText = opts.yes || "确定";
   const noText = opts.no || "取消";
+  const discardText = opts.discard || "";
 
   return new Promise((resolve) => {
     const dlg = $("#dlg-confirm");
@@ -151,6 +152,7 @@ function askConfirm(message, opts = {}) {
     const titleEl = $("#dlg-confirm-title");
     const yes = $("#dlg-confirm-yes");
     const no = $("#dlg-confirm-no");
+    const discard = $("#dlg-confirm-discard");
     const x = $("#dlg-confirm-x");
     if (!dlg || !msgEl || !yes || !no) {
       toast(msg);
@@ -163,6 +165,15 @@ function askConfirm(message, opts = {}) {
     no.textContent = noText;
     yes.classList.toggle("btn-danger", danger);
     yes.classList.toggle("btn-primary", !danger);
+    if (discard) {
+      if (discardText) {
+        discard.hidden = false;
+        discard.textContent = discardText;
+      } else {
+        discard.hidden = true;
+        discard.textContent = "丢弃更改";
+      }
+    }
 
     let settled = false;
     const finish = (v) => {
@@ -170,6 +181,7 @@ function askConfirm(message, opts = {}) {
       settled = true;
       yes.onclick = null;
       no.onclick = null;
+      if (discard) discard.onclick = null;
       if (x) x.onclick = null;
       dlg.removeEventListener("close", onClose);
       try {
@@ -180,6 +192,9 @@ function askConfirm(message, opts = {}) {
     const onClose = () => finish(false);
     yes.onclick = () => finish(true);
     no.onclick = () => finish(false);
+    if (discard) {
+      discard.onclick = () => finish("discard");
+    }
     if (x) x.onclick = () => finish(false);
     dlg.addEventListener("close", onClose);
     try {
@@ -193,34 +208,59 @@ function askConfirm(message, opts = {}) {
   });
 }
 
+/**
+ * 离开页未保存确认。
+ * @returns {Promise<"save"|"discard"|"cancel">}
+ */
+async function askUnsavedLeave(message, opts = {}) {
+  const r = await askConfirm(message || "有未保存的更改，离开前如何处理？", {
+    title: opts.title || "未保存的更改",
+    yes: opts.yes || "保存",
+    discard: opts.discard || "丢弃更改",
+    no: opts.no || "取消",
+  });
+  if (r === true) return "save";
+  if (r === "discard") return "discard";
+  return "cancel";
+}
+
+/**
+ * 更新保存按钮左侧状态文案。
+ * state: "" | "dirty" | "saved" | "saving" | "error"
+ */
+function paintSaveStatus(el, status) {
+  if (!el) return;
+  const st = String(status || "");
+  el.dataset.state = st;
+  if (st === "dirty") el.textContent = "有更改未保存";
+  else if (st === "saved") el.textContent = "已保存";
+  else if (st === "saving") el.textContent = "保存中…";
+  else if (st === "error") el.textContent = "保存失败";
+  else el.textContent = "";
+}
+
 function toast(msg) {
-  let el = $("#settings-toast");
-  if (!el || $("#view-settings")?.hidden) {
-    // 非设置页：用顶栏 alert 短暂提示
-    const slot = $("#alert");
-    if (!slot) return;
-    slot.hidden = false;
-    slot.innerHTML = `<div class="alert" style="border-color:var(--cursor);background:var(--cursor-dim)"><span>${esc(msg)}</span></div>`;
-    clearTimeout(toast._t);
-    toast._t = setTimeout(() => {
-      // 不覆盖休眠 alert：仅当仍是我们的 toast 时清空
-      if (slot.querySelector(".alert") && !slot.querySelector(".alert-danger")) {
-        slot.hidden = true;
-        slot.innerHTML = "";
-      }
-    }, 2400);
-    return;
+  let el = $("#global-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "global-toast";
+    el.className = "global-toast";
+    el.setAttribute("role", "status");
+    el.setAttribute("aria-live", "polite");
+    document.body.appendChild(el);
   }
   el.hidden = false;
-  el.textContent = msg;
+  el.textContent = String(msg || "");
+  el.classList.add("is-show");
   clearTimeout(toast._t);
   toast._t = setTimeout(() => {
+    el.classList.remove("is-show");
     el.hidden = true;
   }, 2400);
 }
 
 
-export { askConfirm, toast };
+export { askConfirm, askUnsavedLeave, paintSaveStatus, toast };
 
 async function copyTextSafe(text) {
   const s = String(text || "");

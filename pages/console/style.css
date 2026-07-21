@@ -2143,11 +2143,84 @@ select.ctrl-sm {
 
 .settings-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px dashed var(--line-strong);
+}
+
+/* 撤销靠左，状态贴保存按钮左侧 */
+.settings-actions #btn-settings-reset {
+  margin-right: auto;
+}
+
+.save-status {
+  min-height: 1.2em;
+  font-size: 12px;
+  font-family: var(--font-ui);
+  line-height: 1.4;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.save-status[data-state="dirty"] {
+  color: #b45309;
+}
+
+.save-status[data-state="saved"] {
+  color: var(--cursor);
+  font-weight: 600;
+}
+
+.save-status[data-state="saving"] {
+  color: var(--ink-soft);
+}
+
+.save-status[data-state="error"] {
+  color: #b91c1c;
+}
+
+html[data-theme="dark"] .save-status[data-state="dirty"] {
+  color: #fbbf24;
+}
+
+html[data-theme="dark"] .save-status[data-state="error"] {
+  color: #f87171;
+}
+
+/* 全局浮动 toast（不占页面顶部/设置表单顶） */
+.global-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%) translateY(8px);
+  z-index: 10050;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--cursor);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 4px 4px 0 rgba(28, 25, 20, 0.12);
+  font-size: 13px;
+  font-family: var(--font-ui);
+  line-height: 1.4;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.global-toast.is-show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.global-toast[hidden] {
+  display: none !important;
 }
 
 .toast {
@@ -3243,11 +3316,16 @@ input[type="range"] {
 
 .section-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 10px;
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px dashed var(--line);
+}
+
+.dlg-actions #dlg-confirm-discard:not([hidden]) {
+  margin-right: auto;
 }
 
 /* 快捷关键词映射 */
