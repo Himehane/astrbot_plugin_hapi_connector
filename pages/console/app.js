@@ -13,7 +13,6 @@ import { $$, $ } from "./utils.js?v=3.0.0";
 import {
   closeSidebar,
   ensureFxLayer,
-  setBridgeDark,
   showAlert,
   toast,
 } from "./ui.js?v=3.0.0";
@@ -78,8 +77,7 @@ async function boot() {
       wireLiveMutations();
 
       const applyCtx = (c) => {
-        // 记录 AstrBot 主题；若用户选「自」则跟随，亮/暗本地覆盖时不抢
-        setBridgeDark(Boolean(c?.isDark));
+        // 主题由面板左下角开关控制，不跟 AstrBot
         try {
           document.documentElement.lang = bridge.getLocale?.() || c?.locale || "zh-CN";
         } catch (_) {

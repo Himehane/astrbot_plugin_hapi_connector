@@ -101,12 +101,12 @@ function closeSidebar() {
 export { connLabel, connIsOk, renderTopConn, renderAlert, setPageChrome, closeSidebar };
 
 const FX_STORAGE_KEY = "hapi_console_fx";
-const THEME_STORAGE_KEY = "hapi_console_theme"; // "light" | "dark" | "auto"
+const THEME_STORAGE_KEY = "hapi_console_theme"; // "light" | "dark"
 
 /** 内存态：避免 localStorage 读失败 / 重复 ensure 时状态乱 */
 let _fxOn = null;
-/** AstrBot bridge 最近一次 isDark；theme=auto 时用 */
-let _bridgeIsDark = null;
+/** 内存态主题：true=暗，false=亮；默认亮 */
+let _darkOn = null;
 
 /** 动效默认关闭；localStorage "1"=开，其它=关 */
 function isFxEnabled() {
@@ -152,75 +152,38 @@ function applyFxEnabled(on) {
   }
 }
 
-/** 主题偏好：auto=跟 AstrBot；light/dark=本地覆盖 */
-function getThemePref() {
+/** 暗色是否开启；默认 false（亮色）。兼容旧值 auto → 亮 */
+function isDarkEnabled() {
+  if (_darkOn != null) return _darkOn;
   try {
     const v = localStorage.getItem(THEME_STORAGE_KEY);
-    if (v === "light" || v === "dark" || v === "auto") return v;
+    // 旧版 auto / 空 → 亮色
+    _darkOn = v === "dark";
   } catch (_) {
-    /* ignore */
+    _darkOn = false;
   }
-  return "auto";
+  return _darkOn;
 }
 
-function setThemePref(pref) {
-  if (pref !== "light" && pref !== "dark" && pref !== "auto") pref = "auto";
+function setDarkEnabled(on) {
+  _darkOn = Boolean(on);
   try {
-    localStorage.setItem(THEME_STORAGE_KEY, pref);
+    localStorage.setItem(THEME_STORAGE_KEY, _darkOn ? "dark" : "light");
   } catch (_) {
     /* ignore */
   }
   applyTheme();
 }
 
-/** 供 app.js bridge 调用：记录 AstrBot 主题，auto 时跟随 */
-function setBridgeDark(isDark) {
-  _bridgeIsDark = Boolean(isDark);
-  if (getThemePref() === "auto") applyTheme();
-}
-
-function resolveDark() {
-  const pref = getThemePref();
-  if (pref === "dark") return true;
-  if (pref === "light") return false;
-  // auto
-  if (_bridgeIsDark != null) return _bridgeIsDark;
-  // 无 bridge：跟系统
-  try {
-    return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches === true;
-  } catch (_) {
-    return false;
-  }
-}
-
 function applyTheme() {
-  const dark = resolveDark();
+  const dark = isDarkEnabled();
   document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
   const btn = document.getElementById("theme-toggle");
   if (btn) {
-    const pref = getThemePref();
-    const label =
-      pref === "auto" ? (dark ? "主题 · 自·暗" : "主题 · 自·亮") : dark ? "主题 · 暗" : "主题 · 亮";
-    btn.textContent = label;
+    btn.textContent = dark ? "主题 · 暗" : "主题 · 亮";
     btn.setAttribute("aria-pressed", dark ? "true" : "false");
-    btn.title =
-      pref === "auto"
-        ? "当前跟随 AstrBot/系统；点击改为亮色"
-        : dark
-          ? "当前暗色；点击改为亮色"
-          : "当前亮色；点击改为暗色";
+    btn.title = dark ? "切换为亮色主题" : "切换为暗色主题";
   }
-}
-
-/** 点击循环：auto → light → dark → auto（有 bridge 时更自然）；无 bridge 时 light ↔ dark */
-function cycleTheme() {
-  const pref = getThemePref();
-  let next;
-  if (pref === "auto") next = "light";
-  else if (pref === "light") next = "dark";
-  else next = "auto";
-  // 本地 file 预览时 auto 与系统相关，仍保留三级
-  setThemePref(next);
 }
 
 function ensureChromeControls() {
@@ -257,7 +220,7 @@ function ensureChromeControls() {
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      cycleTheme();
+      setDarkEnabled(!isDarkEnabled());
     });
     bar.appendChild(btn);
   }
@@ -290,7 +253,6 @@ function ensureFxLayer() {
   }
 
   ensureChromeControls();
-  // 每次 ensure 只同步 UI，不强制改偏好
   applyFxEnabled(isFxEnabled());
   applyTheme();
 }
@@ -299,11 +261,9 @@ export {
   ensureFxLayer,
   isFxEnabled,
   setFxEnabled,
-  getThemePref,
-  setThemePref,
-  setBridgeDark,
+  isDarkEnabled,
+  setDarkEnabled,
   applyTheme,
-  cycleTheme,
 };
 
 function askConfirm(message, opts = {}) {
