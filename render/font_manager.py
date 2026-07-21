@@ -437,7 +437,7 @@ def list_available_fonts() -> dict[str, Any]:
                 "id": "plugin",
                 "label": "插件目录",
                 "path": str(_BUNDLED_DIR),
-                "hint": "把 .ttf/.otf/.ttc 放这里，或点下方安装 Noto",
+                "hint": "你可以把 .ttf/.otf/.ttc 等字体文件放在此目录，或点击下方安装 Noto（请注意：卸载插件时会将此目录字体文件全部清理）",
             },
             {
                 "id": "system",

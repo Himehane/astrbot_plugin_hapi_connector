@@ -1403,8 +1403,12 @@ function renderInteract() {
             <div class="field-label">图片字体</div>
             <p class="field-help">会在下列路径扫描可选字体。</p>
             <ul class="font-scan-locs">
-              ${(fonts.scan_locations || [
-                { label: "插件目录", path: fonts.bundled_dir || "assets/fonts", hint: "插件包内 assets/fonts/" },
+              $${(fonts.scan_locations || [
+                {
+                  label: "插件目录",
+                  path: fonts.bundled_dir || "assets/fonts",
+                  hint: "你可以把 .ttf/.otf/.ttc 等字体文件放在此目录，或点击下方安装 Noto（请注意：卸载插件时会将此目录字体文件全部清理）",
+                },
                 { label: "系统常见路径", path: null, hint: "Linux Noto/文泉驿、macOS PingFang、Windows 雅黑 等" },
               ]).map((loc) => `<li><strong>${esc(loc.label)}</strong>${loc.path ? ` · <code class="mono">${esc(loc.path)}</code>` : ""}
                 ${loc.hint ? `<span class="muted"> — ${esc(loc.hint)}</span>` : ""}</li>`).join("")}
@@ -1422,7 +1426,7 @@ function renderInteract() {
             <div id="ix-font-custom-wrap" style="margin-top:8px" ${rs.card_font_path && !(fonts.fonts || []).some((f) => f.path === rs.card_font_path) ? "" : "hidden"}>
               <input id="ix-font-path" class="ctrl" type="text" value="${attr(rs.card_font_path)}" placeholder="绝对路径或相对插件根，如 assets/fonts/xxx.otf" />
             </div>
-            ${!(fonts.fonts || []).length ? `<p class="field-help" style="margin-top:6px">未扫到字体。可点下方安装 Noto 到插件目录，或填自定义路径。</p>` : ""}
+            ${!(fonts.fonts || []).length ? `<p class="field-help" style="margin-top:6px">未扫到字体。你可以把 .ttf/.otf/.ttc 等字体文件放在插件目录，或点击下方安装 Noto（请注意：卸载插件时会将此目录字体文件全部清理）；也可填自定义路径。</p>` : ""}
           </div>
 
           <div class="field">
