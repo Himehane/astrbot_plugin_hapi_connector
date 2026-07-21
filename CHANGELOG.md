@@ -1,5 +1,42 @@
 # 更新日志
 
+## v3.0.0 大更新 - webui支持、可个性化的交互优化、推送图片渲染支持
+感谢还在使用插件的各位朋友，本次更新维护的主题是配置直观性和使用体验的调整优化。
+
+1、Web 管理面板（AstrBot Plugin Pages）
+插件添加了设置面板，请将astrbot提升至支持webui的版本，以更好地管理各项设置与session情况。欢迎使用和体验
+
+2、引入了将 AI 输出的 Markdown 文字/公式渲染为图片的初步支持。可在webui中预览和启用。依赖包与字体可在webui页进行可选下载。
+注：公式渲染目前在较复杂公式的情况下可能仍有渲染不佳/识别不到位的问题。
+
+3、添加了对指令别名的支持。现在你可以将任意字符设置为指令的别名，以个性化地精简调用和输入。
+
+默认开启的关键词监听映射有：
+stop，停 -> /hapi stop 命令
+sw -> /hapi sw 命令
+cl -> /hapi to 1 /clear 命令，即对当前agent发送/clear指令清除会话上下文
+继续 -> /hapi to 1 继续 ，即对当前agent直接发送一条“继续”的消息
+hapi指令别名 -> /hapi alias 命令，即查看当前别名关键词映射情况
+
+关键词只会在当前有交互中的session，并且用户是管理员时被触发。无须担心误触。
+
+## v2.3.0 — 同步 HAPI 0.21–0.23 遥控器能力
+
+对齐上游 HAPI Hub API（约 0.21.0 ~ 0.23.0），补齐聊天侧遥控缺口：
+
+1. **新增 `/hapi fast [on|off]`**：Codex Fast mode（`POST /api/sessions/:id/service-tier`，`fast` / `standard`）
+2. **新增 `/hapi reopen [序号|ID前缀]`**：`POST /api/sessions/:id/reopen`（resume 备用接口）
+3. **OpenCode 支持 reasoning effort**：与 Codex 同走 `/model-reasoning-effort`；列表外值可透传（上游动态 options）
+4. **Effort / 模型枚举对齐上游**：
+   - Claude effort：`low` / `medium` / `high` / `xhigh` / `max`（+ auto）
+   - Pi thinking：`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`
+   - Codex/OpenCode reasoning：补 `max`，允许动态透传
+   - Claude 模型预设：补充了 `fable` / `fable[1m]`
+
+## v2.2.0 — Agent 类型兼容拓展
+
+对齐 HAPI 最新版本，远程控制管理支持 `claude/codex/cursor/gemini/grok/kimi/opencode/pi`
+
 ## v2.1.4
 
 修复 `/hapi create` 向导在 Windows 上输入盘符路径（如 `C:\Users\...`）时被错误添加前缀 `/` 的问题

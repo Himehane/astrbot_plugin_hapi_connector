@@ -4,10 +4,8 @@ import asyncio
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.provider import ProviderRequest
 from astrbot.api import logger
-from . import session_ops
-from . import formatters
-
-
+from ..core import session_ops
+from ..render import formatters
 class LLMIntegration:
     """LLM 工具集成管理器"""
 
@@ -178,7 +176,7 @@ class LLMIntegration:
         Args:
             window(string): 按聊天窗口过滤（默认为空表示当前窗口，设为 'all' 查询所有聊天窗口，用户没有明确要求时一般置空）
             path(string): 按路径搜索
-            agent(string): 按代理类型过滤（claude/codex/gemini/opencode）
+            agent(string): 按代理类型过滤（如 claude/codex/cursor/grok/kimi/opencode/pi）
         '''
         # 当前窗口无session时，自动查询所有session
         visible_sessions = self.state_mgr.visible_sessions_for_window(event, self.sessions_cache)
@@ -269,7 +267,7 @@ class LLMIntegration:
         info = f"""当前配置状态:
 
 output_level (SSE推送级别): {output_level}
-  - silence: 仅推送权限请求和任务完成提醒
+  - silence: 几乎不推正文，主要保留权限请求等关键提醒（可作为 agent 完成任务/需要审批时的通知）
   - simple: 仅推送 agent 文本消息，不包含复杂的工具调用信息
   - summary: 任务完成时推送最近的 agent 消息
   - detail: 实时推送所有新消息（信息量较大）
@@ -364,11 +362,11 @@ quick_prefix (快捷前缀): {quick_prefix}
 
         Args:
             directory(string): 工作目录路径
-            agent(string): 代理类型（claude/codex/gemini/opencode）
+            agent(string): 代理类型（推荐 claude/codex/cursor/grok/kimi/opencode/pi；gemini 仅兼容旧会话不可新建）
             machine_id(string): 机器 ID（可选，管理多机器时必填）
             session_type(string): session 类型（simple/worktree，默认 simple）
             yolo(boolean): 是否自动批准所有权限（默认 false）
-            model_reasoning_effort(string): 仅 Codex 可选；留空表示继承 Codex 默认设置，可选 none/minimal/low/medium/high/xhigh
+            model_reasoning_effort(string): 支持 reasoning effort 的代理（Codex/OpenCode 等）可选；留空表示继承默认，常用 none/minimal/low/medium/high/xhigh/max，也支持上游动态值透传
         '''
         # 获取机器列表
         try:
@@ -381,10 +379,21 @@ quick_prefix (快捷前缀): {quick_prefix}
             yield "没有在线的机器"
             return
 
-        agent = (agent or "").strip().lower()
-        from .constants import AGENTS
-        if agent not in AGENTS:
-            yield f"不支持的 agent: {agent}，可选: {', '.join(AGENTS)}"
+        from .flavor_profiles import (
+            format_creatable_agents_help,
+            is_creatable,
+            normalize_flavor,
+            profile_for,
+            supports_reasoning_effort,
+        )
+
+        agent = normalize_flavor(agent)
+        if not agent:
+            yield f"请指定 agent，推荐: {format_creatable_agents_help()}"
+            return
+        if not is_creatable(agent):
+            p = profile_for(agent)
+            yield f"❌ {p.label} 当前不可新建: {p.notes or '仅兼容已有 session'}；推荐: {format_creatable_agents_help()}"
             return
 
         # 处理 machine_id
@@ -403,21 +412,18 @@ quick_prefix (快捷前缀): {quick_prefix}
                 return
 
         normalized_effort = (model_reasoning_effort or "").strip().lower()
-        if agent == "codex":
-            from .constants import CODEX_REASONING_EFFORT_VALUES
+        if supports_reasoning_effort(agent):
             inherit_aliases = {"", "inherit", "default", "auto"}
             if normalized_effort in inherit_aliases:
                 normalized_effort = ""
-            elif normalized_effort not in CODEX_REASONING_EFFORT_VALUES:
-                yield "Codex 的 model_reasoning_effort 只能是留空(继承默认配置)或 none/minimal/low/medium/high/xhigh"
-                return
+            # 允许列表外透传（上游动态 reasoning effort）
         elif normalized_effort:
-            yield "只有 Codex 支持 model_reasoning_effort；其他代理请留空"
+            yield f"当前 agent ({agent}) 不支持 model_reasoning_effort；请留空"
             return
 
         approval_payload = {"machine_id": machine_id, "directory": directory,
                             "agent": agent, "session_type": session_type, "yolo": yolo}
-        if agent == "codex":
+        if supports_reasoning_effort(agent):
             approval_payload["model_reasoning_effort"] = normalized_effort or "inherit"
 
         # 请求审批

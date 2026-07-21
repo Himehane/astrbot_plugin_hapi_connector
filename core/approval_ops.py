@@ -2,8 +2,8 @@
 
 from .hapi_client import AsyncHapiClient
 from . import session_ops
-from . import formatters
-from .formatters import is_compact_request
+from ..render import formatters
+from ..render.formatters import is_compact_request
 
 
 def flatten_pending(pending_dict: dict) -> list[tuple[str, str, dict]]:

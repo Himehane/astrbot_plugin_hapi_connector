@@ -35,7 +35,7 @@ https://github.com/LiJinHao999/astrbot_plugin_hapi_connector
 
 这是一个**通过聊天指令远程管理 AI 编码会话的插件**。
 
-你在外面摸鱼，电脑在家跑代码——通过这个插件，你可以在 QQ、微信、Telegram 等任意聊天平台上，直接操控跑在远端机器上的 Claude Code / Codex / Gemini / OpenCode，发消息、审批权限、切换模型，一条指令,甚至拍一拍QQ机器人搞定。
+你在外面摸鱼，电脑在家跑代码——通过这个插件，你可以在 QQ、微信、Telegram 等任意聊天平台上，直接操控跑在远端机器上的 Claude Code / Codex / Cursor / Grok / Kimi / OpenCode / Pi 等，发消息、审批权限、切换模型，一条指令,甚至拍一拍QQ机器人搞定。
 
 **它连接的后端是 [HAPI](https://github.com/tiann/hapi)**，一个统一用于方便管理多个 AI 编码代理会话后台运行和管理的服务，是 [HAPPY CODER](https://github.com/slopus/happy?tab=readme-ov-file) 的开源本地实现版本——**数据全部留在本地**
 
@@ -76,6 +76,8 @@ hapi codex    # Open Codex
 - **文件双向传输**: 支持利用astrbot进行小文件的下载、上传，方便查看日志或传递配置
 - **兼容QQ、微信的官方bot**: 无法主动推送消息时将消息fallback伪装为被动回复，兼容QQ官方bot、微信clawbot
 - **智能审批机制**: 支持戳一戳快速批准、忙时自动托管、超时提醒，灵活应对不同场景
+- **交互友好的 Web 管理面板**: 在 AstrBot 插件详情页可视化查看连接与 session、改推送/绑定/权限、保存插件配置（与官方设置页同源）
+- **低延迟、稳定的推送服务与结果渲染**: 相较于常规内网穿透方案更加稳定，可在webui选择下载依赖渲染结果为图片(使用pillow而非笨重的playwright)
 
 
 ## 💡 实际应用场景
@@ -121,7 +123,16 @@ hapi codex    # Open Codex
 | `output_level` | SSE 推送级别：`silence` / `simple` / `summary` / `detail` | simple |
 | `summary_msg_count` | summary 级别显示的 agent 消息条数 | 5 |
 | `quick_prefix` | 快捷发送前缀字符 | `>` |
-| `poke_approve` | 戳一戳自动全部审批（仅 QQ NapCat） | 开启 |
+| `poke_approve` | 启用戳一戳快捷操作（仅 QQ NapCat 等） | 开启 |
+| `poke_action` | 戳一戳映射：`approve` / `pending` / `list` / `status` / `stop` / `output_cycle` / `none`（不含 deny，防误触） | approve |
+| `render_mode` | 推送呈现：`text` / `card`（勾选类型是否出卡，含对话） | text |
+| `render_kinds` | 出卡类型（逗号分隔）：`session_list,pending,status,permission,routes,message` | 见 schema |
+| `card_style_preset` / 配色 | 预设与 token；也可完全用自定义 CSS 覆盖 | terminal_light |
+| `formula_mode` | 公式：`off` 关闭 / `detect` 公式用 matplotlib / `formula_only` 仅含公式消息出图 / `plain` 含公式只发文字 | off |
+| `card_custom_css` | 完整可编辑 CSS（Pillow 识别 `--card-*` 变量） | 空=默认 |
+| `card_font_path` | 字体文件路径；留空用 `assets/fonts` 或系统已装 CJK | 空 |
+
+> 卡片为**可选能力**：`pip install -r requirements-render.txt`（Pillow）。含公式时需额外 `pip install matplotlib`。中文字体不自动下载——需要时放进 `assets/fonts/` 或填 `card_font_path`；系统已装 Noto/雅黑等时也可直接用。
 
 ### 自动审批
 
@@ -132,6 +143,21 @@ hapi codex    # Open Codex
 | `auto_approve_enabled` | 忙时托管审批：在指定时间范围内自动批准所有权限请求 | 关闭 |
 | `auto_approve_start` | 忙时托管审批开始时间（HH:MM，24小时制） | `23:00` |
 | `auto_approve_end` | 忙时托管审批结束时间（HH:MM，24小时制，支持跨午夜） | `07:00` |
+
+---
+
+## 🖥️ Web 管理面板
+
+安装并启用插件后，打开 **AstrBot WebUI → 插件 → hapi connector → 管理面板**。
+
+| 页面 | 能做什么 |
+|------|----------|
+| **概览** | HAPI / SSE 是否连通或休眠、在线机器 CPU/内存/负载、待审与未投递数量、常用开关、重连 |
+| **会话管理** | 按聊天窗口查看 session；改权限模式、绑定/解绑通知窗口；归档 / 恢复 / 删除（支持批量） |
+| **交互优化** | 选择戳一戳功能、设置指令别名；调整消息推送渲染方式（文字/图片渲染）图片渲染选择延迟低且轻量的pillow而非Playwright |
+| **命令帮助** | 与聊天 `/hapi help` 同源的指令说明（可搜索） |
+| **设置** | 全部 `_conf_schema.json` 配置项；CF secret **不回显**，留空表示不修改 |
+| **部署文档** | 渲染仓库 `docs/`（默认 HAPI 安装，含会话隔离 / CF Access）；标题取自 md 首行 H1 |
 
 ---
 
@@ -200,12 +226,13 @@ hapi codex    # Open Codex
 | `/hapi abort [序号\|ID前缀]` | 中断会话，默认当前（别名 `stop`） |
 | `/hapi remote` | 切换当前会话到 remote 远程托管模式 |
 | `/hapi archive` | 归档当前会话 |
-| `/hapi resume [序号\|ID前缀]` | 恢复被 archive 的 inactive session |
+| `/hapi resume [序号\|ID前缀]` | 恢复已停掉的会话 |
+| `/hapi reopen [序号\|ID前缀]` | 恢复已停掉的会话（resume 备用接口） |
 | `/hapi rename` | 重命名当前会话 |
 | `/hapi delete` | 删除当前会话 |
 | `/hapi clean [路径前缀]` | 批量清理 inactive session |
 
-> Codex 创建补充：默认会继承 Codex 默认设置中的思考深度；只有你在创建时显式选择 `none/minimal/low/medium/high/xhigh` 时，插件才会覆盖默认值。
+> Codex / OpenCode 创建补充：默认会继承服务端思考深度；只有你在创建时显式选择 `none/minimal/low/medium/high/xhigh/max`（或透传上游动态值）时，插件才会覆盖默认值。
 
 #### ✅ 权限审批
 
@@ -234,7 +261,10 @@ hapi codex    # Open Codex
 | 指令 | 说明 |
 |------|------|
 | `/hapi perm [模式]` | 查看/切换权限模式（不带参数则交互选择） |
-| `/hapi model [模式]` | 查看/切换模型（仅 Claude，不带参数则交互选择） |
+| `/hapi plan` | 切换 Plan 模式（toggle；Claude/Cursor 等走 permissionMode，Codex 走 collaborationMode） |
+| `/hapi model [模式]` | 查看/切换模型（Claude 含 sonnet/opus/fable 等预设；其它 flavor 可自由输入） |
+| `/hapi effort [值]` | 查看/切换推理强度（Claude/Pi 走 `/effort`；Codex/OpenCode 走 reasoning effort） |
+| `/hapi fast [on\|off]` | 查看/切换 Codex Fast mode（service tier: fast/standard） |
 | `/hapi output [级别]` | 查看/切换 SSE 推送级别（别名 `out`） |
 | `/hapi help [主题]` | 显示帮助信息，主题可选：会话 / 对话 / 审批 / 通知 / 文件 / 配置 |
 
@@ -244,7 +274,7 @@ hapi codex    # Open Codex
 
 | 级别 | 说明 |
 |------|------|
-| `silence` | 仅推送权限请求和等待输入提醒，其余静默 |
+| `silence` | 几乎不推正文，主要保留权限请求等关键提醒；可作为 agent 完成任务 / 需要审批时的通知 |
 | `simple` | AI 思考完成后推送纯文本 agent 消息及系统事件（过滤工具调用） |
 | `summary` | AI 思考完成后推送最近 N 条 agent 消息（N 由 summary_msg_count 控制，过滤工具调用） |
 | `detail` | 实时推送所有新消息（信息量较大） |
@@ -253,12 +283,16 @@ hapi codex    # Open Codex
 
 ## 🤖 支持的 AI 代理
 
-| 代理 | 可用权限模式 |
-|------|-------------|
-| Claude Code | `default` / `acceptEdits` / `bypassPermissions` / `plan` |
-| Codex | `default` / `read-only` / `safe-yolo` / `yolo` |
-| Gemini | `default` / `read-only` / `safe-yolo` / `yolo` |
-| OpenCode | `default` / `yolo` |
+| 代理 | 可用权限模式 | 其它遥控能力 |
+|------|-------------|-------------|
+| Claude Code | `default` / `acceptEdits` / `auto` / `bypassPermissions` / `plan` | model、effort（low…max） |
+| Codex | `default` / `read-only` / `safe-yolo` / `yolo` | plan(collaboration)、reasoning effort、**fast** |
+| Cursor | `default` / `plan` / `ask` / `debug` / `autoReview` / `yolo` | model、plan |
+| Grok Build | `default` / `auto` / `plan` / `bypassPermissions` | model、effort |
+| Kimi | `default` / `read-only` / `safe-yolo` / `yolo` | model |
+| OpenCode | `default` / `plan` / `yolo` | model、reasoning effort、plan |
+| Pi | （无运行时权限切换） | model、thinking levels（off…max） |
+| Gemini | `default` / `read-only` / `safe-yolo` / `yolo` | 仅兼容旧 session，不可新建 |
 
 ---
 ---
@@ -267,7 +301,7 @@ hapi codex    # Open Codex
 
 - **按聊天窗口隔离**：私聊、群聊、不同群之间互不影响，每个窗口只接收属于自己的会话通知与审批请求
 - **支持默认通知窗口**：`/hapi bind` 把当前聊天窗口设为默认通知窗口
-- **支持模型级默认窗口**：`/hapi bind claude|codex|gemini` 可以分别给不同类型的vibe coding 远程 session 指定默认通知窗口
+- **支持 agent 级默认窗口**：`/hapi bind <flavor>`（如 `claude|codex|cursor|grok`）可以分别给不同类型的 vibe coding 远程 session 指定默认通知窗口
 - **会话绑定优先级最高**：某个 session 一旦被当前聊天窗口接管，后续通知优先回到该窗口
 - **查看范围明确**：`/hapi list` 只展示当前窗口可见的 session，`/hapi list all` 和 `/hapi bind status` 用来查看全局状态
 
@@ -277,9 +311,7 @@ hapi codex    # Open Codex
 | 指令 | 说明 |
 |------|------|
 | `/hapi bind` | 设置当前聊天窗口为默认通知窗口 |
-| `/hapi bind claude` | 设置当前聊天窗口为 Claude 的默认通知窗口 |
-| `/hapi bind codex` | 设置当前聊天窗口为 Codex 的默认通知窗口 |
-| `/hapi bind gemini` | 设置当前聊天窗口为 Gemini 的默认通知窗口 |
+| `/hapi bind <flavor>` | 设置当前聊天窗口为指定 agent 的默认通知窗口（如 claude/codex/cursor/grok/kimi/opencode/pi） |
 | `/hapi bind status` | 查看默认窗口、模型默认窗口和 session 绑定状态 |
 | `/hapi bind reset` | 清除 session 绑定和窗口状态，保留默认通知窗口配置 |
 | `/hapi routes` | 查看当前生效的会话推送路由 |
@@ -289,24 +321,17 @@ hapi codex    # Open Codex
 
 ```
 astrbot_plugin_hapi_connector/
-├── main.py                 # 插件入口：生命周期、LLM 工具注册、戳一戳/快捷前缀处理
-├── command_handlers.py     # 所有 /hapi 子命令处理器
-├── llm_integration.py      # LLM Function Calling 工具集成（10个工具）
-├── state_manager.py        # 用户状态管理（当前 session、flavor、路由）
-├── notification_manager.py # 通知推送与消息分发
-├── pending_manager.py      # 待审批请求管理（序号分配、批准/拒绝）
-├── binding_manager.py      # 聊天窗口与 session 绑定管理
-├── hapi_client.py          # 异步 HAPI HTTP 客户端 + JWT 自动刷新
-├── cf_access.py            # Cloudflare Zero Trust Access 认证
-├── sse_listener.py         # 后台 SSE 监听 + 实时事件推送
-├── session_ops.py          # Session CRUD 操作封装
-├── file_ops.py             # 文件查询、上传、下载
-├── approval_ops.py         # 审批业务逻辑
-├── create_wizard.py        # 创建会话交互式向导
-├── formatters.py           # 格式化输出工具
-├── constants.py            # 常量定义（权限模式、模型、代理类型、Codex 思考深度）
+├── main.py                 # 插件入口：生命周期、LLM 工具、戳一戳/快捷前缀
+├── constants.py            # 兼容导出（能力表见 chat/flavor_profiles）
+├── core/                   # HAPI 连接、SSE、绑定/状态、session/file/approval
+├── chat/                   # 指令、向导、关键词、戳一戳、LLM 工具、flavor 能力
+├── render/                 # formatters、卡片/字体出图、UMO 展示
+├── webui/                  # Plugin Pages API 与设置 schema
+├── pages/console/          # Web 管理面板静态资源
+├── assets/fonts/           # 可选中文字体（WebUI 可下载）
 ├── _conf_schema.json       # 插件配置 schema
-└── metadata.yaml           # 插件元信息
+├── metadata.yaml           # 插件元信息
+└── requirements.txt        # 依赖（出图见 requirements-render.txt）
 ```
 
 ---
@@ -318,7 +343,7 @@ astrbot_plugin_hapi_connector/
 - ✅ 支持文件上传与下载逻辑
 - ✅ 支持多用户独立会话状态，通知相互隔离
 - ✅ 通过 AstrBot 自然语言触发指令
-- [ ] 支持将 Markdown 文字、AI编辑等影响观感长上下文渲染为图片（依赖库独立，可选下载）
+- ✅ 支持将 Markdown 文字、AI编辑等影响观感长上下文渲染为图片（依赖库独立，可选下载）
 
 ---
 

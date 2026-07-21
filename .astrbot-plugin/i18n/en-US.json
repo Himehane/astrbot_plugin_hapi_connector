@@ -1,0 +1,8 @@
+{
+  "pages": {
+    "console": {
+      "title": "Console",
+      "description": "HAPI connection status, session routing, and plugin settings"
+    }
+  }
+}

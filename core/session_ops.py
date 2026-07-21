@@ -76,7 +76,7 @@ async def set_permission_mode(client: AsyncHapiClient, sid: str, mode: str) -> t
 
 
 async def set_model_mode(client: AsyncHapiClient, sid: str, model: str) -> tuple[bool, str]:
-    """设置模型模式（仅 Claude）"""
+    """设置模型模式（由 session flavor / HAPI 决定是否支持）"""
     resp = await client.post(f"/api/sessions/{sid}/model", json={"model": model})
     if resp.ok:
         resp.release()
@@ -88,7 +88,7 @@ async def set_model_mode(client: AsyncHapiClient, sid: str, model: str) -> tuple
 
 
 async def set_effort(client: AsyncHapiClient, sid: str, effort: str | None) -> tuple[bool, str]:
-    """设置推理强度（仅 Claude）"""
+    """设置推理强度（/effort，如 Claude / Grok / Pi）"""
     resp = await client.post(f"/api/sessions/{sid}/effort", json={"effort": effort})
     if resp.ok:
         resp.release()
@@ -101,20 +101,32 @@ async def set_effort(client: AsyncHapiClient, sid: str, effort: str | None) -> t
 
 
 async def set_codex_reasoning_effort(client: AsyncHapiClient, sid: str, effort: str | None) -> tuple[bool, str]:
-    """设置 Codex 推理强度"""
+    """设置 modelReasoningEffort（Codex / OpenCode 等）"""
     resp = await client.post(f"/api/sessions/{sid}/model-reasoning-effort", json={"modelReasoningEffort": effort})
     if resp.ok:
         resp.release()
         label = effort or "继承默认"
-        return True, f"Codex 推理强度已切换为: {label}"
+        return True, f"推理强度已切换为: {label}"
     else:
         body = await resp.text()
         resp.release()
         return False, f"切换失败: {resp.status} {body[:200]}"
 
 
+async def set_service_tier(client: AsyncHapiClient, sid: str, tier: str) -> tuple[bool, str]:
+    """设置 Codex Fast mode（service tier: fast | standard）"""
+    resp = await client.post(f"/api/sessions/{sid}/service-tier", json={"serviceTier": tier})
+    if resp.ok:
+        resp.release()
+        label = "Fast 已开启" if tier == "fast" else "Fast 已关闭（standard）"
+        return True, label
+    body = await resp.text()
+    resp.release()
+    return False, f"切换失败: {resp.status} {body[:200]}"
+
+
 async def set_collaboration_mode(client: AsyncHapiClient, sid: str, mode: str) -> tuple[bool, str]:
-    """设置协作模式（仅 Codex remote）"""
+    """设置协作模式（如 Codex plan）"""
     resp = await client.post(f"/api/sessions/{sid}/collaboration-mode", json={"mode": mode})
     if resp.ok:
         resp.release()
@@ -194,7 +206,7 @@ async def archive_session(client: AsyncHapiClient, sid: str) -> tuple[bool, str]
 
 
 async def resume_session(client: AsyncHapiClient, sid: str) -> tuple[bool, str, str | None]:
-    """恢复 inactive session，返回 (成功, 描述, 恢复后的 session_id 或 None)"""
+    """恢复已停掉的会话。返回 (成功, 描述, 恢复后的 session_id 或 None)。"""
     resp = await client.post(f"/api/sessions/{sid}/resume", json={})
     if resp.ok:
         data = await resp.json()
@@ -205,6 +217,24 @@ async def resume_session(client: AsyncHapiClient, sid: str) -> tuple[bool, str, 
         body = await resp.text()
         resp.release()
         return False, _format_resume_error(resp.status, body), None
+
+
+async def reopen_session(client: AsyncHapiClient, sid: str) -> tuple[bool, str, str | None]:
+    """恢复已停掉的会话（resume 备用接口）。返回 (成功, 描述, session_id 或 None)。"""
+    resp = await client.post(f"/api/sessions/{sid}/reopen", json={})
+    if resp.ok:
+        data = await resp.json()
+        resp.release()
+        reopened_sid = (
+            data.get("sessionId")
+            or (data.get("session") or {}).get("id")
+            or sid
+        )
+        return True, f"已恢复 [{reopened_sid[:8]}]", reopened_sid
+
+    body = await resp.text()
+    resp.release()
+    return False, _format_reopen_error(resp.status, body), None
 
 
 def _format_resume_error(status: int, body: str) -> str:
@@ -225,12 +255,31 @@ def _format_resume_error(status: int, body: str) -> str:
             "（例如 claudeSessionId / codexSessionId）。\n"
             "这通常表示原生会话 ID 没来得及写入 HAPI，或写入前 CLI/runner 已断开；"
             "HAPI 前端此时一般也无法无损恢复。\n"
-            "若想继续这段工作，你需要在原机器上找到 Claude/Codex/Gemini/OpenCode 所对应的原生 session id，"
-            "用对应原生 CLI 恢复；找不到的话只能在同目录新建会话，并手动补充摘要或关键上下文。"
+            "可尝试 /hapi reopen；"
+            "或在原机器上用原生 CLI 按 session id 恢复。"
+            "找不到的话只能在同目录新建会话，并手动补充摘要或关键上下文。"
         )
 
     detail = error or body[:200]
     return f"恢复失败: {status} {detail}"
+
+
+def _format_reopen_error(status: int, body: str) -> str:
+    """Format HAPI reopen errors."""
+    code = ""
+    error = ""
+    try:
+        data = json.loads(body)
+        if isinstance(data, dict):
+            code = str(data.get("code") or "")
+            error = str(data.get("error") or data.get("message") or "")
+    except json.JSONDecodeError:
+        pass
+
+    if code or error:
+        detail = f"{code} {error}".strip() if code else error
+        return f"恢复失败: {status} {detail}"
+    return f"恢复失败: {status} {body[:200]}"
 
 
 async def rename_session(client: AsyncHapiClient, sid: str, new_name: str) -> tuple[bool, str]:
@@ -281,8 +330,15 @@ async def fetch_recent_paths(client: AsyncHapiClient) -> list[str]:
 async def spawn_session(client: AsyncHapiClient, machine_id: str,
                         directory: str, agent: str, session_type: str = "simple",
                         yolo: bool = False, worktree_name: str = "",
-                        model_reasoning_effort: str | None = None) -> tuple[bool, str, str | None]:
-    """创建新 session，返回 (成功, 消息, session_id 或 None)"""
+                        model_reasoning_effort: str | None = None,
+                        model: str | None = None,
+                        effort: str | None = None,
+                        permission_mode: str | None = None) -> tuple[bool, str, str | None]:
+    """创建新 session，返回 (成功, 消息, session_id 或 None)
+
+    额外可选参数对齐 HAPI SpawnSessionRequest：model / effort / permissionMode。
+    现有调用方可不传，保持兼容。
+    """
     body = {
         "directory": directory,
         "agent": agent,
@@ -293,6 +349,12 @@ async def spawn_session(client: AsyncHapiClient, machine_id: str,
         body["worktreeName"] = worktree_name
     if model_reasoning_effort:
         body["modelReasoningEffort"] = model_reasoning_effort
+    if model:
+        body["model"] = model
+    if effort:
+        body["effort"] = effort
+    if permission_mode:
+        body["permissionMode"] = permission_mode
 
     resp = await client.post(f"/api/machines/{machine_id}/spawn", json=body)
     if resp.status != 200:

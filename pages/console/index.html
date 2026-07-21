@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HAPI 连接器 · 管理面板</title>
+    <!-- 纯静态本地资源，符合 plugin-pages：禁止外链 CDN / 字体 / 脚本 -->
+    <link rel="stylesheet" href="./style.css?v=3.0.0" />
+  </head>
+  <body class="fx-off">
+    <div class="app-shell" id="app">
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+          <span class="brand-mark" aria-hidden="true">H</span>
+          <div>
+            <div class="brand-title">hapi connector</div>
+            <div class="brand-sub">AstrBot plugin panel</div>
+          </div>
+        </div>
+
+        <div class="sidebar-label">nav</div>
+        <nav class="sidebar-nav" id="nav" aria-label="主导航">
+          <button type="button" class="side-link is-active" data-page="overview">
+            <span class="side-ico" aria-hidden="true">◈</span>概览
+          </button>
+          <button type="button" class="side-link" data-page="sessions">
+            <span class="side-ico" aria-hidden="true">☰</span>会话管理
+          </button>
+          <button type="button" class="side-link" data-page="interact">
+            <span class="side-ico" aria-hidden="true">⚡</span>交互优化
+          </button>
+          <button type="button" class="side-link" data-page="help">
+            <span class="side-ico" aria-hidden="true">?</span>命令帮助
+          </button>
+          <button type="button" class="side-link" data-page="settings">
+            <span class="side-ico" aria-hidden="true">⚙</span>设置
+          </button>
+          <button type="button" class="side-link" data-page="docs">
+            <span class="side-ico" aria-hidden="true">§</span>部署文档
+          </button>
+        </nav>
+
+        <div class="sidebar-footer" id="sidebar-conn">
+          <span class="status-dot"></span>
+          <span id="sidebar-conn-text">—</span>
+        </div>
+      </aside>
+
+      <div class="main-area">
+        <header class="topnav">
+          <div class="topnav-left">
+            <button type="button" class="icon-btn only-mobile" id="btn-menu" aria-label="打开菜单">☰</button>
+            <div>
+              <h1 class="page-title" id="page-title">概览</h1>
+              <p class="page-desc" id="page-desc">连接状态与需要处理的事项</p>
+            </div>
+          </div>
+          <div class="topnav-right">
+            <span class="conn-chip" id="top-conn"></span>
+            <button type="button" class="btn" id="btn-refresh">刷新</button>
+          </div>
+        </header>
+
+        <div id="alert" class="alert-slot" hidden></div>
+
+        <main class="content">
+          <section id="view-overview" class="view" data-view="overview"></section>
+
+          <section id="view-sessions" class="view" data-view="sessions" hidden>
+            <div class="sessions-layout">
+              <aside class="win-pane">
+                <div class="pane-head">
+                  <div class="pane-title">聊天窗口</div>
+                </div>
+                <div id="window-list" class="win-list"></div>
+                <div class="pane-foot win-pane-foot">
+                  <button type="button" class="btn btn-sm win-vis-btn" id="btn-win-vis">管理可见窗口</button>
+                </div>
+              </aside>
+
+              <div class="sess-pane">
+                <div class="pane-head row">
+                  <div>
+                    <div class="pane-title" id="focus-title">Sessions</div>
+                  </div>
+                </div>
+
+                <div id="route-panel" class="route-panel"></div>
+                <div id="sess-panel"></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="view-interact" class="view" data-view="interact" hidden></section>
+          <section id="view-help" class="view" data-view="help" hidden></section>
+          <section id="view-docs" class="view" data-view="docs" hidden></section>
+
+          <section id="view-settings" class="view" data-view="settings" hidden>
+            <div class="settings-layout">
+              <nav id="settings-nav" class="settings-nav" aria-label="设置分组"></nav>
+              <div class="settings-body">
+                <form id="settings-form" class="settings-form"></form>
+                <div class="settings-actions">
+                  <button type="button" class="btn" id="btn-settings-reset">撤销未保存</button>
+                  <span class="save-status" id="settings-save-status" data-state="" aria-live="polite"></span>
+                  <button type="button" class="btn btn-primary" id="btn-settings-save">保存设置</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div class="scrim" id="scrim" hidden></div>
+
+    <dialog id="dlg" class="dlg">
+      <div class="dlg-head">
+        <h2 id="dlg-title">—</h2>
+        <button type="button" class="icon-btn" id="dlg-close" aria-label="关闭">×</button>
+      </div>
+      <div id="dlg-body" class="dlg-body"></div>
+    </dialog>
+
+    <dialog id="dlg-confirm" class="dlg dlg-confirm">
+      <div class="dlg-head">
+        <h2 id="dlg-confirm-title">确认</h2>
+        <button type="button" class="icon-btn" id="dlg-confirm-x" aria-label="关闭">×</button>
+      </div>
+      <div class="dlg-body">
+        <p id="dlg-confirm-msg" class="dlg-why"></p>
+        <div class="dlg-actions">
+          <button type="button" class="btn btn-sm" id="dlg-confirm-discard" hidden>丢弃更改</button>
+          <button type="button" class="btn btn-sm" id="dlg-confirm-no">取消</button>
+          <button type="button" class="btn btn-sm btn-primary" id="dlg-confirm-yes">确定</button>
+        </div>
+      </div>
+    </dialog>
+
+    <div id="global-toast" class="global-toast" hidden role="status" aria-live="polite"></div>
+
+    <script type="module" src="./app.js?v=3.0.0"></script>
+  </body>
+</html>

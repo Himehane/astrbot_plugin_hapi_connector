@@ -3,9 +3,10 @@
 
 from astrbot.api.event import AstrMessageEvent
 from astrbot.core.utils.session_waiter import session_waiter, SessionController
-from . import formatters
-from . import session_ops
-from .formatters import is_compact_request
+from ..render import formatters
+from ..core import session_ops
+from ..render.formatters import is_compact_request
+from ..core.hapi_routes import ROUTE_HANDLERS, ROUTE_TAKES_ARG
 
 
 def _session_resume_state(session: dict) -> str:
@@ -29,6 +30,9 @@ def _session_resume_state(session: dict) -> str:
 class CommandHandlers:
     """处理所有 /hapi 子命令"""
 
+    # 与 hapi_routes 同源，便于外部引用
+    ROUTE_TAKES_ARG = ROUTE_TAKES_ARG
+
     def __init__(self, plugin):
         self.plugin = plugin
         self.client = plugin.client
@@ -36,6 +40,11 @@ class CommandHandlers:
         self.state_mgr = plugin.state_mgr
         self.sse_listener = plugin.sse_listener
         self.binding_mgr = plugin.binding_mgr
+
+    def _handler_for(self, subcommand: str):
+        """按子命令名解析 handler；别名映射到同一方法。"""
+        method = ROUTE_HANDLERS.get(subcommand)
+        return getattr(self, method, None) if method else None
 
     # ──── 路由 ────
 
@@ -54,54 +63,17 @@ class CommandHandlers:
         subcommand = parts[0].lower()
         argument = parts[1] if len(parts) > 1 else ""
         logger.debug(f"[cmd_hapi_router] subcommand='{subcommand}', argument='{argument}', parts={parts}")
-        routes = {
-            "help": (self.cmd_help, True),
-            "帮助": (self.cmd_help, True),
-            "list": (self.cmd_list, True),
-            "ls": (self.cmd_list, True),
-            "sw": (self.cmd_sw, True),
-            "s": (self.cmd_status, False),
-            "status": (self.cmd_status, False),
-            "msg": (self.cmd_msg, True),
-            "messages": (self.cmd_msg, True),
-            "to": (self.cmd_to, True),
-            "perm": (self.cmd_perm, True),
-            "model": (self.cmd_model, True),
-            "effort": (self.cmd_effort, True),
-            "plan": (self.cmd_plan, True),
-            "remote": (self.cmd_remote, False),
-            "output": (self.cmd_output, True),
-            "out": (self.cmd_output, True),
-            "pending": (self.cmd_pending, False),
-            "approve": (self.cmd_approve, False),
-            "a": (self.cmd_approve, False),
-            "allow": (self.cmd_allow, True),
-            "answer": (self.cmd_answer, True),
-            "deny": (self.cmd_deny, True),
-            "create": (self.cmd_create, False),
-            "abort": (self.cmd_abort, True),
-            "stop": (self.cmd_abort, True),
-            "archive": (self.cmd_archive, False),
-            "resume": (self.cmd_resume, True),
-            "rename": (self.cmd_rename, False),
-            "delete": (self.cmd_delete, False),
-            "clean": (self.cmd_clean, True),
-            "files": (self.cmd_files, True),
-            "file": (self.cmd_files, True),
-            "find": (self.cmd_find, True),
-            "download": (self.cmd_download, True),
-            "dl": (self.cmd_download, True),
-            "upload": (self.cmd_upload, True),
-            "bind": (self.cmd_bind, True),
-            "routes": (self.cmd_routes, False),
-        }
-        route = routes.get(subcommand)
-        if route is None:
+        if subcommand not in self.ROUTE_TAKES_ARG:
+            yield event.plain_result(formatters.format_unknown_command_help(subcommand))
+            return
+
+        handler = self._handler_for(subcommand)
+        if handler is None:
             yield event.plain_result(formatters.format_unknown_command_help(subcommand))
             return
 
         await self.state_mgr.ensure_primary_session(event)
-        handler, takes_arg = route
+        takes_arg = self.ROUTE_TAKES_ARG[subcommand]
         if takes_arg:
             async for result in handler(event, argument):
                 yield result
@@ -135,13 +107,28 @@ class CommandHandlers:
                 normalized_scope = parts[1].strip() if len(parts) > 1 else ""
 
         scope_head = normalized_scope.split(None, 1)[0] if normalized_scope else ""
-        if scope_head == "all":
-            text = await self.plugin._format_bind_status_text(event)
-            yield event.plain_result(text)
-            return
-
         await self.plugin._refresh_sessions()
         machine_hint = await self.plugin._machine_status_hint()
+
+        if scope_head == "all":
+            # 全局列表：文本走 bind status；卡片走 path 分组 + 全局序号（与 list 同引擎）
+            text = await self.plugin._format_bind_status_text(event)
+            if machine_hint:
+                text += "\n\n" + machine_hint
+            from ..render import output_present
+            current_sid = self.state_mgr.effective_sid(event)
+            payload = output_present.build_session_list_payload(
+                self.sessions_cache,
+                current_sid,
+                all_sessions=self.sessions_cache,
+                header=f"全局 · 共 {len(self.sessions_cache)} 个",
+                scope="all",
+            )
+            async for result in output_present.present(
+                self.plugin, event, "session_list", payload, text
+            ):
+                yield result
+            return
 
         visible_sessions = self.state_mgr.visible_sessions_for_window(event, self.sessions_cache)
         if not visible_sessions:
@@ -162,7 +149,20 @@ class CommandHandlers:
         if machine_hint:
             text += "\n\n" + machine_hint
 
-        yield event.plain_result(text)
+        # 可选结构卡（Pillow）；失败/未安装/render_mode=text 时回退纯文本
+        from ..render import output_present
+        payload = output_present.build_session_list_payload(
+            visible_sessions,
+            current_sid,
+            all_sessions=self.sessions_cache,
+            header=f"当前窗口 · {len(visible_sessions)} 个",
+            header_current_window=event.unified_msg_origin,
+            scope="window",
+        )
+        async for result in output_present.present(
+            self.plugin, event, "session_list", payload, text
+        ):
+            yield result
 
     # ── sw ──
 
@@ -217,7 +217,7 @@ class CommandHandlers:
     # ── s (status) ──
 
     async def cmd_status(self, event: AstrMessageEvent):
-        """查看当前 session 状态"""
+        """查看当前 session 状态（出卡优先）"""
         await self.state_mgr.ensure_primary_session(event)
         await self.state_mgr.set_user_state(event)
         sid = self.state_mgr.effective_sid(event)
@@ -227,7 +227,12 @@ class CommandHandlers:
         try:
             detail = await session_ops.fetch_session_detail(self.client, sid)
             text = formatters.format_session_status(detail)
-            yield event.plain_result(text)
+            from ..render import output_present
+            payload = output_present.build_status_payload(detail)
+            async for result in output_present.present(
+                self.plugin, event, "status", payload, text
+            ):
+                yield result
         except Exception as e:
             yield event.plain_result(f"获取状态失败: {e}")
 
@@ -257,7 +262,7 @@ class CommandHandlers:
             total = len(selected)
             for i, round_msgs in enumerate(selected, 1):
                 text = formatters.format_round(round_msgs, i, total)
-                from .notification_manager import NotificationManager
+                from ..core.notification_manager import NotificationManager
                 for chunk in NotificationManager.split_message(text):
                     yield event.plain_result(chunk)
         except Exception as e:
@@ -307,7 +312,13 @@ class CommandHandlers:
 
     async def cmd_perm(self, event: AstrMessageEvent, mode: str = ""):
         """查看/切换权限模式: /hapi perm [模式名]"""
-        from .constants import PERMISSION_MODES
+        from .flavor_profiles import (
+            allows_any_permission_mode,
+            flavor_label,
+            is_permission_mode_allowed,
+            permission_modes_for,
+            profile_for,
+        )
         await self.state_mgr.set_user_state(event)
         sid = self.state_mgr.effective_sid(event)
         if not sid:
@@ -315,13 +326,20 @@ class CommandHandlers:
             return
 
         flavor = self.state_mgr.effective_flavor(event) or "claude"
-        modes = PERMISSION_MODES.get(flavor, ["default"])
+        p = profile_for(flavor)
+        modes = permission_modes_for(flavor)
+        passthrough = allows_any_permission_mode(flavor)
+
+        if p.permission_modes is not None and len(p.permission_modes) == 0:
+            note = p.notes or "该 agent 不支持运行时权限模式切换"
+            yield event.plain_result(f"({flavor_label(flavor)}) {note}")
+            return
 
         if mode:
             target = mode
-            if mode.isdigit() and 1 <= int(mode) <= len(modes):
+            if mode.isdigit() and modes and 1 <= int(mode) <= len(modes):
                 target = modes[int(mode) - 1]
-            if target not in modes:
+            if not passthrough and not is_permission_mode_allowed(flavor, target):
                 yield event.plain_result(f"❌ 无效模式: {mode}\n可用: {', '.join(modes)}")
                 return
             ok, msg = await session_ops.set_permission_mode(self.client, sid, target)
@@ -330,8 +348,14 @@ class CommandHandlers:
             try:
                 detail = await session_ops.fetch_session_detail(self.client, sid)
                 current = detail.get("permissionMode", "default")
-                text = formatters.format_permission_modes(modes, current)
-                yield event.plain_result(f"({flavor} 模式)\n{text}")
+                if modes:
+                    text = formatters.format_permission_modes(modes, current)
+                else:
+                    text = f"当前: {current}\n（无本地枚举，可直接输入模式名）"
+                header = f"({flavor_label(flavor)} / {flavor})"
+                if p.notes:
+                    header += f"\n{p.notes}"
+                yield event.plain_result(f"{header}\n{text}")
             except Exception:
                 yield event.plain_result("获取权限模式失败")
                 return
@@ -343,9 +367,9 @@ class CommandHandlers:
                     controller.keep(timeout=30, reset_timeout=True)
                     return
                 target = reply
-                if reply.isdigit() and 1 <= int(reply) <= len(modes):
+                if reply.isdigit() and modes and 1 <= int(reply) <= len(modes):
                     target = modes[int(reply) - 1]
-                if target not in modes:
+                if not passthrough and not is_permission_mode_allowed(flavor, target):
                     await ev.send(ev.plain_result(f"无效模式，可用: {', '.join(modes)}"))
                 else:
                     ok, msg = await session_ops.set_permission_mode(self.client, sid, target)
@@ -363,7 +387,7 @@ class CommandHandlers:
 
     async def cmd_model(self, event: AstrMessageEvent, mode: str = ""):
         """查看/切换模型: /hapi model [模式名]"""
-        from .constants import MODEL_MODES, GEMINI_MODEL_MODES
+        from .flavor_profiles import flavor_label, model_modes_for, profile_for, supports_model_change
         await self.state_mgr.set_user_state(event)
         sid = self.state_mgr.effective_sid(event)
         if not sid:
@@ -371,17 +395,23 @@ class CommandHandlers:
             return
 
         flavor = self.state_mgr.effective_flavor(event) or "claude"
-        if flavor not in ("claude", "gemini"):
-            yield event.plain_result("模型切换仅支持 Claude / Gemini session")
-            return
+        if not supports_model_change(flavor):
+            yield event.plain_result(
+                f"当前 session ({flavor_label(flavor)}) 未声明模型切换能力；"
+                "若 HAPI 支持，可直接 /hapi model <模型名> 尝试透传"
+            )
+            # 仍允许透传任意模型名（自适应）
+            if not mode:
+                return
 
-        modes = GEMINI_MODEL_MODES if flavor == "gemini" else MODEL_MODES
+        modes = model_modes_for(flavor)
+        freeform = not modes  # 无静态列表时允许自由输入
 
         if mode:
             target = mode
-            if mode.isdigit() and 1 <= int(mode) <= len(modes):
+            if mode.isdigit() and modes and 1 <= int(mode) <= len(modes):
                 target = modes[int(mode) - 1]
-            if target not in modes:
+            if modes and target not in modes and not freeform:
                 yield event.plain_result(f"❌ 无效模式: {mode}\n可用: {', '.join(modes)}")
                 return
             ok, msg = await session_ops.set_model_mode(self.client, sid, target)
@@ -389,8 +419,17 @@ class CommandHandlers:
         else:
             try:
                 detail = await session_ops.fetch_session_detail(self.client, sid)
-                current = detail.get("modelMode", "default")
-                text = formatters.format_model_modes(modes, current)
+                current = detail.get("modelMode") or detail.get("model") or "default"
+                if modes:
+                    text = formatters.format_model_modes(modes, current)
+                else:
+                    text = (
+                        f"({flavor_label(flavor)}) 当前模型: {current}\n"
+                        "无本地模型列表，直接回复模型名即可切换"
+                    )
+                p = profile_for(flavor)
+                if p.notes:
+                    text = f"{p.notes}\n{text}"
                 yield event.plain_result(text)
             except Exception:
                 yield event.plain_result("获取模型信息失败")
@@ -403,9 +442,9 @@ class CommandHandlers:
                     controller.keep(timeout=30, reset_timeout=True)
                     return
                 target = reply
-                if reply.isdigit() and 1 <= int(reply) <= len(modes):
+                if reply.isdigit() and modes and 1 <= int(reply) <= len(modes):
                     target = modes[int(reply) - 1]
-                if target not in modes:
+                if modes and target not in modes and not freeform:
                     await ev.send(ev.plain_result(f"无效模式，可用: {', '.join(modes)}"))
                 else:
                     ok, msg = await session_ops.set_model_mode(self.client, sid, target)
@@ -423,7 +462,17 @@ class CommandHandlers:
 
     async def cmd_effort(self, event: AstrMessageEvent, effort: str = ""):
         """查看/切换推理强度: /hapi effort [值]"""
-        from .constants import CLAUDE_EFFORT_OPTIONS, CLAUDE_EFFORT_VALUES, CODEX_REASONING_EFFORT_OPTIONS, CODEX_REASONING_EFFORT_VALUES
+        from .flavor_profiles import (
+            effort_allows_freeform,
+            effort_none_aliases,
+            effort_none_label,
+            effort_options_for,
+            effort_values_for,
+            flavor_label,
+            profile_for,
+            supports_any_effort,
+            supports_reasoning_effort,
+        )
         await self.state_mgr.set_user_state(event)
         sid = self.state_mgr.effective_sid(event)
         if not sid:
@@ -431,39 +480,58 @@ class CommandHandlers:
             return
 
         flavor = self.state_mgr.effective_flavor(event) or "claude"
-        if flavor not in ("claude", "codex"):
-            yield event.plain_result("推理强度设置仅支持 Claude / Codex session")
+        if not supports_any_effort(flavor):
+            yield event.plain_result(
+                f"推理强度设置当前未映射到 {flavor_label(flavor)} session"
+            )
             return
 
-        is_codex = flavor == "codex"
-        options = CODEX_REASONING_EFFORT_OPTIONS if is_codex else CLAUDE_EFFORT_OPTIONS
-        valid_values = CODEX_REASONING_EFFORT_VALUES if is_codex else CLAUDE_EFFORT_VALUES
-        none_aliases = ("inherit", "继承", "default") if is_codex else ("auto", "default")
-        none_label = "继承默认" if is_codex else "auto"
+        use_reasoning = supports_reasoning_effort(flavor)
+        freeform = effort_allows_freeform(flavor)
+        options = effort_options_for(flavor)
+        valid_values = effort_values_for(flavor)
+        none_aliases = effort_none_aliases(flavor)
+        none_label = effort_none_label(flavor)
 
         async def _apply(target):
-            if is_codex:
+            if use_reasoning:
                 return await session_ops.set_codex_reasoning_effort(self.client, sid, target)
             return await session_ops.set_effort(self.client, sid, target)
 
         if effort:
             val = effort.lower()
             target = None if val in none_aliases else val
-            if target is not None and target not in valid_values:
-                yield event.plain_result(f"❌ 无效值: {effort}\n可用: {none_label}, {', '.join(valid_values)}")
+            if (
+                target is not None
+                and valid_values
+                and target not in valid_values
+                and not freeform
+            ):
+                yield event.plain_result(
+                    f"❌ 无效值: {effort}\n可用: {none_label}, {', '.join(valid_values)}"
+                )
                 return
             ok, msg = await _apply(target)
             yield event.plain_result(msg)
         else:
             try:
                 detail = await session_ops.fetch_session_detail(self.client, sid)
-                current = detail.get("modelReasoningEffort") if is_codex else detail.get("effort")
+                current = (
+                    detail.get("modelReasoningEffort")
+                    if use_reasoning
+                    else detail.get("effort")
+                )
                 current = current or none_label
             except Exception:
                 yield event.plain_result("获取推理强度信息失败")
                 return
 
-            lines = ["当前推理强度，回复序号或名称切换："]
+            p = profile_for(flavor)
+            lines = [f"({flavor_label(flavor)}) 当前推理强度，回复序号或名称切换："]
+            if p.notes:
+                lines.append(p.notes)
+            if freeform:
+                lines.append("（上游支持动态选项，列表外的值也可直接输入）")
             for i, (val, label) in enumerate(options, 1):
                 mark = " ◀" if (val or none_label) == current else ""
                 lines.append(f"  {i}. {label}{mark}")
@@ -479,10 +547,14 @@ class CommandHandlers:
                     target = options[int(reply) - 1][0]
                 elif reply in none_aliases:
                     target = None
-                elif reply in valid_values:
+                elif freeform or not valid_values or reply in valid_values:
                     target = reply
                 else:
-                    await ev.send(ev.plain_result(f"无效值，可用: {none_label}, {', '.join(valid_values)}"))
+                    await ev.send(
+                        ev.plain_result(
+                            f"无效值，可用: {none_label}, {', '.join(valid_values)}"
+                        )
+                    )
                     controller.stop()
                     return
                 ok, msg = await _apply(target)
@@ -499,7 +571,8 @@ class CommandHandlers:
     # ── plan ──
 
     async def cmd_plan(self, event: AstrMessageEvent, arg: str = ""):
-        """切换 Plan 模式（toggle）: Claude 切换 permissionMode，Codex 切换 collaborationMode"""
+        """切换 Plan 模式（toggle）: permissionMode 或 collaborationMode，按 flavor profile"""
+        from .flavor_profiles import flavor_label, profile_for, supports_plan
         await self.state_mgr.set_user_state(event)
         sid = self.state_mgr.effective_sid(event)
         if not sid:
@@ -507,8 +580,11 @@ class CommandHandlers:
             return
 
         flavor = self.state_mgr.effective_flavor(event) or "claude"
-        if flavor not in ("claude", "codex"):
-            yield event.plain_result("Plan 模式仅支持 Claude / Codex session")
+        p = profile_for(flavor)
+        if not supports_plan(flavor):
+            yield event.plain_result(
+                f"Plan 模式当前未映射到 {flavor_label(flavor)} session"
+            )
             return
 
         try:
@@ -517,16 +593,7 @@ class CommandHandlers:
             yield event.plain_result("获取 session 状态失败")
             return
 
-        if flavor == "claude":
-            current = detail.get("permissionMode", "default")
-            target = "default" if current == "plan" else "plan"
-            ok, msg = await session_ops.set_permission_mode(self.client, sid, target)
-            if ok:
-                for s in self.sessions_cache:
-                    if s.get("id") == sid:
-                        s["permissionMode"] = target
-                        break
-        else:
+        if p.plan_via_collaboration:
             current = detail.get("collaborationMode", "default")
             target = "default" if current == "plan" else "plan"
             ok, msg = await session_ops.set_collaboration_mode(self.client, sid, target)
@@ -535,6 +602,15 @@ class CommandHandlers:
                     if s.get("id") == sid:
                         s["collaborationMode"] = target
                         break
+        else:
+            current = detail.get("permissionMode", "default")
+            target = "default" if current == "plan" else "plan"
+            ok, msg = await session_ops.set_permission_mode(self.client, sid, target)
+            if ok:
+                for s in self.sessions_cache:
+                    if s.get("id") == sid:
+                        s["permissionMode"] = target
+                        break
 
         action = "已开启" if target == "plan" else "已关闭"
         if ok:
@@ -542,6 +618,93 @@ class CommandHandlers:
             yield event.plain_result(f"{label}\n此窗口 Plan 模式{action}")
         else:
             yield event.plain_result(msg)
+
+    # ── fast (Codex service tier) ──
+
+    async def cmd_fast(self, event: AstrMessageEvent, mode: str = ""):
+        """查看/切换 Codex Fast mode: /hapi fast [on|off|fast|standard]"""
+        from .flavor_profiles import (
+            flavor_label,
+            normalize_service_tier,
+            service_tier_options,
+            supports_service_tier,
+        )
+        await self.state_mgr.set_user_state(event)
+        sid = self.state_mgr.effective_sid(event)
+        if not sid:
+            yield event.plain_result("请先用 /hapi sw <序号> 选择一个 session")
+            return
+
+        flavor = self.state_mgr.effective_flavor(event) or "claude"
+        if not supports_service_tier(flavor):
+            yield event.plain_result(
+                f"Fast mode（service tier）当前仅映射到 Codex session，"
+                f"当前为 {flavor_label(flavor)}"
+            )
+            return
+
+        options = service_tier_options()
+
+        async def _apply(tier: str):
+            ok, msg = await session_ops.set_service_tier(self.client, sid, tier)
+            if ok:
+                for s in self.sessions_cache:
+                    if s.get("id") == sid:
+                        s["serviceTier"] = tier
+                        break
+            return ok, msg
+
+        if mode:
+            tier = normalize_service_tier(mode)
+            if tier is None:
+                yield event.plain_result(
+                    f"❌ 无效值: {mode}\n可用: on/off、fast/standard"
+                )
+                return
+            ok, msg = await _apply(tier)
+            yield event.plain_result(msg)
+            return
+
+        try:
+            detail = await session_ops.fetch_session_detail(self.client, sid)
+            current = detail.get("serviceTier") or "standard"
+        except Exception:
+            yield event.plain_result("获取 Fast mode 状态失败")
+            return
+
+        lines = [
+            f"({flavor_label(flavor)}) Codex Fast mode，回复序号或 on/off 切换：",
+            f"当前: {current}",
+        ]
+        for i, (val, label) in enumerate(options, 1):
+            mark = " ◀" if val == current else ""
+            lines.append(f"  {i}. {label}{mark}")
+        yield event.plain_result("\n".join(lines))
+
+        @session_waiter(timeout=30, record_history_chains=False)
+        async def fast_waiter(controller: SessionController, ev: AstrMessageEvent):
+            reply = ev.message_str.strip().lower()
+            if not reply:
+                controller.keep(timeout=30, reset_timeout=True)
+                return
+            if reply.isdigit() and 1 <= int(reply) <= len(options):
+                tier = options[int(reply) - 1][0]
+            else:
+                tier = normalize_service_tier(reply)
+            if tier is None:
+                await ev.send(ev.plain_result("无效值，可用: on/off、fast/standard"))
+                controller.stop()
+                return
+            ok, msg = await _apply(tier)
+            await ev.send(ev.plain_result(msg))
+            controller.stop()
+
+        try:
+            await fast_waiter(event)
+        except TimeoutError:
+            yield event.plain_result("操作超时，已取消")
+        finally:
+            event.stop_event()
 
     # ── remote ──
 
@@ -558,7 +721,7 @@ class CommandHandlers:
     # ── output ──
 
     _OUTPUT_LEVELS = {
-        "silence": "仅推送权限请求和任务完成提醒",
+        "silence": "几乎不推正文，主要保留权限请求等关键提醒；可作为 agent 完成任务/需要审批时的通知",
         "summary": "任务完成时推送最近的 agent 消息",
         "simple": "仅推送 agent 文本消息，不包含复杂的工具调用信息",
         "detail": "实时推送所有新消息（信息量较大）",
@@ -630,7 +793,12 @@ class CommandHandlers:
         visible_sids.add(event.unified_msg_origin)  # 包含当前窗口 ID（LLM 工具请求）
         pending = self.plugin.pending_mgr.get_pending_for_window(event, visible_sids)
         text = formatters.format_pending_requests(pending, self.sessions_cache)
-        yield event.plain_result(text)
+        from ..render import output_present
+        payload = output_present.build_pending_payload(pending, self.sessions_cache)
+        async for result in output_present.present(
+            self.plugin, event, "pending", payload, text
+        ):
+            yield result
 
     # ── approve ──
 
@@ -991,7 +1159,7 @@ class CommandHandlers:
     # ── resume ──
 
     async def cmd_resume(self, event: AstrMessageEvent, target: str = ""):
-        """恢复 inactive session: /hapi resume [序号|ID前缀]"""
+        """恢复已停掉的会话: /hapi resume [序号|ID前缀]"""
         await self.state_mgr.set_user_state(event)
         await self.plugin._refresh_sessions()
 
@@ -1054,6 +1222,76 @@ class CommandHandlers:
                 msg += f"已切换到恢复后的会话 [{flavor}] {resumed_sid[:8]}..."
             elif not msg:
                 msg = f"会话 [{sid[:8]}] 已可用"
+        yield event.plain_result(msg)
+
+    # ── reopen ──
+
+    async def cmd_reopen(self, event: AstrMessageEvent, target: str = ""):
+        """恢复已停掉的会话（resume 备用接口）: /hapi reopen [序号|ID前缀]"""
+        await self.state_mgr.set_user_state(event)
+        await self.plugin._refresh_sessions()
+
+        if not target:
+            sid = self.state_mgr.effective_sid(event)
+            if not sid:
+                yield event.plain_result(
+                    "请先用 /hapi sw <序号> 选择一个 session，或使用 /hapi reopen <序号>"
+                )
+                return
+        else:
+            sid = None
+            if target.isdigit():
+                idx = int(target)
+                if 1 <= idx <= len(self.sessions_cache):
+                    sid = self.sessions_cache[idx - 1]["id"]
+            if sid is None:
+                matches = [
+                    s for s in self.sessions_cache
+                    if s.get("id", "").startswith(target)
+                ]
+                if len(matches) == 1:
+                    sid = matches[0]["id"]
+                elif len(matches) > 1:
+                    labels = [f"  {s['id'][:8]}..." for s in matches]
+                    yield event.plain_result(
+                        f"匹配到 {len(matches)} 个 session，请更精确:\n"
+                        + "\n".join(labels)
+                    )
+                    return
+            if sid is None:
+                yield event.plain_result("未找到匹配的 session")
+                return
+
+        target_session = next(
+            (s for s in self.sessions_cache if s.get("id") == sid), None
+        )
+        if target_session:
+            state = _session_resume_state(target_session)
+            if state != "inactive":
+                yield event.plain_result(
+                    f"Session [{sid[:8]}] 当前状态为 {state}，只能恢复 inactive 状态的 session"
+                )
+                return
+
+        ok, msg, reopened_sid = await session_ops.reopen_session(self.client, sid)
+        if ok:
+            await self.plugin._refresh_sessions()
+            final_sid = reopened_sid or sid
+            reopened = next(
+                (s for s in self.sessions_cache if s.get("id") == final_sid), None
+            )
+            flavor = (
+                (reopened or {}).get("metadata", {}).get("flavor")
+                or self.state_mgr.effective_flavor(event)
+                or "claude"
+            )
+            await self.state_mgr.capture_window(
+                final_sid, event.unified_msg_origin, flavor
+            )
+            if final_sid != sid:
+                msg += f"\n已切换到恢复后的会话 [{flavor}] {final_sid[:8]}..."
+            else:
+                msg += f"\n已绑定当前窗口 [{flavor}] {final_sid[:8]}..."
         yield event.plain_result(msg)
 
     # ── rename ──
@@ -1219,7 +1457,7 @@ class CommandHandlers:
 
     async def cmd_files(self, event: AstrMessageEvent, path: str = "."):
         """浏览远端目录: /hapi files [-l] [路径]"""
-        from . import file_ops
+        from ..core import file_ops
         await self.state_mgr.set_user_state(event)
         if w := self.plugin._conn_warning():
             yield event.plain_result(w)
@@ -1235,7 +1473,7 @@ class CommandHandlers:
         try:
             entries = await session_ops.list_directory(self.client, sid, path=path)
             text = formatters.format_directory(entries, path=path, detail=detail, sid=sid)
-            from .notification_manager import NotificationManager
+            from ..core.notification_manager import NotificationManager
             for chunk in NotificationManager.split_message(text):
                 yield event.plain_result(chunk)
         except Exception as e:
@@ -1258,7 +1496,7 @@ class CommandHandlers:
         try:
             files = await session_ops.list_files(self.client, sid, query=query)
             text = formatters.format_file_search(files, query=query)
-            from .notification_manager import NotificationManager
+            from ..core.notification_manager import NotificationManager
             for chunk in NotificationManager.split_message(text):
                 yield event.plain_result(chunk)
         except Exception as e:
@@ -1270,7 +1508,7 @@ class CommandHandlers:
         """下载远端文件到聊天: /hapi download <路径>"""
         import os
         import astrbot.api.message_components as Comp
-        from . import file_ops
+        from ..core import file_ops
         await self.state_mgr.set_user_state(event)
         if w := self.plugin._conn_warning():
             yield event.plain_result(w)
@@ -1316,7 +1554,7 @@ class CommandHandlers:
 
     async def cmd_upload(self, event: AstrMessageEvent, action: str = ""):
         """上传文件到当前 session: /hapi upload [cancel]"""
-        from . import file_ops
+        from ..core import file_ops
         await self.state_mgr.ensure_primary_session(event)
         sid = self.state_mgr.effective_sid(event)
         if not sid:
@@ -1419,12 +1657,12 @@ class CommandHandlers:
     # ── bind ──
 
     async def cmd_bind(self, event: AstrMessageEvent, arg: str = ""):
-        """设置默认发送窗口: /hapi bind [claude|codex|gemini|status|reset]"""
-        from .state_manager import NOTIFICATION_ROUTE_FLAVORS
+        """设置默认发送窗口: /hapi bind [<flavor>|status|reset]"""
+        from .flavor_profiles import format_bind_flavor_examples, is_bindable_flavor, normalize_flavor
         await self.state_mgr.ensure_primary_session(event)
         sender_id = str(event.get_sender_id())
         umo = event.unified_msg_origin
-        action = (arg or "").strip().lower()
+        action = normalize_flavor(arg)
 
         if not action:
             # 设置当前窗口为默认
@@ -1433,7 +1671,7 @@ class CommandHandlers:
             self.state_mgr._user_states_cache[sender_id] = state
             await self.plugin.put_kv_data(f"user_state_{sender_id}", state)
             yield event.plain_result("✓ 已设置当前窗口为默认发送窗口")
-        elif action in NOTIFICATION_ROUTE_FLAVORS:
+        elif is_bindable_flavor(action):
             state = dict(self.state_mgr._user_states_cache.get(sender_id, {}))
             flavor_routes = self.state_mgr.normalized_flavor_primary_umos(state)
             flavor_routes[action] = umo
@@ -1448,60 +1686,141 @@ class CommandHandlers:
             async for result in self.cmd_reset(event):
                 yield result
         else:
+            examples = format_bind_flavor_examples()
             yield event.plain_result(
                 f"❌ 无效参数: {action}\n\n"
                 "用法:\n"
                 "  /hapi bind              设置当前窗口为默认\n"
-                "  /hapi bind claude       设置当前窗口为 claude 默认\n"
-                "  /hapi bind codex        设置当前窗口为 codex 默认\n"
-                "  /hapi bind gemini       设置当前窗口为 gemini 默认\n"
+                f"  /hapi bind <flavor>     设置当前窗口为某 agent 默认（如 {examples}）\n"
                 "  /hapi bind status       查看推送路由\n"
                 "  /hapi bind reset        重置窗口路由"
             )
 
+    # ── alias（快捷关键词映射一览） ──
+
+    async def cmd_alias(self, event: AstrMessageEvent, arg: str = ""):
+        """查看快捷关键词映射：/hapi alias [过滤词]
+
+        文案与规则在 keyword_maps.format_maps_list，此处只取运行时配置并输出。
+        """
+        from .keyword_maps import (
+            DEFAULT_KEYWORD_MAPS,
+            format_maps_list,
+            normalize_maps,
+        )
+
+        maps = getattr(self.plugin, "_cmd_keyword_maps", None)
+        if not maps:
+            raw = None
+            try:
+                raw = self.plugin.config.get("cmd_keyword_maps")
+            except Exception:
+                raw = None
+            maps = normalize_maps(raw)
+            if not maps and (
+                raw is None
+                or (isinstance(raw, str) and str(raw).strip() in ("", "[]"))
+            ):
+                maps = normalize_maps(DEFAULT_KEYWORD_MAPS)
+
+        text = format_maps_list(maps, filter_text=arg or "")
+        yield event.plain_result(text)
+
     # ── routes ──
 
     async def cmd_routes(self, event: AstrMessageEvent):
-        """查看会话推送路由"""
+        """查看会话推送路由（出卡优先）"""
         await self.state_mgr.ensure_primary_session(event)
         await self.plugin._refresh_sessions()
 
-        lines = ["会话推送路由："]
-        has_routes = False
+        from ..render import output_present
+        from ..render.umo_display import format_umo_title, resolve_umo_names
 
+        # 收集全部相关 UMO，批量解析群名/别名
+        umos_needed: set[str] = set()
+        session_bind: list[tuple[str, str, dict]] = []
         for sid, umo in self.state_mgr._session_owners.items():
-            s = next((s for s in self.sessions_cache if s["id"] == sid), None)
-            if s and umo:
-                metadata = s.get("metadata") or {}
-                if not isinstance(metadata, dict):
-                    metadata = {}
-                flavor = metadata.get("flavor", "?")
-                summary = formatters.get_session_title(s)[:20]
-                umo_display = umo[:40] + "..." if len(umo) > 40 else umo
-                lines.append(f"  [{flavor}] {sid[:8]} {summary}\n    → {umo_display}")
-                has_routes = True
+            if not umo:
+                continue
+            s = next((x for x in self.sessions_cache if x.get("id") == sid), None)
+            if s:
+                session_bind.append((sid, str(umo), s))
+                umos_needed.add(str(umo))
 
         sender_id = str(event.get_sender_id())
         state = self.state_mgr._user_states_cache.get(sender_id, {})
         primary = state.get("primary_umo")
-
         if primary:
-            display = self.state_mgr.format_umo_for_display(str(primary))
-            lines.append(f"\n默认发送窗口: {display}")
+            umos_needed.add(str(primary))
+        flavor_routes = self.state_mgr.normalized_flavor_primary_umos(state)
+        for u in flavor_routes.values():
+            if u:
+                umos_needed.add(str(u))
+
+        name_map: dict[str, str] = {}
+        try:
+            name_map = await resolve_umo_names(self.plugin.context, umos_needed)
+        except Exception:
+            name_map = {}
+
+        def _win_title(umo: str) -> str:
+            return format_umo_title(umo, name=name_map.get(str(umo)))
+
+        lines = ["会话推送路由："]
+        has_routes = False
+        session_rows: list[dict] = []
+
+        for sid, umo, s in session_bind:
+            metadata = s.get("metadata") or {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            flavor = metadata.get("flavor", "?")
+            summary = formatters.get_session_title(s)[:24]
+            win = _win_title(umo)
+            lines.append(f"  [{flavor}] {sid[:8]} {summary}\n    → {win}")
+            session_rows.append({
+                "sid_short": sid[:8],
+                "flavor": flavor,
+                "title": summary,
+                "window_title": win,
+                "umo": umo,
+            })
             has_routes = True
 
-        flavor_routes = self.state_mgr.normalized_flavor_primary_umos(state)
+        primary_title = None
+        if primary:
+            primary_title = _win_title(str(primary))
+            lines.append(f"\n默认发送窗口: {primary_title}")
+            has_routes = True
+
+        flavor_rows: list[dict] = []
         if flavor_routes:
-            lines.append("\nFlavor 默认窗口:")
+            lines.append("\nAgent 默认窗口:")
             for flavor in sorted(flavor_routes):
-                display = self.state_mgr.format_umo_for_display(flavor_routes[flavor])
-                lines.append(f"  {flavor} -> {display}")
+                win = _win_title(flavor_routes[flavor])
+                lines.append(f"  {flavor} -> {win}")
+                flavor_rows.append({
+                    "flavor": flavor,
+                    "window_title": win,
+                    "umo": flavor_routes[flavor],
+                })
             has_routes = True
 
         if not has_routes:
             yield event.plain_result("暂无推送路由\n使用 /hapi bind 设置默认发送窗口")
-        else:
-            yield event.plain_result("\n".join(lines))
+            return
+
+        text = "\n".join(lines)
+        payload = output_present.build_routes_payload(
+            session_rows=session_rows,
+            primary_umo=str(primary) if primary else None,
+            primary_title=primary_title,
+            flavor_routes=flavor_rows,
+        )
+        async for result in output_present.present(
+            self.plugin, event, "routes", payload, text
+        ):
+            yield result
 
     # ── reset ──
 

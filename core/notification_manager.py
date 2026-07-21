@@ -98,3 +98,76 @@ class NotificationManager:
             logger.error("Session %s [%s] 无绑定窗口且无默认窗口，推送失败", session_id[:8], flavor)
         else:
             logger.error("全局通知无可用默认窗口，推送失败")
+
+    async def push_image_notification(
+        self,
+        image_path: str,
+        session_id: str,
+        sessions_cache: list[dict],
+        *,
+        caption: str = "",
+        dedupe_key: str = "",
+    ):
+        """推送本地图片（结构卡/对话卡）到目标窗口；可选附带 caption 文本。"""
+        import astrbot.api.message_components as Comp
+
+        targets = self.state_mgr.select_notification_targets(session_id, sessions_cache)
+        if not targets:
+            if session_id:
+                sess = next((s for s in sessions_cache if s["id"] == session_id), None)
+                flavor = sess.get("metadata", {}).get("flavor", "unknown") if sess else "unknown"
+                logger.error(
+                    "Session %s [%s] 无绑定窗口且无默认窗口，图片推送失败",
+                    session_id[:8],
+                    flavor,
+                )
+            else:
+                logger.error("全局通知无可用默认窗口，图片推送失败")
+            return
+
+        body = dedupe_key or f"img:{image_path}:{caption}"
+        for umo in targets:
+            if self.should_skip_duplicate(umo, session_id, body):
+                continue
+            chain = None
+            try:
+                img = Comp.Image.fromFileSystem(image_path)
+                parts = [img]
+                if caption:
+                    parts.append(Comp.Plain(str(caption)))
+                # 兼容多种 MessageChain 构造 / 字段写法
+                last_err = None
+                for builder in (
+                    lambda: MessageChain(parts),
+                    lambda: MessageChain(chain=parts),
+                    lambda: MessageChain(message_chain=parts),
+                ):
+                    try:
+                        chain = builder()
+                        break
+                    except TypeError as te:
+                        last_err = te
+                    except Exception as te:
+                        last_err = te
+                if chain is None:
+                    chain = MessageChain()
+                    try:
+                        chain.chain = list(parts)
+                    except Exception:
+                        try:
+                            chain.message_chain = list(parts)  # type: ignore[attr-defined]
+                        except Exception as e2:
+                            logger.warning(
+                                "MessageChain 构造失败，仅发 caption: %s / %s", last_err, e2
+                            )
+                            chain = MessageChain().message(caption or "[hapi card]")
+                await self.context.send_message(umo, chain)
+            except Exception as e:
+                cached_event = self._event_cache.get(umo)
+                if cached_event and chain is not None:
+                    try:
+                        await cached_event.send(chain)
+                    except Exception as e2:
+                        logger.warning("图片推送到窗口失败 (umo=%s): %s / %s", umo[:20], e, e2)
+                else:
+                    logger.warning("图片推送到窗口失败 (umo=%s): %s", umo[:20], e)

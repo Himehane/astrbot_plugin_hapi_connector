@@ -9,7 +9,7 @@ from collections.abc import Callable, Awaitable
 from astrbot.api import logger
 
 from .hapi_client import AsyncHapiClient, ContentTypeError
-from .formatters import (extract_text_preview, session_label_short, format_request_detail,
+from ..render.formatters import (extract_text_preview, session_label_short, format_request_detail,
                          format_agent_line, is_question_request, format_question_notification,
                          format_permission_notification)
 from . import session_ops
@@ -23,6 +23,8 @@ class SSEListener:
         self.client = client
         self.sessions_cache = sessions_cache
         self.notify_callback = notify_callback
+        # 可选：插件引用，用于推送呈现（卡片/对话渲染）。由 main 注入。
+        self.plugin = None
         self.output_level: str = "detail"
         # {session_id: {request_id: {tool, arguments, ...}}}
         self.pending: dict[str, dict] = {}
@@ -32,7 +34,7 @@ class SSEListener:
         # 跟踪 session 状态以检测变化
         self.session_states: dict[str, dict] = {}
         self._lock = asyncio.Lock()
-        # 上次 SSE 连接错误描述，None 表示连接正常
+        # 上次 SSE 连接错误描述，None 表示尚无错误记录
         self.conn_error: str | None = None
         # 连续失败计数（内存，重启归零）
         self.conn_fail_count: int = 0
@@ -40,6 +42,8 @@ class SSEListener:
         self._max_reconnect: int = 0
         # 是否已休眠（达到重连上限）
         self._hibernated: bool = False
+        # 当前是否正持有可用的 SSE 流（读到数据后置 True，断线/停任务置 False）
+        self._stream_live: bool = False
         self._task: asyncio.Task | None = None
         self._remind_task: asyncio.Task | None = None
         self._remind_enabled: bool = False
@@ -56,8 +60,8 @@ class SSEListener:
         self._compaction_completed_seqs: dict[str, int] = {}
         # {session_id: seq}，记录已发送“任务完成”通知时的 lastSeq，防止状态抖动重复提醒
         self._completion_notified_seqs: dict[str, int] = {}
-        # {session_id: [text, ...]}，短暂排队权限类通知，先补普通消息再发送
-        self._queued_request_notifications: dict[str, list[str]] = {}
+        # {session_id: [text|dict, ...]}，短暂排队权限类通知，先补普通消息再发送
+        self._queued_request_notifications: dict[str, list] = {}
         self._request_notify_sids: set[str] = set()
         self._request_notify_task: asyncio.Task | None = None
 
@@ -85,10 +89,13 @@ class SSEListener:
         if self._task and not self._task.done():
             logger.info("SSE 监听已在运行，跳过重复启动")
             return
+        self._hibernated = False
+        self._stream_live = False
         self._task = asyncio.create_task(self._listen_loop())
 
     async def stop(self):
         """停止 SSE 监听"""
+        self._stream_live = False
         for task in (self._task, self._remind_task,
                      getattr(self, '_debounce_task', None),
                      getattr(self, '_completion_task', None),
@@ -112,13 +119,44 @@ class SSEListener:
             self._hibernated = False
             self.conn_fail_count = 0
             self.conn_error = None
+            self._stream_live = False
             if self._task is None or self._task.done():
                 self._task = asyncio.create_task(self._listen_loop())
                 logger.info("SSE 监听器已唤醒，重新开始连接")
 
+    def get_connection_status(self) -> dict:
+        """供 WebUI / 诊断使用的连接状态快照（不暴露私有字段直接读写）。
+
+        状态语义（插件侧 SSE 任务，不是浏览器直连 HAPI）：
+        - connected: 任务在跑且已成功读到 SSE 流
+        - reconnecting: 任务在跑但未建立流，或刚失败正在退避重试
+        - hibernated: 达到重连上限，已停任务
+        - disconnected: 无监听任务（未 initialize / 已 stop）
+        """
+        task_running = bool(self._task and not self._task.done())
+        stream_live = bool(getattr(self, "_stream_live", False))
+        if self._hibernated:
+            sse_status = "hibernated"
+        elif task_running and stream_live and self.conn_fail_count == 0:
+            sse_status = "connected"
+        elif task_running:
+            sse_status = "reconnecting"
+        else:
+            sse_status = "disconnected"
+        return {
+            "sse_status": sse_status,
+            "conn_fail_count": self.conn_fail_count,
+            "conn_error": self.conn_error,
+            "hibernated": self._hibernated,
+            "task_running": task_running,
+            "stream_live": stream_live,
+            "output_level": self.output_level,
+            "max_reconnect_attempts": self._max_reconnect,
+        }
+
     def get_all_pending(self) -> dict[str, dict]:
         """返回所有 session 的待审批请求（同步读取快照）"""
-        # 移除 Future 后再 deepcopy
+        # 移除 Future 后再浅拷贝（避免 deepcopy 整表）
         result = {}
         for sid, reqs in self.pending.items():
             result[sid] = {}
@@ -128,6 +166,30 @@ class SSEListener:
                 result[sid][rid] = req_copy
         return result
 
+    def pending_counts(self) -> dict[str, int]:
+        """仅计数，WebUI snapshot 用，避免拷贝 pending 内容。"""
+        return {sid: len(reqs) for sid, reqs in self.pending.items() if reqs}
+
+    def prune_stale_session_maps(self, live_ids: set[str] | None = None):
+        """清理已不存在 session 的序号记忆，控制内存。不碰 pending（审批仍需）。"""
+        if live_ids is None:
+            live_ids = {s.get("id") for s in self.sessions_cache if s.get("id")}
+        maps = (
+            self._compact_notified_seqs,
+            self._message_notified_seqs,
+            self._compaction_completed_seqs,
+            self._completion_notified_seqs,
+        )
+        for m in maps:
+            for sid in list(m.keys()):
+                if sid not in live_ids:
+                    m.pop(sid, None)
+        # 排队通知里的孤儿 sid
+        for sid in list(self._queued_request_notifications.keys()):
+            if sid not in live_ids:
+                self._queued_request_notifications.pop(sid, None)
+        self._request_notify_sids &= live_ids if live_ids else set()
+
     async def _listen_loop(self):
         """主循环：SSE 监听 + 指数退避重连"""
         backoff = 1
@@ -135,11 +197,11 @@ class SSEListener:
 
         while True:
             resp = None
+            got_data = False
             try:
                 resp = await self.client.subscribe_events_raw(all_events=True)
 
                 buf = b""
-                got_data = False
                 while True:
                     chunk = await resp.content.read(1024 * 1024)
                     if not chunk:
@@ -147,6 +209,7 @@ class SSEListener:
                     if not got_data:
                         got_data = True
                         self.conn_error = None
+                        self._stream_live = True
                         was_hibernated = self._hibernated
                         self._hibernated = False
                         if self.conn_fail_count > 0:
@@ -168,20 +231,27 @@ class SSEListener:
                         await self._handle(evt)
 
             except asyncio.CancelledError:
+                self._stream_live = False
                 logger.info("SSE 监听已取消")
                 return
             except ContentTypeError as e:
+                self._stream_live = False
                 self.conn_fail_count += 1
                 backoff = min(max(backoff, 15) * 2, max_backoff)
                 hint = "（疑似 Cloudflare 验证页）" if "text/html" in e.content_type else ""
                 self.conn_error = f"{e} {hint}".strip()
                 logger.warning("SSE 连接异常: %s %s, %ds 后重连", e, hint, backoff)
             except Exception as e:
+                self._stream_live = False
                 self.conn_fail_count += 1
                 err_desc = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
                 self.conn_error = err_desc
                 logger.warning("SSE 断线: %s, %ds 后重连", err_desc, backoff)
             finally:
+                # 流结束（正常 EOF 或异常）后不再视为 live，直到下次读到数据
+                if got_data and not self._hibernated:
+                    # 循环将重连；短暂显示 reconnecting 更准确
+                    self._stream_live = False
                 if resp is not None:
                     resp.release()
 
@@ -262,7 +332,8 @@ class SSEListener:
                     del self.pending[sid]
 
             # 有新的权限请求 -> 推送提醒（或忙时自动批准）
-            queued_notifications: list[str] = []
+            # 队列元素：str（纯文本）或 dict（结构卡参数，_flush 时出卡）
+            queued_notifications: list = []
             for rid, req in new_requests:
                 label = session_label_short(sid, self.sessions_cache)
                 async with self._lock:
@@ -279,12 +350,27 @@ class SSEListener:
                     notify_msg = f"[忙时托管审批] 已自动批准\n{label}\n  {result_mark} {tool}"
                     queued_notifications.append(notify_msg)
                 else:
-                    if is_question_request(req):
-                        msg = format_question_notification(req, label, total, session_total, index)
+                    is_q = is_question_request(req)
+                    if is_q:
+                        msg = format_question_notification(
+                            req, label, total, session_total, index
+                        )
+                        detail = format_request_detail(req)
                     else:
                         detail = format_request_detail(req)
-                        msg = format_permission_notification(label, detail, total, session_total, index)
-                    queued_notifications.append(msg)
+                        msg = format_permission_notification(
+                            label, detail, total, session_total, index
+                        )
+                    queued_notifications.append({
+                        "text": msg,
+                        "label": label,
+                        "detail": detail,
+                        "total": total,
+                        "session_total": session_total,
+                        "index": index,
+                        "req": req,
+                        "is_question": is_q,
+                    })
 
             self._queue_request_notifications(sid, queued_notifications)
 
@@ -369,10 +455,10 @@ class SSEListener:
     def _mark_messages_notified(self, sid: str, latest_visible_seq: int):
         self._message_notified_seqs[sid] = latest_visible_seq
 
-    def _queue_request_notifications(self, sid: str, texts: list[str]):
-        if not texts:
+    def _queue_request_notifications(self, sid: str, items: list):
+        if not items:
             return
-        self._queued_request_notifications.setdefault(sid, []).extend(texts)
+        self._queued_request_notifications.setdefault(sid, []).extend(items)
         self._request_notify_sids.add(sid)
         if self._request_notify_task is None or self._request_notify_task.done():
             self._request_notify_task = asyncio.create_task(self._debounced_request_notifications())
@@ -391,8 +477,21 @@ class SSEListener:
                 else:
                     await self._show_simple(sid, old_seq)
 
-        for text in queued:
-            await self._push_notification(text, sid)
+        for item in queued:
+            if isinstance(item, dict):
+                await self._push_permission_card(
+                    session_id=sid,
+                    label=str(item.get("label") or ""),
+                    fallback_text=str(item.get("text") or ""),
+                    total=int(item.get("total") or 0),
+                    session_total=int(item.get("session_total") or 0),
+                    index=int(item.get("index") or 0),
+                    detail=str(item.get("detail") or ""),
+                    req=item.get("req"),
+                    is_question=bool(item.get("is_question")),
+                )
+            else:
+                await self._push_notification(str(item), sid)
 
     async def _debounced_request_notifications(self):
         while True:
@@ -575,15 +674,24 @@ class SSEListener:
             if len(visible_msgs) == 1:
                 msg, text = visible_msgs[0]
                 output = f"{label}\n{format_agent_line(text)}"
+                body = text
             else:
                 lines = [f"{label}\n━━━ {len(visible_msgs)} 条新消息 ━━━"]
+                body_parts = []
                 for msg, text in sorted(visible_msgs, key=lambda x: x[0].get("seq", 0)):
                     lines.append(format_agent_line(text))
+                    body_parts.append(text)
                 lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 output = "\n\n".join(lines)
+                body = "\n\n---\n\n".join(body_parts)
 
             self._mark_messages_notified(sid, latest_visible_seq)
-            await self._push_notification(output, sid)
+            await self._push_message_card(
+                session_id=sid,
+                label=label,
+                body=body,
+                fallback_text=output,
+            )
             return True
 
         except Exception as e:
@@ -631,15 +739,24 @@ class SSEListener:
             if len(agent_texts) == 1:
                 _, text = agent_texts[0]
                 output = f"{label}\n[Message]: {text}"
+                body = text
             else:
                 lines = [f"{label}\n━━━ {len(agent_texts)} 条新消息 ━━━"]
+                body_parts = []
                 for _, text in agent_texts:
                     lines.append(f"[Message]: {text}")
+                    body_parts.append(text)
                 lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 output = "\n\n".join(lines)
+                body = "\n\n---\n\n".join(body_parts)
 
             self._mark_messages_notified(sid, latest_visible_seq)
-            await self._push_notification(output, sid)
+            await self._push_message_card(
+                session_id=sid,
+                label=label,
+                body=body,
+                fallback_text=output,
+            )
             return True
 
         except Exception as e:
@@ -685,15 +802,24 @@ class SSEListener:
             if len(agent_texts) == 1:
                 _, text = agent_texts[0]
                 output = f"{label}\n{format_agent_line(text)}"
+                body = text
             else:
                 lines = [f"{label}\n━━━ 最近 {len(agent_texts)} 条消息 ━━━"]
+                body_parts = []
                 for _, text in agent_texts:
                     lines.append(format_agent_line(text))
+                    body_parts.append(text)
                 lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 output = "\n\n".join(lines)
+                body = "\n\n---\n\n".join(body_parts)
 
             self._mark_messages_notified(sid, latest_visible_seq)
-            await self._push_notification(output, sid)
+            await self._push_message_card(
+                session_id=sid,
+                label=label,
+                body=body,
+                fallback_text=output,
+            )
             return True
 
         except Exception as e:
@@ -759,6 +885,110 @@ class SSEListener:
     async def _push_notification(self, text: str, session_id: str):
         """通过回调向所有已注册的管理员推送消息"""
         await self.notify_callback(text, session_id)
+
+    async def _push_message_card(
+        self,
+        *,
+        session_id: str,
+        label: str,
+        body: str,
+        fallback_text: str,
+        title: str = "",
+        footer: str = "",
+    ):
+        """Agent 对话推送：按 render_mode / render_kinds 尝试出卡，失败回退文本。
+
+        标题用会话标题；不附 output=* 尾注（避免图片后再多一条文本）。
+        """
+        plugin = self.plugin
+        if plugin is None:
+            # 兜底：从 notify 链路外拿不到 plugin 时只发文本
+            logger.warning(
+                "message card: sse_listener.plugin 未注入，回退文本 "
+                "（请确认 main 里 self.sse_listener.plugin = self 已执行并已重载插件）"
+            )
+            await self._push_notification(fallback_text, session_id)
+            return
+        try:
+            from ..render import output_present
+            from ..render import formatters as fmt
+            sess = next(
+                (s for s in self.sessions_cache if s.get("id") == session_id),
+                None,
+            )
+            sess_title = fmt.get_session_title(sess) if sess else ""
+            payload = output_present.build_message_payload(
+                label=label,
+                body=body,
+                title=title or sess_title,
+                footer=footer,  # 默认空，不推 caption
+                session_title=sess_title,
+            )
+            notif = getattr(plugin, "notification_mgr", None)
+            if notif is None:
+                logger.warning("message card: plugin.notification_mgr 缺失，回退文本")
+                await self._push_notification(fallback_text, session_id)
+                return
+            await output_present.present_push(
+                plugin,
+                notif,
+                "message",
+                payload,
+                fallback_text,
+                session_id,
+                self.sessions_cache,
+            )
+        except Exception as e:
+            logger.warning("message card push failed: %s", e, exc_info=True)
+            await self._push_notification(fallback_text, session_id)
+
+    async def _push_permission_card(
+        self,
+        *,
+        session_id: str,
+        label: str,
+        fallback_text: str,
+        total: int,
+        session_total: int,
+        index: int,
+        detail: str = "",
+        req: dict | None = None,
+        is_question: bool = False,
+    ):
+        """权限 / 问题请求推送：结构卡优先，失败回退文本。"""
+        plugin = self.plugin
+        if plugin is None:
+            await self._push_notification(fallback_text, session_id)
+            return
+        try:
+            from ..render import output_present
+            kind = "question" if is_question else "permission"
+            # 卡片 kind 统一用 permission（CARD_KINDS 已有）；question 也走同一结构卡
+            payload = output_present.build_permission_payload(
+                label=label,
+                detail=detail,
+                total=total,
+                session_total=session_total,
+                index=index,
+                kind=kind,
+                req=req,
+            )
+            notif = getattr(plugin, "notification_mgr", None)
+            if notif is None:
+                await self._push_notification(fallback_text, session_id)
+                return
+            await output_present.present_push(
+                plugin,
+                notif,
+                "permission",
+                payload,
+                fallback_text,
+                session_id,
+                self.sessions_cache,
+            )
+        except Exception as e:
+            logger.warning("permission card push failed: %s", e, exc_info=True)
+            await self._push_notification(fallback_text, session_id)
 
     async def load_existing_pending(self):
         """启动时从已有 session 加载待审批请求"""

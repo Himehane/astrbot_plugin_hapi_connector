@@ -1,6 +1,14 @@
 """创建 Session 向导状态机：步骤推进、输入校验、提示文本构建"""
 
-from .constants import AGENTS, CODEX_REASONING_EFFORT_OPTIONS, CODEX_REASONING_EFFORT_VALUES
+from .flavor_profiles import (
+    CODEX_REASONING_EFFORT_OPTIONS,
+    creatable_agents,
+    flavor_label,
+    is_creatable,
+    normalize_flavor,
+    profile_for,
+    supports_reasoning_effort,
+)
 
 
 class WizardResult:
@@ -44,11 +52,17 @@ class CreateWizard:
     def set_recent_paths(self, paths: list):
         self.state["recent_paths"] = paths
 
+    def _needs_reasoning_step(self) -> bool:
+        return supports_reasoning_effort(self.state.get("agent"))
+
     def _total_steps(self) -> int:
-        return 6 if self.state.get("agent") == "codex" else 5
+        return 6 if self._needs_reasoning_step() else 5
 
     def _yolo_step_number(self) -> int:
-        return 6 if self.state.get("agent") == "codex" else 5
+        return 6 if self._needs_reasoning_step() else 5
+
+    def _agent_choices(self) -> list[str]:
+        return creatable_agents()
 
     def initial_prompt(self) -> WizardResult:
         """返回向导第一条提示（步骤 1 或自动跳到步骤 2）"""
@@ -91,13 +105,15 @@ class CreateWizard:
         ]
         return WizardResult("\n".join(lines))
 
-    def _codex_reasoning_prompt(self) -> WizardResult:
-        """构建 Codex 思考深度提示"""
-        lines = ["代理: codex", "", "步骤 5/6 — 选择 Codex 思考深度:"]
-        for i, (_, label) in enumerate(CODEX_REASONING_EFFORT_OPTIONS, 1):
-            lines.append(f"  [{i}] {label}")
-        lines.append("回复序号选择，或直接输入 none/minimal/low/medium/high/xhigh")
-        lines.append("注意：旧版本 HAPI (小于0.16.2) 不支持 codex_reasoning_effort 参数，选择可能无效")
+    def _reasoning_prompt(self) -> WizardResult:
+        """构建思考深度提示（当前用于 Codex reasoning effort）"""
+        agent = self.state.get("agent") or "codex"
+        label = flavor_label(agent)
+        lines = [f"代理: {agent} ({label})", "", "步骤 5/6 — 选择思考深度:"]
+        for i, (_, opt_label) in enumerate(CODEX_REASONING_EFFORT_OPTIONS, 1):
+            lines.append(f"  [{i}] {opt_label}")
+        lines.append("回复序号选择，或直接输入 none/minimal/low/medium/high/xhigh/max（也可透传上游动态值）")
+        lines.append("注意：旧版本 HAPI 可能不支持 modelReasoningEffort，选择可能无效")
         return WizardResult("\n".join(lines))
 
     def process(self, raw: str) -> WizardResult:
@@ -165,9 +181,13 @@ class CreateWizard:
 
     def _agent_prompt(self, prefix: str) -> WizardResult:
         """构建步骤 4 代理选择提示"""
+        agents = self._agent_choices()
         lines = [prefix, "", "步骤 4/5 — 选择 Vibe Coding 代理:"]
-        for i, a in enumerate(AGENTS, 1):
-            lines.append(f"  [{i}] {a}")
+        for i, a in enumerate(agents, 1):
+            p = profile_for(a)
+            note = f" — {p.notes}" if p.notes else ""
+            lines.append(f"  [{i}] {a} ({p.label}){note}")
+        lines.append("也可直接输入代理名（含 HAPI 新类型）")
         return WizardResult("\n".join(lines))
 
     def _step3(self, raw: str) -> WizardResult:
@@ -201,32 +221,43 @@ class CreateWizard:
     def _step4(self, raw: str) -> WizardResult:
         """步骤 4: 选择代理"""
         s = self.state
-        if raw.isdigit() and 1 <= int(raw) <= len(AGENTS):
-            s["agent"] = AGENTS[int(raw) - 1]
-        elif raw in AGENTS:
-            s["agent"] = raw
-        else:
-            return WizardResult(f"请输入 1~{len(AGENTS)} 的数字或代理名")
+        agents = self._agent_choices()
+        token = normalize_flavor(raw)
 
-        if s["agent"] == "codex":
+        if raw.isdigit() and 1 <= int(raw) <= len(agents):
+            chosen = agents[int(raw) - 1]
+        elif token:
+            if not is_creatable(token):
+                p = profile_for(token)
+                return WizardResult(f"❌ {p.label} 当前不可新建: {p.notes or '仅兼容已有 session'}")
+            chosen = token
+        else:
+            return WizardResult(
+                f"请输入 1~{len(agents)} 的数字，或代理名（推荐: {', '.join(agents)}）"
+            )
+
+        s["agent"] = chosen
+        if supports_reasoning_effort(chosen):
             s["step"] = 41
-            return self._codex_reasoning_prompt()
+            return self._reasoning_prompt()
 
         s["step"] = 5
         s["model_reasoning_effort"] = None
         return self._step5_prompt()
 
     def _step41(self, raw: str) -> WizardResult:
-        """步骤 4.1: 选择 Codex 思考深度"""
+        """步骤 4.1: 选择思考深度（Codex/OpenCode reasoning effort）"""
         s = self.state
         if raw.isdigit() and 1 <= int(raw) <= len(CODEX_REASONING_EFFORT_OPTIONS):
             s["model_reasoning_effort"] = CODEX_REASONING_EFFORT_OPTIONS[int(raw) - 1][0]
         else:
             normalized = raw.strip().lower()
-            if normalized in CODEX_REASONING_EFFORT_VALUES:
-                s["model_reasoning_effort"] = normalized
-            else:
-                return WizardResult("请输入有效序号，或直接输入 none/minimal/low/medium/high/xhigh")
+            # 列表外值允许透传（上游动态 reasoning effort）
+            if not normalized:
+                return WizardResult(
+                    "请输入有效序号，或直接输入 none/minimal/low/medium/high/xhigh/max"
+                )
+            s["model_reasoning_effort"] = normalized
 
         s["step"] = 5
         return self._step5_prompt()
@@ -249,16 +280,19 @@ class CreateWizard:
             f"  类型:     {s['session_type']}",
             f"  代理:     {s['agent']}",
         ]
-        if s["agent"] == "codex":
-            reasoning_text = s["model_reasoning_effort"] or "继承 Codex 默认设置"
+        if supports_reasoning_effort(s["agent"]):
+            reasoning_text = s["model_reasoning_effort"] or "继承默认设置"
             lines.append(f"  思考深度: {reasoning_text}")
         lines.append(f"  YOLO:     {'是' if s['yolo'] else '否'}")
         if s["worktree_name"]:
             lines.append(f"  工作树名: {s['worktree_name']}")
         if s["agent"] == "codex" and s["yolo"]:
-            lines.append(f"\n⚠ 提醒: Codex YOLO 模式需要在.codex配置文件中设置信任文件夹，否则可能无法使用 tools:")
+            lines.append("\n⚠ 提醒: Codex YOLO 模式需要在.codex配置文件中设置信任文件夹，否则可能无法使用 tools:")
             lines.append(f'  [projects."{s["directory"]}"]')
             lines.append('  trust_level = "trusted"')
+        p = profile_for(s["agent"])
+        if p.notes:
+            lines.append(f"\n备注: {p.notes}")
         lines.append("\n回复 y 确认创建，其他取消")
         return WizardResult("\n".join(lines))
 

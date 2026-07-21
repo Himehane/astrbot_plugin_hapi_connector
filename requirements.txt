@@ -1,3 +1,7 @@
 aiohttp>=3.9,<4
 aiohttp-socks>=0.8,<1
 
+# 可选：推送卡片出图（WebUI 实卡预览 / render_mode=auto|card）
+# 不装也能跑，自动回退纯文本。需要时：
+#   pip install -r requirements-render.txt
+

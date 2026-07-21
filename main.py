@@ -9,16 +9,16 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.message_components import Poke
 import astrbot.api.message_components as Comp
 
-from .hapi_client import AsyncHapiClient
-from .cf_access import CfAccessManager
-from .sse_listener import SSEListener
-from .binding_manager import BindingManager
-from .state_manager import StateManager
-from .notification_manager import NotificationManager
-from .pending_manager import PendingManager
-from .command_handlers import CommandHandlers
-from . import session_ops
-from . import formatters
+from .core.hapi_client import AsyncHapiClient
+from .core.cf_access import CfAccessManager
+from .core.sse_listener import SSEListener
+from .core.binding_manager import BindingManager
+from .core.state_manager import StateManager
+from .core.notification_manager import NotificationManager
+from .core.pending_manager import PendingManager
+from .chat.command_handlers import CommandHandlers
+from .core import session_ops
+from .render import formatters
 
 
 # ── AstrBot v4.18.3 pydantic v1 的 __setattr__ 会拦截 File 的 property setter，
@@ -37,8 +37,8 @@ except Exception:
 
 
 @register("astrbot_plugin_hapi_connector", "LiJinHao999",
-          "连接 HAPI，随时随地用 Claude Code / Codex / Gemini / OpenCode vibe coding",
-          "2.1.4")
+          "连接 HAPI，随时随地用 Claude / Codex / Cursor / Grok / Kimi / OpenCode / Pi vibe coding",
+          "3.0.0")
 class HapiConnectorPlugin(Star):
 
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -72,8 +72,9 @@ class HapiConnectorPlugin(Star):
             cf_access_mgr=cf_mgr,
         )
 
-        # session 缓存
+        # session 缓存（WebUI soft_refresh 用时间戳节流全量拉取）
         self.sessions_cache: list[dict] = []
+        self._sessions_cache_ts: float = 0.0
 
         # 绑定管理器
         self.binding_mgr = BindingManager()
@@ -90,6 +91,8 @@ class HapiConnectorPlugin(Star):
             self.sessions_cache,
             lambda text, sid: self.notification_mgr.push_notification(text, sid, self.sessions_cache)
         )
+        # 供 SSE 推送呈现（对话/结构卡）读取 config 与 notification_mgr
+        self.sse_listener.plugin = self
 
         # 待审批管理器
         self.pending_mgr = PendingManager(self.sse_listener)
@@ -100,8 +103,23 @@ class HapiConnectorPlugin(Star):
         # 快捷前缀
         self._quick_prefix = self.config.get("quick_prefix", ">")
 
-        # 戳一戳审批开关
+        # 戳一戳：总开关 + 映射动作（默认 approve 兼容旧行为）
         self._poke_approve = self.config.get("poke_approve", True)
+        from .chat.poke_actions import normalize_poke_action
+
+        self._poke_action = normalize_poke_action(self.config.get("poke_action", "approve"))
+
+        # 快捷关键词映射（默认 stop/停、sw、cl→1 clear、继续→1 继续）
+        from .chat.keyword_maps import DEFAULT_KEYWORD_MAPS, normalize_maps
+
+        raw_kw = self.config.get("cmd_keyword_maps", None)
+        maps = normalize_maps(raw_kw)
+        if not maps and (
+            raw_kw is None
+            or (isinstance(raw_kw, str) and str(raw_kw).strip() in ("", "[]"))
+        ):
+            maps = normalize_maps(DEFAULT_KEYWORD_MAPS)
+        self._cmd_keyword_maps = maps
 
         # summary 模式消息条数
         self._summary_msg_count = self.config.get("summary_msg_count", 5)
@@ -110,8 +128,16 @@ class HapiConnectorPlugin(Star):
         self.notification_mgr._event_cache = {}
 
         # LLM 工具集成
-        from .llm_integration import LLMIntegration
+        from .chat.llm_integration import LLMIntegration
         self.llm_integration = LLMIntegration(self)
+
+        # WebUI Plugin Pages：按官方示例在 __init__ 注册 API
+        # 静态页由 AstrBot 扫描 pages/console/index.html 自动发现
+        try:
+            from .webui.web_api import register_pages
+            register_pages(self)
+        except Exception as e:
+            logger.exception("注册 WebUI API 失败: %s", e)
 
     def _is_admin(self, event: AstrMessageEvent) -> bool:
         """检查发送者是否为管理员（动态读取配置）"""
@@ -139,7 +165,7 @@ class HapiConnectorPlugin(Star):
         Args:
             window(string): 窗口过滤，空=当前窗口，all=所有窗口
             path(string): 路径搜索关键词
-            agent(string): 代理类型，claude/codex/gemini/opencode
+            agent(string): 代理类型，如 claude/codex/cursor/grok/kimi/opencode/pi
         '''
         async for result in self.llm_integration.tool_list_sessions(event, window, path, agent):
             yield result
@@ -206,11 +232,11 @@ class HapiConnectorPlugin(Star):
 
         Args:
             directory(string): 工作目录路径
-            agent(string): 代理类型，claude/codex/gemini/opencode
+            agent(string): 代理类型，推荐 claude/codex/cursor/grok/kimi/opencode/pi（gemini 不可新建）
             machine_id(string): 机器ID，可选，管理多机器时必填
             session_type(string): session类型，simple或worktree，默认simple
             yolo(boolean): 是否自动批准所有权限，默认false
-            model_reasoning_effort(string): 仅 Codex 可选；留空表示继承 Codex 默认设置，可选 none/minimal/low/medium/high/xhigh
+            model_reasoning_effort(string): 支持 reasoning effort 的代理可选；留空继承默认，可选 none/minimal/low/medium/high/xhigh
         '''
         async for result in self.llm_integration.tool_create_session(
                 event, directory, agent, machine_id, session_type, yolo, model_reasoning_effort):
@@ -287,9 +313,15 @@ class HapiConnectorPlugin(Star):
         return from_message
 
     async def _refresh_sessions(self):
-        """刷新 session 缓存"""
+        """刷新 session 缓存；成功时更新时间戳并清理 SSE 侧过期序号 map。"""
+        import time
         try:
             self.sessions_cache[:] = await session_ops.fetch_sessions(self.client)
+            self._sessions_cache_ts = time.monotonic()
+            live = {s.get("id") for s in self.sessions_cache if s.get("id")}
+            prune = getattr(self.sse_listener, "prune_stale_session_maps", None)
+            if callable(prune):
+                prune(live)
         except Exception as e:
             logger.warning("刷新 session 列表失败: %s", e)
 
@@ -351,7 +383,7 @@ class HapiConnectorPlugin(Star):
         lines = [
             "当前窗口没有接收任何 session 通知。",
             "如果希望在此聊天窗口接收默认通知，可使用 /hapi bind。",
-            "如需按模型隔离默认通知，可使用 /hapi bind claude|codex|gemini。",
+            "如需按 agent 隔离默认通知，可使用 /hapi bind <flavor>（如 claude|codex|cursor|grok）。",
             "也可以使用 /hapi list all 查看所有 session 和全局绑定状态。",
         ]
 
@@ -399,6 +431,7 @@ class HapiConnectorPlugin(Star):
             summary_msg_count=self._summary_msg_count,
             max_reconnect_attempts=max_reconnect,
         )
+
         logger.info("HAPI Connector 已初始化，SSE 输出级别: %s", output_level)
 
     async def terminate(self):
@@ -423,7 +456,7 @@ class HapiConnectorPlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL, priority=10)
     async def poke_approve_handler(self, event: AstrMessageEvent):
-        """戳一戳机器人 → 自动批准所有待审批请求 (仅 QQ NapCat)"""
+        """戳一戳机器人 → 执行用户配置的快捷动作（默认批准待审，仅 QQ NapCat 等）"""
         if not self._poke_approve:
             return
 
@@ -434,28 +467,10 @@ class HapiConnectorPlugin(Star):
             return
 
         await self.state_mgr.set_user_state(event)
-        visible_sids = {s.get("id") for s in self.state_mgr.visible_sessions_for_window(event, self.sessions_cache) if s.get("id")}
-        # 同时包含当前窗口 ID（用于 LLM 工具审批）
-        visible_sids.add(event.unified_msg_origin)
-        items = self.pending_mgr.flatten_pending(event, visible_sids)
-        if not items:
-            return  # 无待审批，静默
+        from .chat.poke_actions import run_poke_action
 
-        regular = [(sid, rid, req) for sid, rid, req in items
-                   if not formatters.is_question_request(req)]
-        questions = [(sid, rid, req) for sid, rid, req in items
-                     if formatters.is_question_request(req)]
-
-        if regular:
-            result = await self.pending_mgr.approve_items(regular, self.client)
-            if result:
-                yield event.plain_result(f"[戳一戳审批] {result}")
-
-        if questions:
-            yield event.plain_result(f"[戳一戳审批] 还有 {len(questions)} 个问题需要回答:")
-            from astrbot.core.utils.session_waiter import session_waiter, SessionController
-            await self.pending_mgr.answer_questions_interactive(
-                event, questions, self.client, session_waiter, SessionController)
+        async for result in run_poke_action(self, event, self._poke_action):
+            yield result
 
         event.stop_event()
 
@@ -486,12 +501,63 @@ class HapiConnectorPlugin(Star):
         except Exception:
             return False
 
+    # ──── 快捷关键词映射（整句严格匹配） ────
+
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=11)
+    async def keyword_map_handler(self, event: AstrMessageEvent):
+        """关键词映射 → /hapi 子命令。
+
+        - 仅管理员
+        - 仅当当前窗口存在「交互中」会话（active / thinking）时生效（类似 LLM 工具动态注册）
+        - 无参命令整句严格匹配；可带参命令允许「关键词 + 参数」
+        """
+        raw = (event.message_str or "").strip()
+        if not raw:
+            return
+        maps = getattr(self, "_cmd_keyword_maps", None)
+        if not maps:
+            return
+        if not self._is_admin(event):
+            return
+        if not self._window_has_interactive_session(event):
+            return
+        from .chat.keyword_maps import find_mapped_command
+
+        hit = find_mapped_command(maps, raw)
+        if not hit:
+            return
+        cmd, argument = hit
+        remainder = f"{cmd} {argument}".strip() if argument else cmd
+        self.notification_mgr._event_cache[event.unified_msg_origin] = event
+        async for result in self.cmd_handlers.cmd_hapi_router(event, remainder):
+            yield result
+        event.stop_event()
+
+    def _window_has_interactive_session(self, event: AstrMessageEvent) -> bool:
+        """当前窗口是否有交互中的 HAPI session（active 或 thinking）。"""
+        try:
+            visible = self.state_mgr.visible_sessions_for_window(event, self.sessions_cache)
+        except Exception:
+            visible = []
+        for s in visible or []:
+            if not isinstance(s, dict):
+                continue
+            if s.get("thinking"):
+                return True
+            if s.get("active"):
+                return True
+            # 部分缓存字段可能用 status / state
+            st = str(s.get("status") or s.get("state") or "").lower()
+            if st in ("active", "thinking", "running", "busy"):
+                return True
+        return False
+
     # ──── 快捷前缀处理器 ────
 
     @filter.event_message_type(filter.EventMessageType.ALL, priority=10)
     async def quick_prefix_handler(self, event: AstrMessageEvent):
         """快捷前缀: > 消息 或 >N 消息 (仅管理员)"""
-        from . import file_ops
+        from .core import file_ops
         self.notification_mgr._event_cache[event.unified_msg_origin] = event
         prefix = self._quick_prefix
         raw = event.message_str

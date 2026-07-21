@@ -49,7 +49,7 @@
     "type": "string",
     "default": "simple",
     "options": ["silence", "simple", "summary", "detail"],
-    "hint": "silence: 仅推送权限请求；simple: 推送纯文本消息及系统事件；summary: 任务完成时推送最近 N 条消息；detail: 实时推送所有消息"
+    "hint": "silence: 几乎不推正文，主要保留权限请求等关键提醒，可作为 agent 完成任务/需要审批时的通知；simple: 推送纯文本消息及系统事件；summary: 任务完成时推送最近 N 条消息；detail: 实时推送所有消息"
   },
   "summary_msg_count": {
     "description": "summary 推送级别显示的 agent 消息条数",
@@ -63,10 +63,31 @@
     "hint": "前缀后需加空格，如「> 消息内容」发送到当前会话，「>2 消息内容」发送到第 2 个会话"
   },
   "poke_approve": {
-    "description": "戳一戳自动全部审批",
+    "description": "启用戳一戳快捷操作",
     "type": "bool",
     "default": true,
-    "hint": "仅 QQ NapCat 可用"
+    "hint": "仅 QQ NapCat 等支持戳一戳的适配器。关闭后戳机器人无任何 hapi 动作"
+  },
+  "poke_action": {
+    "description": "戳一戳映射动作",
+    "type": "string",
+    "default": "approve",
+    "options": [
+      "approve",
+      "pending",
+      "list",
+      "status",
+      "stop",
+      "output_cycle",
+      "none"
+    ],
+    "hint": "approve=批准待审（默认）；pending/list/status=查看；stop=中止当前 session；output_cycle=循环切换推送级别；none=仅确认。不提供一戳拒绝（误触成本高，请用 /hapi deny）。可在 WebUI「交互优化」选择"
+  },
+  "cmd_keyword_maps": {
+    "description": "快捷关键词映射（JSON）",
+    "type": "string",
+    "default": "[{\"keywords\":[\"stop\",\"停\"],\"command\":\"stop\"},{\"keywords\":[\"sw\"],\"command\":\"sw\"},{\"keywords\":[\"cl\"],\"command\":\"to\",\"args\":\"1 /clear\"},{\"keywords\":[\"hapi指令别名\"],\"command\":\"alias\"},{\"keywords\":[\"继续\"],\"command\":\"to\",\"args\":\"1 继续\"}]",
+    "hint": "快捷关键词映射到 /hapi 子命令。to 可设发送消息（如 cl→to 1 /clear）。推荐在 WebUI「交互优化」配置"
   },
   "remind_pending": {
     "description": "待审批请求超时重复提醒",
@@ -101,6 +122,91 @@
     "type": "string",
     "default": "",
     "hint": "留空则发送到 session 绑定的窗口，填写窗口 ID 则强制发送到指定窗口"
+  },
+  "render_mode": {
+    "description": "推送呈现模式",
+    "type": "string",
+    "default": "text",
+    "options": ["text", "card"],
+    "hint": "text=纯文本；card=下方勾选的类型渲成图片（含 Agent 对话）。需 Pillow；未安装回退文本"
+  },
+  "formula_mode": {
+    "description": "公式渲染策略",
+    "type": "string",
+    "default": "off",
+    "options": ["off", "detect", "formula_only", "plain"],
+    "hint": "off=关闭公式渲染；detect=公式用 matplotlib 渲染；formula_only=仅含公式消息渲成图片（其它消息只发文字）；plain=消息含公式时只发文字"
+  },
+  "render_kinds": {
+    "description": "允许出图的消息类型",
+    "type": "string",
+    "default": "session_list,pending,status,permission,routes,message",
+    "hint": "插件 WebUI「交互优化 / 设置」里勾选保存。可选值：session_list,pending,status,permission,routes,message（message=Agent 对话）"
+  },
+  "card_style_preset": {
+    "description": "推送图片样式预设",
+    "type": "string",
+    "default": "terminal_light",
+    "options": ["terminal_light", "terminal_dark", "clean", "compact"],
+    "hint": "也可在 WebUI 交互优化里改自定义 CSS 覆盖"
+  },
+  "card_width": {
+    "description": "推送图片宽度（像素）",
+    "type": "int",
+    "default": 720,
+    "hint": "范围 400–1400；手机场景可试 560"
+  },
+  "card_accent": {
+    "description": "图片强调色",
+    "type": "string",
+    "default": "#0f6b3c",
+    "hint": "十六进制颜色；也会注入 CSS 变量 --card-accent"
+  },
+  "card_bg": {
+    "description": "图片背景色",
+    "type": "string",
+    "default": "#f7f4ea"
+  },
+  "card_fg": {
+    "description": "图片主文字色",
+    "type": "string",
+    "default": "#14120f"
+  },
+  "card_font_scale": {
+    "description": "图片字号倍率（百分数，100=1.0）",
+    "type": "int",
+    "default": 112,
+    "hint": "75–150；默认 112 手机上更易读"
+  },
+  "card_density": {
+    "description": "图片密度",
+    "type": "string",
+    "default": "comfortable",
+    "options": ["comfortable", "compact"]
+  },
+  "card_show_brand": {
+    "description": "图片右下角品牌角标",
+    "type": "bool",
+    "default": false,
+    "hint": "默认关闭，右下角不显示 hapi connector"
+  },
+  "card_mono": {
+    "description": "图片优先等宽字体",
+    "type": "bool",
+    "default": false,
+    "hint": "默认关闭；代码块仍用等宽"
+  },
+  "card_custom_css": {
+    "description": "推送图片自定义 CSS",
+    "type": "string",
+    "default": "",
+    "hint": "完整 CSS，可覆盖默认。Pillow 识别 --card-* 变量。留空=内置默认"
+  },
+  "card_font_path": {
+    "description": "图片字体文件路径",
+    "type": "string",
+    "default": "",
+    "hint": "可选。WebUI 下拉选择扫描到的字体，或填绝对/相对插件根的 .ttf/.otf/.ttc。留空则用扫描结果；都没有则回退纯文本"
   }
 }
 

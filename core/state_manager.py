@@ -3,9 +3,7 @@
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 from .binding_manager import BindingManager
-
-
-NOTIFICATION_ROUTE_FLAVORS = ("claude", "codex", "gemini")
+from ..chat.flavor_profiles import is_bindable_flavor, normalize_flavor
 
 
 class StateManager:
@@ -16,8 +14,27 @@ class StateManager:
         self.binding_mgr = binding_mgr
         self._user_states_cache: dict[str, dict] = {}
         self._session_owners = binding_mgr._session_owners
+        # WebUI「管理可见窗口」隐藏列表（UMO 字符串），KV: webui_hidden_windows
+        self._webui_hidden_windows: list[str] = []
 
     # ──── 持久化 ────
+
+    def get_webui_hidden_windows(self) -> list[str]:
+        return list(self._webui_hidden_windows)
+
+    async def set_webui_hidden_windows(self, umos: list[str] | None) -> list[str]:
+        """写入 WebUI 隐藏窗口列表并落盘 KV。"""
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for u in umos or []:
+            s = str(u or "").strip()
+            if not s or s in seen:
+                continue
+            seen.add(s)
+            cleaned.append(s)
+        self._webui_hidden_windows = cleaned
+        await self.kv.put_kv_data("webui_hidden_windows", cleaned)
+        return cleaned
 
     async def persist_session_owners(self):
         """持久化 session -> 窗口路由"""
@@ -106,16 +123,19 @@ class StateManager:
 
     @staticmethod
     def normalized_flavor_primary_umos(state: dict) -> dict[str, str]:
-        """Normalize persisted flavor -> default window mappings."""
+        """Normalize persisted flavor -> default window mappings.
+
+        任意合法 flavor 字符串均可绑定，不再限制为固定白名单。
+        """
         raw = state.get("flavor_primary_umos", {})
         if not isinstance(raw, dict):
             return {}
 
         normalized: dict[str, str] = {}
         for flavor, umo in raw.items():
-            flavor_key = str(flavor).strip().lower()
+            flavor_key = normalize_flavor(str(flavor))
             target_umo = str(umo).strip() if umo is not None else ""
-            if flavor_key in NOTIFICATION_ROUTE_FLAVORS and target_umo:
+            if is_bindable_flavor(flavor_key) and target_umo:
                 normalized[flavor_key] = target_umo
         return normalized
 
@@ -236,10 +256,21 @@ class StateManager:
         return []
 
     @staticmethod
-    def format_umo_for_display(umo: str | None, max_len: int = 40) -> str:
-        if not umo:
+    def format_umo_for_display(
+        umo: str | None,
+        max_len: int = 48,
+        *,
+        name: str | None = None,
+    ) -> str:
+        """Bot:平台-群聊/私聊-名称|ID；过长时截断尾部。"""
+        from ..render.umo_display import format_umo_title
+
+        title = format_umo_title(umo, name=name)
+        if not title or title == "—":
             return ""
-        return umo[:max_len] + "..." if len(umo) > max_len else umo
+        if len(title) > max_len:
+            return title[: max_len - 1] + "…"
+        return title
 
     def user_route_summary_lines(self, event: AstrMessageEvent) -> list[str]:
         """Format current user's default notification routing summary."""
@@ -252,7 +283,7 @@ class StateManager:
 
         flavor_routes = self.normalized_flavor_primary_umos(state)
         if flavor_routes:
-            lines.append("Flavor 默认窗口:")
+            lines.append("Agent 默认窗口:")
             for flavor in sorted(flavor_routes):
                 lines.append(f"  {flavor}: {self.format_umo_for_display(flavor_routes[flavor])}")
 
@@ -301,6 +332,19 @@ class StateManager:
                     window_state.get("current_session", ""),
                     window_state.get("current_flavor", "")
                 )
+
+        # WebUI 隐藏窗口列表
+        try:
+            hidden = await self.kv.get_kv_data("webui_hidden_windows", [])
+            if isinstance(hidden, list):
+                self._webui_hidden_windows = [
+                    str(u).strip() for u in hidden if str(u or "").strip()
+                ]
+            else:
+                self._webui_hidden_windows = []
+        except Exception as e:
+            logger.warning("load webui_hidden_windows failed: %s", e)
+            self._webui_hidden_windows = []
 
     async def migrate_to_capture_model(self):
         """数据迁移：绑定模式 → 捕获+默认窗口模式"""

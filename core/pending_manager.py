@@ -4,9 +4,7 @@ import asyncio
 import time
 from astrbot.api.event import AstrMessageEvent
 from . import approval_ops
-from . import formatters
-
-
+from ..render import formatters
 class PendingManager:
     """管理待审批的权限请求"""
 
