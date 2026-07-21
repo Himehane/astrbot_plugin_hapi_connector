@@ -118,6 +118,7 @@ def register_pages(plugin) -> None:
         (f"{prefix}/help", api.help_data, ["GET"], "WebUI help"),
         (f"{prefix}/docs", api.docs_list, ["GET"], "WebUI docs list"),
         (f"{prefix}/docs/<doc_id>", api.docs_get, ["GET"], "WebUI doc body"),
+        (f"{prefix}/machines", api.machines_list, ["GET"], "WebUI machines health"),
         (f"{prefix}/connection/wake", api.connection_wake, ["POST"], "WebUI wake SSE"),
         (f"{prefix}/connection/reconnect", api.connection_reconnect, ["POST"], "WebUI reconnect HAPI"),
         (f"{prefix}/sessions/snapshot", api.sessions_snapshot, ["GET"], "WebUI sessions snapshot"),
@@ -343,10 +344,12 @@ class WebApi:
             force = _query_truthy(request, "fresh")
             await soft_refresh_sessions(self.plugin, force=force)
             await ensure_umo_name_map(self.plugin, force=force)
+            machines = await soft_refresh_machines(self.plugin, force=force)
             snap = build_sessions_snapshot(self.plugin)
             return json_response({
                 "connection": snap["connection"],
                 "metrics": snap["metrics"],
+                "machines": machines,
                 "config": snap.get("config") or public_config(self.plugin),
                 "plugin_version": _plugin_version(self.plugin),
                 "cache": snap.get("cache"),
@@ -354,6 +357,27 @@ class WebApi:
         except Exception as e:
             logger.exception("WebUI overview failed")
             return error_response(f"overview 失败: {type(e).__name__}: {e}", status_code=500)
+
+    async def machines_list(self):
+        from astrbot.api.web import error_response, json_response, request
+
+        try:
+            force = _query_truthy(request, "fresh")
+            machines = await soft_refresh_machines(self.plugin, force=force)
+            cache_ts = float(getattr(self.plugin, "_machines_cache_ts", 0) or 0)
+            import time
+
+            age = (time.monotonic() - cache_ts) if cache_ts else None
+            return json_response({
+                "machines": machines,
+                "cache": {
+                    "age_sec": None if age is None else round(age, 1),
+                    "refresh_ttl_sec": MACHINES_REFRESH_TTL,
+                },
+            })
+        except Exception as e:
+            logger.exception("WebUI machines failed")
+            return error_response(f"machines 失败: {type(e).__name__}: {e}", status_code=500)
 
     async def get_config(self):
         from astrbot.api.web import error_response, json_response
@@ -425,6 +449,8 @@ class WebApi:
             force = _query_truthy(request, "fresh")
             await soft_refresh_sessions(self.plugin, force=force)
             await ensure_umo_name_map(self.plugin, force=force)
+            # 机器负载与 session 同 TTL 节流刷新，供概览页展示
+            await soft_refresh_machines(self.plugin, force=force)
             return json_response(build_sessions_snapshot(self.plugin))
         except Exception as e:
             logger.exception("WebUI sessions_snapshot failed")
@@ -436,6 +462,7 @@ class WebApi:
                         "active": 0, "thinking": 0, "pending": 0, "unrouted": 0, "total": 0,
                     },
                     "sessions": [],
+                    "machines": list(getattr(self.plugin, "machines_cache", None) or []),
                     "columns": [],
                     "defaults": {
                         "primary": None, "flavor": {}, "writable": False,
@@ -1663,6 +1690,7 @@ def _session_model_label(session: dict) -> str:
 
 # 全量拉 HAPI sessions 的最小间隔（秒）。WebUI 轮询走缓存，不频繁打 Hub。
 SESSIONS_REFRESH_TTL = 20.0
+MACHINES_REFRESH_TTL = 15.0
 
 
 def _query_truthy(request, key: str) -> bool:
@@ -1696,6 +1724,118 @@ async def soft_refresh_sessions(plugin, *, force: bool = False) -> bool:
     except Exception as e:
         logger.warning("soft_refresh_sessions failed: %s", e)
         return False
+
+
+def _platform_label(platform: str | None) -> str:
+    p = (platform or "").strip().lower()
+    if p in ("linux",):
+        return "Linux"
+    if p in ("darwin", "macos", "osx"):
+        return "macOS"
+    if p in ("win32", "windows", "win"):
+        return "Windows"
+    return platform.strip() if platform and platform.strip() else "未知系统"
+
+
+def _as_float(v, default=None):
+    try:
+        if v is None:
+            return default
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_int(v, default=None):
+    try:
+        if v is None:
+            return default
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def normalize_machine(raw: dict) -> dict:
+    """HAPI Machine → WebUI 精简视图（对齐官方 health 字段）。"""
+    meta = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+    health_raw = raw.get("health") if isinstance(raw.get("health"), dict) else None
+    runner = raw.get("runnerState") if isinstance(raw.get("runnerState"), dict) else {}
+
+    host = str(meta.get("host") or "").strip()
+    display = str(meta.get("displayName") or "").strip()
+    label = display or host or str(raw.get("id") or "")[:12] or "machine"
+    platform = str(meta.get("platform") or "").strip()
+
+    health = None
+    if health_raw:
+        cpu_count = _as_int(health_raw.get("cpuCount"))
+        load1m = _as_float(health_raw.get("load1m"))
+        cpu_percent = _as_float(health_raw.get("cpuPercent"))
+        memory_percent = _as_float(health_raw.get("memoryPercent"))
+        uptime_seconds = _as_int(health_raw.get("uptimeSeconds"))
+        collected_at = _as_int(health_raw.get("collectedAt"))
+        # 裁剪非法百分比
+        if cpu_percent is not None:
+            cpu_percent = max(0.0, min(100.0, cpu_percent))
+        if memory_percent is not None:
+            memory_percent = max(0.0, min(100.0, memory_percent))
+        health = {
+            "collected_at": collected_at,
+            "cpu_count": cpu_count,
+            "load1m": load1m,
+            "cpu_percent": round(cpu_percent) if cpu_percent is not None else None,
+            "memory_percent": round(memory_percent) if memory_percent is not None else None,
+            "uptime_seconds": uptime_seconds if uptime_seconds is not None and uptime_seconds >= 0 else None,
+        }
+
+    return {
+        "id": str(raw.get("id") or ""),
+        "label": label,
+        "host": host or None,
+        "platform": platform or None,
+        "platform_label": _platform_label(platform),
+        "active": bool(raw.get("active")),
+        "active_at": _as_int(raw.get("activeAt")),
+        "runner_status": str(runner.get("status") or "").strip() or None,
+        "runner_started_at": _as_int(runner.get("startedAt")),
+        "health": health,
+        "cli_version": str(meta.get("happyCliVersion") or "").strip() or None,
+    }
+
+
+async def soft_refresh_machines(plugin, *, force: bool = False) -> list[dict]:
+    """拉取 HAPI GET /api/machines（在线 runner 机器 + health）。
+
+    TTL 节流；失败时返回上次缓存。不唤醒 SSE。
+    """
+    import time
+
+    cached = list(getattr(plugin, "machines_cache", None) or [])
+    if not force:
+        ts = float(getattr(plugin, "_machines_cache_ts", 0) or 0)
+        if ts and (time.monotonic() - ts) < MACHINES_REFRESH_TTL:
+            return cached
+
+    client = getattr(plugin, "client", None)
+    if client is None:
+        return cached
+
+    try:
+        data = await client.get_json("/api/machines")
+        rows = data.get("machines") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            rows = []
+        view = [normalize_machine(m) for m in rows if isinstance(m, dict)]
+        # 在线优先，再按名称
+        view.sort(key=lambda m: (0 if m.get("active") else 1, str(m.get("label") or "").lower()))
+        plugin.machines_cache = view
+        plugin._machines_cache_ts = time.monotonic()
+        return view
+    except Exception as e:
+        logger.warning("soft_refresh_machines failed: %s", e)
+        # 标记错误但不清缓存
+        plugin._machines_cache_error = f"{type(e).__name__}: {e}"
+        return cached
 
 
 def _collect_known_umos(plugin) -> set[str]:
@@ -1829,6 +1969,10 @@ def build_sessions_snapshot(plugin) -> dict:
         logger.exception("public_config in snapshot failed")
         cfg_view = {"_error": f"{type(e).__name__}: {e}"}
 
+    machines = list(getattr(plugin, "machines_cache", None) or [])
+    machines_ts = float(getattr(plugin, "_machines_cache_ts", 0) or 0)
+    machines_age = (time.monotonic() - machines_ts) if machines_ts else None
+
     return {
         "connection": conn,
         "metrics": {
@@ -1837,8 +1981,10 @@ def build_sessions_snapshot(plugin) -> dict:
             "pending": sum(x["pending"] for x in sessions),
             "unrouted": sum(1 for x in sessions if x["layer"] == "none"),
             "total": len(sessions),
+            "machines": len(machines),
         },
         "sessions": sessions,
+        "machines": machines,
         "columns": columns,
         "defaults": defaults,
         "window_options": window_options,
@@ -1847,6 +1993,8 @@ def build_sessions_snapshot(plugin) -> dict:
         "cache": {
             "sessions_age_sec": None if cache_age is None else round(cache_age, 1),
             "refresh_ttl_sec": SESSIONS_REFRESH_TTL,
+            "machines_age_sec": None if machines_age is None else round(machines_age, 1),
+            "machines_ttl_sec": MACHINES_REFRESH_TTL,
             "from_memory": True,
         },
     }

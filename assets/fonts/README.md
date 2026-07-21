@@ -35,14 +35,7 @@ cp /path/to/NotoSansSC-Regular.otf ./NotoSansSC-Regular.otf
 
 ## 体积说明
 
-完整中文字体通常 **数 MB～十余 MB**。因此：
+完整中文字体通常 **数 MB～十余 MB，甚至数百MB**。因此：
 
 - 默认仓库与插件 zip **不内置**大字体
 - **不**在运行时往 `~/.cache` 强行下载
-- 需要离线/精简系统出卡时，由部署者按上面 A/B 自行放入
-
-若本机曾启用过旧版「自动下载」，可手动清理：
-
-```bash
-rm -rf ~/.cache/astrbot_plugin_hapi_connector/fonts
-```

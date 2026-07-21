@@ -30,6 +30,18 @@ function parseKindsDraft(d) {
     .filter(Boolean);
 }
 
+/** 与 data.js 脏检查一致：兼容 true/"true"/1 与 false/"false"/0 */
+function coerceFieldBool(v) {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0 && !Number.isNaN(v);
+  const s = String(v ?? "")
+    .trim()
+    .toLowerCase();
+  if (["1", "true", "yes", "on"].includes(s)) return true;
+  if (["0", "false", "no", "off", ""].includes(s)) return false;
+  return Boolean(v);
+}
+
 function fieldControl(f, d) {
   if (f.type === "enum_cards") {
     return `<div class="enum-cards">${(f.options || [])
@@ -55,7 +67,8 @@ function fieldControl(f, d) {
   }
   if (f.type === "bool") {
     const [offL, onL] = f.boolLabels || ["关闭", "开启"];
-    const on = Boolean(d[f.key]);
+    // 兼容 AstrBot 偶发字符串 "true"/"false"（Boolean("false")===true 会假脏/错显）
+    const on = coerceFieldBool(d[f.key]);
     let html = `<label class="switch">
       <input type="checkbox" name="${f.key}" ${on ? "checked" : ""} />
       <span class="switch-track" aria-hidden="true"></span>
@@ -66,17 +79,10 @@ function fieldControl(f, d) {
     }
     return html;
   }
+  // 仅真正敏感项（如 CF secret）：永远空 value，留空=不改
   if (f.sensitive || f.type === "password") {
-    const ph =
-      f.key === "access_token" && state.data.config.access_token_configured
-        ? `已配置${
-            state.data.config.access_token_namespace
-              ? " · ns=" + state.data.config.access_token_namespace
-              : ""
-          }，留空不修改`
-        : "输入新值；留空不修改";
     return `<input type="password" class="ctrl" name="${f.key}" value="" placeholder="${attr(
-      ph,
+      "输入新值；留空不修改",
     )}" autocomplete="off" />`;
   }
   if (f.type === "enum") {
@@ -97,7 +103,11 @@ function fieldControl(f, d) {
 
 function fieldVisible(f, d) {
   if (!f.showIf) return true;
-  return d[f.showIf.key] === f.showIf.eq;
+  const cur = d[f.showIf.key];
+  const eq = f.showIf.eq;
+  // showIf 布尔条件与 AstrBot 字符串 true/false 对齐
+  if (typeof eq === "boolean") return coerceFieldBool(cur) === eq;
+  return cur === eq;
 }
 
 function renderField(f, d) {

@@ -44,6 +44,7 @@ async function fetchSnapshot(opts = {}) {
   }
   if (!snap.columns) snap.columns = [];
   if (!snap.window_options) snap.window_options = [];
+  if (!Array.isArray(snap.machines)) snap.machines = [];
   if (!snap.defaults) snap.defaults = { primary: null, flavor: {}, writable: false };
   if (!snap.connection) {
     snap.connection = {
@@ -86,6 +87,12 @@ async function refresh(opts = {}) {
   renderAlert();
 
   if (opts.silent && !opts.repaint) {
+    // 概览页只刷机器负载区，避免整页重绘打断常用设置
+    if (state.page === "overview") {
+      import("./pages/overview.js?v=3.0.0")
+        .then((m) => m.patchOverviewMachines?.())
+        .catch(() => {});
+    }
     return;
   }
 
@@ -153,6 +160,26 @@ function normalizeKindsValue(v) {
   return [...new Set(arr)].sort().join(",");
 }
 
+/** 布尔兼容：AstrBot / JSON 可能给 true/"true"/1/"1" */
+function coerceBool(v) {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0 && !Number.isNaN(v);
+  const s = String(v ?? "")
+    .trim()
+    .toLowerCase();
+  if (["1", "true", "yes", "on"].includes(s)) return true;
+  if (["0", "false", "no", "off", ""].includes(s)) return false;
+  return Boolean(v);
+}
+
+/** HH:MM / HH:MM:SS → HH:MM（浏览器 time 控件可能带秒） */
+function normalizeTimeValue(v) {
+  const s = String(v ?? "").trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!m) return s;
+  return `${m[1].padStart(2, "0")}:${m[2]}`;
+}
+
 /**
  * 设置字段是否相等（避免 number/string、bool、kinds 顺序导致的假脏）。
  * @param {{key?: string, type?: string, schema_type?: string}} f
@@ -164,7 +191,7 @@ function settingsValuesEqual(f, a, b) {
     return normalizeKindsValue(a) === normalizeKindsValue(b);
   }
   if (type === "bool" || type === "boolean" || f?.schema_type === "bool") {
-    return Boolean(a) === Boolean(b);
+    return coerceBool(a) === coerceBool(b);
   }
   if (
     type === "number" ||
@@ -179,8 +206,22 @@ function settingsValuesEqual(f, a, b) {
     if (Number.isNaN(na) && Number.isNaN(nb)) return true;
     return na === nb;
   }
-  // 时间 / 文本：统一成字符串；null/undefined 当空串
+  if (type === "time") {
+    return normalizeTimeValue(a) === normalizeTimeValue(b);
+  }
+  // 文本：统一成字符串；null/undefined 当空串
   return String(a ?? "").trim() === String(b ?? "").trim();
+}
+
+/**
+ * 是否「敏感密码」字段：表单永远留空，非空才表示要改。
+ * access_token 已明文回显，走普通字段比较，不再走这条路径。
+ */
+function isSensitivePasswordField(f) {
+  if (!f) return false;
+  if (f.sensitive) return true;
+  // 兜底：历史/未知 schema 里仍可能把 secret 标成 password
+  return f.type === "password" && f.key !== "access_token";
 }
 
 /** 从 draft / 敏感输入收集相对当前 config 的 patch（无变更返回 {}） */
@@ -198,9 +239,18 @@ function buildSettingsPatch() {
 
   const patch = {};
   for (const f of _allSettingsFields()) {
-    if (f.sensitive) continue;
     const key = f.key;
     if (!key) continue;
+
+    // 敏感密码：不在 public_config 回显；仅当输入框有新值才算变更
+    if (isSensitivePasswordField(f)) {
+      const el = [...document.querySelectorAll("#settings-form input")].find(
+        (inp) => inp.name === key,
+      );
+      const typed = el?.value ?? "";
+      if (typed) patch[key] = typed;
+      continue;
+    }
 
     let cur = draft[key];
     if ((key === "render_kinds" || f.type === "kind_checks") && kindsFromDom) {
@@ -238,22 +288,18 @@ function buildSettingsPatch() {
       patch[key] = n;
       draft[key] = n;
     } else if (f.type === "bool" || f.schema_type === "bool") {
-      patch[key] = Boolean(cur);
-      draft[key] = Boolean(cur);
+      const b = coerceBool(cur);
+      patch[key] = b;
+      draft[key] = b;
+    } else if (f.type === "time") {
+      const t = normalizeTimeValue(cur);
+      patch[key] = t;
+      draft[key] = t;
     } else {
       patch[key] = cur;
     }
   }
 
-  // 敏感字段：仅非空才算变更（留空=不修改）
-  const token = document.querySelector(
-    '#settings-form input[name="access_token"]',
-  )?.value;
-  const secret = document.querySelector(
-    '#settings-form input[name="cf_access_client_secret"]',
-  )?.value;
-  if (token) patch.access_token = token;
-  if (secret) patch.cf_access_client_secret = secret;
   return patch;
 }
 

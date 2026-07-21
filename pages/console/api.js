@@ -78,6 +78,7 @@ export function createApi(bridge) {
     help: () => get("help"),
     docsList: () => get("docs"),
     docsGet: (docId) => get(`docs/${encodeURIComponent(docId)}`),
+    machines: (opts = {}) => get("machines", opts.fresh ? { fresh: 1 } : undefined),
     wake: () => post("connection/wake"),
     reconnect: () => post("connection/reconnect"),
     sessionsSnapshot: (opts = {}) => get("sessions/snapshot", opts.fresh ? { fresh: 1 } : undefined),
