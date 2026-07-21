@@ -134,8 +134,8 @@
     "description": "公式渲染策略",
     "type": "string",
     "default": "off",
-    "options": ["off", "detect", "plain"],
-    "hint": "off=公式当普通文字；detect=公式用 matplotlib 渲染（需安装）；plain=含公式时只发文字"
+    "options": ["off", "detect", "formula_only", "plain"],
+    "hint": "off=关闭公式渲染；detect=公式用 matplotlib 渲染；formula_only=仅含公式消息渲成图片（其它消息只发文字）；plain=消息含公式时只发文字"
   },
   "render_kinds": {
     "description": "允许出图的消息类型",

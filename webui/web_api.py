@@ -71,7 +71,7 @@ RECONNECT_KEYS = frozenset({
 
 OUTPUT_LEVELS = ("silence", "simple", "summary", "detail")
 RENDER_MODES = ("text", "card")
-FORMULA_MODES = ("off", "detect", "plain")
+FORMULA_MODES = ("off", "detect", "formula_only", "plain")
 CARD_PRESETS = ("terminal_light", "terminal_dark", "clean", "compact")
 CARD_DENSITY = ("comfortable", "compact")
 

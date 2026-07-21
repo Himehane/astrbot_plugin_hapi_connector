@@ -979,7 +979,7 @@ function collectRenderPatchFromForm() {
 
   return {
     render_mode,
-    formula_mode: ["off", "detect", "plain", "always"].includes(fmode)
+    formula_mode: ["off", "detect", "formula_only", "plain", "always"].includes(fmode)
       ? fmode === "always"
         ? "plain"
         : fmode
@@ -1119,7 +1119,7 @@ function renderInteract() {
       <div class="card-head">
         <div>
           <h2>推送呈现</h2>
-          <p class="sub">此处修改消息渲染形式（文字 / 图片）。图片渲染使用 Pillow（延迟较低）。</p>
+          <p class="sub">此处修改消息渲染形式（文字 / 图片）。图片渲染使用 Pillow（延迟较低）。图片渲染模式推荐和「摘要」级别的消息推送详细程度进行配合。</p>
         </div>
         <span class="tag ${engineTagCls}">${engineTag}</span>
       </div>
@@ -1154,11 +1154,15 @@ function renderInteract() {
 
           <div class="field" id="ix-fmode-wrap" ${rs.kinds.includes("message") ? "" : "hidden"}>
             <div class="field-label">公式（仅 Agent 对话）</div>
-            <select id="ix-fmode" class="ctrl" style="max-width:360px">
+            <select id="ix-fmode" class="ctrl" style="max-width:420px">
               ${[
-                { value: "off", title: "关闭" },
+                { value: "off", title: "关闭公式渲染" },
                 { value: "detect", title: "公式用 matplotlib 渲染" },
-                { value: "plain", title: "含公式时只发文字" },
+                {
+                  value: "formula_only",
+                  title: "仅含公式消息渲染为图片（其他消息只发送文字）",
+                },
+                { value: "plain", title: "消息含公式时只发文字" },
               ]
                 .map(
                   (o) =>

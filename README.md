@@ -128,7 +128,7 @@ hapi codex    # Open Codex
 | `render_mode` | 推送呈现：`text` / `card`（勾选类型是否出卡，含对话） | text |
 | `render_kinds` | 出卡类型（逗号分隔）：`session_list,pending,status,permission,routes,message` | 见 schema |
 | `card_style_preset` / 配色 | 预设与 token；也可完全用自定义 CSS 覆盖 | terminal_light |
-| `formula_mode` | 公式：`off` / `detect`（公式用 matplotlib 渲染）/ `plain`（含公式时只发文字） | off |
+| `formula_mode` | 公式：`off` 关闭 / `detect` 公式用 matplotlib / `formula_only` 仅含公式消息出图 / `plain` 含公式只发文字 | off |
 | `card_custom_css` | 完整可编辑 CSS（Pillow 识别 `--card-*` 变量） | 空=默认 |
 | `card_font_path` | 字体文件路径；留空用 `assets/fonts` 或系统已装 CJK | 空 |
 

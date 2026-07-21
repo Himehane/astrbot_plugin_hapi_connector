@@ -60,9 +60,11 @@ except ImportError:  # pragma: no cover — 脚本直跑 / 未作为包部署
 
 
 RENDER_MODES = ("text", "card")
-# off=公式当普通字；detect=每个公式用 matplotlib 紧凑出图后嵌进 Pillow 消息卡；
-# plain=含公式时只发文字
-FORMULA_MODES = ("off", "detect", "plain")
+# off=关闭公式渲染（公式当普通字）
+# detect=公式用 matplotlib 渲染（嵌进消息卡；无公式消息仍可按 render_kinds 出图）
+# formula_only=仅含公式的 Agent 消息出图（其它消息只发文字）
+# plain=消息含公式时只发文字（无公式仍可出图）
+FORMULA_MODES = ("off", "detect", "formula_only", "plain")
 CARD_KINDS = (
     "session_list",
     "pending",
@@ -898,10 +900,13 @@ def normalize_render_mode(raw) -> str:
 
 
 def normalize_formula_mode(raw) -> str:
-    """off / detect / plain。历史 always 映射为 plain。"""
+    """off / detect / formula_only / plain。历史 always 映射为 plain。"""
     mode = str(raw or "off").strip().lower()
     if mode == "always":
         return "plain"
+    # 兼容旧别名
+    if mode in ("detect_only", "math_only", "formula-only"):
+        return "formula_only"
     if mode in FORMULA_MODES:
         return mode
     return "off"
@@ -1832,13 +1837,24 @@ def render_meta() -> dict[str, Any]:
         "engine": engine_status(),
         "formula_subset": {
             "supported": [
-                "plain：含公式时只发文字",
+                "off：关闭公式渲染",
                 "detect：公式用 matplotlib 渲染",
+                "formula_only：仅含公式消息渲染为图片（其它消息只发文字）",
+                "plain：消息含公式时只发文字",
             ],
             "delimiters": ["$...$", "$$...$$", "\\(...\\)", "\\[...\\]", "\\begin{...}"],
-            "note": "detect 需 matplotlib；单个公式失败只显示源码，不拖垮整张卡。",
+            "note": "detect / formula_only 需 matplotlib；单个公式失败只显示源码，不拖垮整张卡。",
             "matplotlib": matplotlib_available(),
         },
+        "formula_mode_options": [
+            {"value": "off", "title": "关闭公式渲染"},
+            {"value": "detect", "title": "公式用 matplotlib 渲染"},
+            {
+                "value": "formula_only",
+                "title": "仅含公式消息渲染为图片（其他消息只发送文字）",
+            },
+            {"value": "plain", "title": "消息含公式时只发文字"},
+        ],
     }
 
 
@@ -2536,14 +2552,12 @@ def _render_with_pillow(
     if kind == "message":
         fmode = normalize_formula_mode(formula_mode)
         body = str((data or {}).get("body") or (data or {}).get("text") or "")
-        use_math = (
-            fmode == "detect"
-            and text_has_formula(body)
-            and matplotlib_available()
-            and _HAS_PILLOW
-        )
-        if fmode == "detect" and text_has_formula(body) and not matplotlib_available():
-            logger.warning("formula_mode=detect 但未安装 matplotlib，公式当普通字")
+        want_math = fmode in ("detect", "formula_only") and text_has_formula(body)
+        use_math = want_math and matplotlib_available() and _HAS_PILLOW
+        if want_math and not matplotlib_available():
+            logger.warning(
+                "formula_mode=%s 但未安装 matplotlib，公式当普通字", fmode
+            )
         png, w, h = _draw_message_png(
             data, style, formula_mode="detect" if use_math else "off"
         )

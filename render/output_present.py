@@ -587,10 +587,23 @@ def try_render_png(plugin, kind: str, data: dict[str, Any]) -> card_render.Rende
         )
         return None
 
-    # plain：识别到公式则放弃出卡，只发文字
-    if formula_mode == "plain" and card_render.payload_has_formula(data):
+    has_formula = card_render.payload_has_formula(data)
+
+    # plain：含公式 → 只发文字
+    if formula_mode == "plain" and has_formula:
         logger.info("card skip kind=%s formula_mode=plain (正文含公式，回退纯文本)", kind)
         return None
+
+    # formula_only：仅 Agent 对话且正文含公式才出图；其它消息（含无公式对话）只发文字
+    if formula_mode == "formula_only":
+        if kind != "message":
+            # 结构卡不受「仅公式消息」约束，仍按 render_kinds 出图
+            pass
+        elif not has_formula:
+            logger.info(
+                "card skip kind=message formula_mode=formula_only (无公式，只发文字)",
+            )
+            return None
 
     style = card_render.style_from_config(cfg)
     result = card_render.render_card(kind, data, style, formula_mode=formula_mode)

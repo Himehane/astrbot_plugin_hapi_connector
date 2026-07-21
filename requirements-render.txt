@@ -6,5 +6,5 @@
 # 基础（Pillow，结构卡 + 无公式对话卡）
 Pillow>=10.0,<12
 
-# 公式（formula_mode=detect：公式用 matplotlib 渲染）
+# 公式（formula_mode=detect / formula_only：公式用 matplotlib 渲染）
 # matplotlib>=3.7,<4
