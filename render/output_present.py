@@ -383,6 +383,58 @@ def build_routes_payload(
     }
 
 
+def prepare_agent_body_for_card(text: str) -> str:
+    """聊天文案 → 卡片正文：emoji 工具行换成 ASCII 标记，再剥剩余 emoji。
+
+    文字推送仍用 formatters 的 emoji 版；卡片字体不含 emoji，需结构化标记
+    才能在 Pillow 里区分工具调用 / 任务清单 / 系统事件。
+    """
+    import re
+
+    if not text:
+        return ""
+    out_lines: list[str] = []
+    for raw in str(text).replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = raw
+        # Todo 状态行（缩进 + emoji）
+        m = re.match(r"^(\s*)(✅|🔄|⬜|✔️|✔|□|■)\s*(.*)$", line)
+        if m:
+            ind, icon, rest = m.group(1), m.group(2), m.group(3)
+            tag = {
+                "✅": "done",
+                "✔️": "done",
+                "✔": "done",
+                "🔄": "run",
+                "⬜": "todo",
+                "□": "todo",
+                "■": "done",
+            }.get(icon, "todo")
+            out_lines.append(f"{ind}[{tag}] {rest}".rstrip())
+            continue
+        # 工具调用主行
+        if line.startswith("🛠️"):
+            rest = line[len("🛠️") :].lstrip()
+            if rest.startswith("TodoWrite"):
+                # "TodoWrite 任务列表:" / "TodoWrite"
+                rest2 = rest[len("TodoWrite") :].lstrip(" :：")
+                if rest2 in ("任务列表", "任务列表:"):
+                    out_lines.append("[Tool] TodoWrite")
+                elif rest2:
+                    out_lines.append(f"[Tool] TodoWrite: {rest2}")
+                else:
+                    out_lines.append("[Tool] TodoWrite")
+            else:
+                out_lines.append(f"[Tool] {rest}" if rest else "[Tool]")
+            continue
+        if line.startswith("❓"):
+            rest = line[len("❓") :].lstrip()
+            out_lines.append(f"[Ask] {rest}" if rest else "[Ask]")
+            continue
+        # 已是卡片/文本统一前缀的保留
+        out_lines.append(line)
+    return _strip_emoji("\n".join(out_lines))
+
+
 def _strip_emoji(text: str) -> str:
     """卡片用：去掉 emoji / 杂符号，避免 Pillow 缺字形出方块或发灰。"""
     import re
@@ -402,12 +454,17 @@ def _strip_emoji(text: str) -> str:
         "",
         text,
     )
-    # 文本列表里常见的装饰前缀（再保险）
-    for ch in ("🏷️", "💬", "📂", "🤖", "📋", "🛠️", "💭", "🟢", "⚪", "⚠️", "💡", "📁"):
+    # 文本列表里常见的装饰前缀（再保险；工具行应已在 prepare_agent_body_for_card 转写）
+    for ch in ("🏷️", "💬", "📂", "🤖", "📋", "🛠️", "💭", "🟢", "⚪", "⚠️", "💡", "📁", "❓", "✅", "🔄", "⬜"):
         text = text.replace(ch, "")
-    # 行内多余空白
-    text = re.sub(r"[ \t]{2,}", " ", text)
-    text = re.sub(r"[ \t]+\n", "\n", text)
+    # 行内多余空白：保留行首缩进（任务清单缩进）
+    fixed_lines = []
+    for ln in text.split("\n"):
+        m = re.match(r"^([ \t]*)(.*)$", ln)
+        ind, rest = (m.group(1), m.group(2)) if m else ("", ln)
+        rest = re.sub(r"[ \t]{2,}", " ", rest).rstrip()
+        fixed_lines.append(ind + rest)
+    text = "\n".join(fixed_lines)
     text = re.sub(r"\n{3,}", "\n\n", text)
     # 装饰分隔符残留「 |  · 」等压扁
     text = re.sub(r"[ \t]*·[ \t]*·[ \t]*", " · ", text)
@@ -452,7 +509,8 @@ def build_message_payload(
     return {
         "title": conv_title,
         "subtitle": sub,
-        "body": _strip_emoji(body or ""),
+        # 工具调用等：先转 ASCII 标记再剥 emoji，避免卡片丢结构
+        "body": prepare_agent_body_for_card(body or ""),
         "footer": _strip_emoji(footer or ""),
     }
 

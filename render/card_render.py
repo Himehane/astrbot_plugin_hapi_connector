@@ -3438,6 +3438,28 @@ def _draw_message_png(
                 h = max(h, _text_size(d0, p.get("text") or " ", font_body)[1])
         return h + 6
 
+    def _measure_tool_block(b) -> int:
+        """工具调用 / Ask 行：标签 + 名称 + 可选详情。"""
+        name = str(b.get("name") or b.get("text") or "tool")
+        detail = str(b.get("detail") or "")
+        tag = "Tool" if b.get("type") == "tool" else "Ask"
+        head = f"[{tag}] {name}"
+        h = _text_size(d0, head, font_body_bold)[1] + 8
+        if detail:
+            for ln in _wrap_text(d0, detail, font_code, content_w - 28) or [""]:
+                h += _text_size(d0, ln or " ", font_code)[1] + 2
+            h += 6
+        return h + 12
+
+    def _measure_todo_block(b) -> int:
+        content = str(b.get("text") or "")
+        mark = {"done": "[x]", "run": "[~]", "todo": "[ ]"}.get(
+            str(b.get("status") or "todo"), "[ ]"
+        )
+        line = f"{mark} {content}".rstrip()
+        lines = _wrap_text(d0, line, font_body, content_w - 20) or [""]
+        return sum(_text_size(d0, ln or " ", font_body)[1] + line_extra for ln in lines) + 6
+
     def measure_block(b) -> int:
         h = 0
         if b["type"] == "rich_line":
@@ -3449,6 +3471,10 @@ def _draw_message_png(
             return 48
         if b["type"] == "table":
             return _measure_table(b)
+        if b["type"] in ("tool", "ask"):
+            return _measure_tool_block(b)
+        if b["type"] == "todo":
+            return _measure_todo_block(b)
         if b["type"] == "code":
             for line in _wrap_text(d0, b["text"], font_code, content_w - 24) or [""]:
                 h += _text_size(d0, line or " ", font_code)[1] + line_extra
@@ -3665,6 +3691,65 @@ def _draw_message_png(
                     y += _text_size(draw, line or " ", font_body)[1] + line_extra
                 y += 8
             continue
+        if b["type"] in ("tool", "ask"):
+            # 无 emoji 的工具调用条：左侧强调条 + 标签 + 名称/详情
+            is_ask = b["type"] == "ask"
+            tag = "Ask" if is_ask else "Tool"
+            name = str(b.get("name") or b.get("text") or ("request" if is_ask else "tool"))
+            detail = str(b.get("detail") or "")
+            if is_ask and not b.get("name"):
+                # ask 只有 text
+                name = str(b.get("text") or "request_user_input")
+                detail = ""
+            head = f"[{tag}] {name}"
+            detail_lines = (
+                _wrap_text(draw, detail, font_code, content_w - 28) if detail else []
+            )
+            block_h = (
+                10
+                + _text_size(draw, head, font_body_bold)[1]
+                + (
+                    6
+                    + sum(
+                        _text_size(draw, ln or " ", font_code)[1] + 2
+                        for ln in detail_lines
+                    )
+                    if detail_lines
+                    else 0
+                )
+                + 8
+            )
+            fill = _mix_rgb(bg, accent, 0.10 if not is_ask else 0.14)
+            _draw_rounded_rect(
+                draw,
+                (pad, y, width - pad, y + block_h),
+                radius=8,
+                fill=fill,
+                outline=border,
+                width=1,
+            )
+            draw.rectangle((pad + 2, y + 6, pad + 6, y + block_h - 6), fill=accent)
+            yy = y + 8
+            _draw_text(draw, (pad + 14, yy), head, font_body_bold, accent)
+            yy += _text_size(draw, head, font_body_bold)[1] + 4
+            for ln in detail_lines:
+                draw.text((pad + 14, yy), ln, font=font_code, fill=fg)
+                yy += _text_size(draw, ln or " ", font_code)[1] + 2
+            y += block_h + 10
+            continue
+        if b["type"] == "todo":
+            status = str(b.get("status") or "todo")
+            mark = {"done": "[x]", "run": "[~]", "todo": "[ ]"}.get(status, "[ ]")
+            content = str(b.get("text") or "")
+            line = f"{mark}  {content}".rstrip()
+            mark_fg = accent if status == "run" else (sub_fg if status == "todo" else fg)
+            for ln in _wrap_text(draw, line, font_body, content_w - 16) or [""]:
+                # 完成项略淡
+                col = _mix_rgb(fg, muted, 0.35) if status == "done" else mark_fg
+                draw.text((pad + 8, y), ln, font=font_body, fill=col)
+                y += _text_size(draw, ln or " ", font_body)[1] + line_extra
+            y += 4
+            continue
         if b["type"] == "code":
             lines = _wrap_text(draw, b["text"], font_code, content_w - 24) or [""]
             block_h = (
@@ -3846,6 +3931,43 @@ def _parse_md_blocks(text: str) -> list[dict[str, Any]]:
             continue
         if re.match(r"^---+$|^\*\*\*+$|^___+$", line.strip()):
             blocks.append({"type": "hr", "text": ""})
+            i += 1
+            continue
+        # 卡片用工具/任务行（无 emoji；见 output_present.prepare_agent_body_for_card）
+        m = re.match(r"^\[Tool\]\s*(.*)$", line)
+        if m:
+            rest = (m.group(1) or "").strip()
+            name, _, detail = rest.partition(":")
+            name = name.strip() or "tool"
+            detail = detail.strip()
+            blocks.append(
+                {
+                    "type": "tool",
+                    "name": name,
+                    "detail": detail,
+                    "text": rest or name,
+                }
+            )
+            i += 1
+            continue
+        m = re.match(r"^\[Ask\]\s*(.*)$", line)
+        if m:
+            rest = (m.group(1) or "").strip()
+            blocks.append({"type": "ask", "text": rest or "request_user_input"})
+            i += 1
+            continue
+        m = re.match(r"^(\s*)\[(done|run|todo)\]\s*(.*)$", line, re.I)
+        if m:
+            status = m.group(2).lower()
+            content = (m.group(3) or "").strip()
+            blocks.append(
+                {
+                    "type": "todo",
+                    "status": status,
+                    "text": content,
+                    "indent": len(m.group(1) or ""),
+                }
+            )
             i += 1
             continue
         m = re.match(r"^(#{1,3})\s+(.*)$", line)
