@@ -13,6 +13,7 @@ import { $$, $ } from "./utils.js?v=3.0.0";
 import {
   closeSidebar,
   ensureFxLayer,
+  setBridgeDark,
   showAlert,
   toast,
 } from "./ui.js?v=3.0.0";
@@ -77,8 +78,8 @@ async function boot() {
       wireLiveMutations();
 
       const applyCtx = (c) => {
-        const dark = Boolean(c?.isDark);
-        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+        // 记录 AstrBot 主题；若用户选「自」则跟随，亮/暗本地覆盖时不抢
+        setBridgeDark(Boolean(c?.isDark));
         try {
           document.documentElement.lang = bridge.getLocale?.() || c?.locale || "zh-CN";
         } catch (_) {

@@ -101,40 +101,170 @@ function closeSidebar() {
 export { connLabel, connIsOk, renderTopConn, renderAlert, setPageChrome, closeSidebar };
 
 const FX_STORAGE_KEY = "hapi_console_fx";
+const THEME_STORAGE_KEY = "hapi_console_theme"; // "light" | "dark" | "auto"
 
-/** 动效默认关闭；localStorage "1"=开 "0"/缺省=关 */
+/** 内存态：避免 localStorage 读失败 / 重复 ensure 时状态乱 */
+let _fxOn = null;
+/** AstrBot bridge 最近一次 isDark；theme=auto 时用 */
+let _bridgeIsDark = null;
+
+/** 动效默认关闭；localStorage "1"=开，其它=关 */
 function isFxEnabled() {
+  if (_fxOn != null) return _fxOn;
   try {
-    return localStorage.getItem(FX_STORAGE_KEY) === "1";
+    _fxOn = localStorage.getItem(FX_STORAGE_KEY) === "1";
+  } catch (_) {
+    _fxOn = false;
+  }
+  return _fxOn;
+}
+
+function setFxEnabled(on) {
+  _fxOn = Boolean(on);
+  try {
+    localStorage.setItem(FX_STORAGE_KEY, _fxOn ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+  applyFxEnabled(_fxOn);
+}
+
+function applyFxEnabled(on) {
+  on = Boolean(on);
+  _fxOn = on;
+  const layer = document.getElementById("fx-layer");
+  const btn = document.getElementById("fx-toggle");
+  document.body.classList.toggle("has-fx", on);
+  document.body.classList.toggle("fx-off", !on);
+  if (layer) {
+    if (on) {
+      layer.removeAttribute("hidden");
+      layer.style.display = "";
+    } else {
+      layer.setAttribute("hidden", "");
+      layer.style.display = "none";
+    }
+  }
+  if (btn) {
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.title = on ? "关闭终端动效（粒子 / 扫描线）" : "开启终端动效（粒子 / 扫描线）";
+    btn.textContent = on ? "动效 · 开" : "动效 · 关";
+  }
+}
+
+/** 主题偏好：auto=跟 AstrBot；light/dark=本地覆盖 */
+function getThemePref() {
+  try {
+    const v = localStorage.getItem(THEME_STORAGE_KEY);
+    if (v === "light" || v === "dark" || v === "auto") return v;
+  } catch (_) {
+    /* ignore */
+  }
+  return "auto";
+}
+
+function setThemePref(pref) {
+  if (pref !== "light" && pref !== "dark" && pref !== "auto") pref = "auto";
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, pref);
+  } catch (_) {
+    /* ignore */
+  }
+  applyTheme();
+}
+
+/** 供 app.js bridge 调用：记录 AstrBot 主题，auto 时跟随 */
+function setBridgeDark(isDark) {
+  _bridgeIsDark = Boolean(isDark);
+  if (getThemePref() === "auto") applyTheme();
+}
+
+function resolveDark() {
+  const pref = getThemePref();
+  if (pref === "dark") return true;
+  if (pref === "light") return false;
+  // auto
+  if (_bridgeIsDark != null) return _bridgeIsDark;
+  // 无 bridge：跟系统
+  try {
+    return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches === true;
   } catch (_) {
     return false;
   }
 }
 
-function setFxEnabled(on) {
-  try {
-    localStorage.setItem(FX_STORAGE_KEY, on ? "1" : "0");
-  } catch (_) {
-    /* ignore */
+function applyTheme() {
+  const dark = resolveDark();
+  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  const btn = document.getElementById("theme-toggle");
+  if (btn) {
+    const pref = getThemePref();
+    const label =
+      pref === "auto" ? (dark ? "主题 · 自·暗" : "主题 · 自·亮") : dark ? "主题 · 暗" : "主题 · 亮";
+    btn.textContent = label;
+    btn.setAttribute("aria-pressed", dark ? "true" : "false");
+    btn.title =
+      pref === "auto"
+        ? "当前跟随 AstrBot/系统；点击改为亮色"
+        : dark
+          ? "当前暗色；点击改为亮色"
+          : "当前亮色；点击改为暗色";
   }
-  applyFxEnabled(on);
 }
 
-function applyFxEnabled(on) {
-  const layer = document.getElementById("fx-layer");
-  const btn = document.getElementById("fx-toggle");
-  document.body.classList.toggle("has-fx", Boolean(on));
-  document.body.classList.toggle("fx-off", !on);
-  if (layer) layer.hidden = !on;
-  if (btn) {
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
-    btn.title = on ? "关闭终端动效" : "开启终端动效";
-    btn.textContent = on ? "动效 · 开" : "动效 · 关";
+/** 点击循环：auto → light → dark → auto（有 bridge 时更自然）；无 bridge 时 light ↔ dark */
+function cycleTheme() {
+  const pref = getThemePref();
+  let next;
+  if (pref === "auto") next = "light";
+  else if (pref === "light") next = "dark";
+  else next = "auto";
+  // 本地 file 预览时 auto 与系统相关，仍保留三级
+  setThemePref(next);
+}
+
+function ensureChromeControls() {
+  let bar = document.getElementById("chrome-toggles");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "chrome-toggles";
+    bar.className = "chrome-toggles";
+    bar.setAttribute("role", "group");
+    bar.setAttribute("aria-label", "界面开关");
+    document.body.appendChild(bar);
+  }
+
+  if (!document.getElementById("fx-toggle")) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = "fx-toggle";
+    btn.className = "fx-toggle chrome-toggle";
+    btn.setAttribute("aria-label", "切换终端动效");
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setFxEnabled(!isFxEnabled());
+    });
+    bar.appendChild(btn);
+  }
+
+  if (!document.getElementById("theme-toggle")) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = "theme-toggle";
+    btn.className = "theme-toggle chrome-toggle";
+    btn.setAttribute("aria-label", "切换亮暗主题");
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      cycleTheme();
+    });
+    bar.appendChild(btn);
   }
 }
 
 /**
- * 创建粒子层 + 左下角开关。默认关闭，不主动压暗页面。
+ * 创建粒子层 + 左下角开关栏。默认关闭动效。
  * 无大绿团 / vignette；仅扫描线 + 光束 + 粒子。
  */
 function ensureFxLayer() {
@@ -143,15 +273,14 @@ function ensureFxLayer() {
     layer.id = "fx-layer";
     layer.className = "fx-layer";
     layer.setAttribute("aria-hidden", "true");
-    const dots = Array.from({ length: 36 }, (_, i) => {
-      const left = ((i * 41 + (i % 7) * 3) % 100) + (i % 5) * 0.25;
-      const delay = ((i * 0.37) % 10).toFixed(2);
-      const dur = (8 + (i % 9) * 1.35).toFixed(1);
-      const size = 1 + (i % 3);
-      const dx = ((i % 9) - 4) * 6;
+    const dots = Array.from({ length: 56 }, (_, i) => {
+      const left = ((i * 37 + (i % 11) * 2) % 100) + (i % 5) * 0.2;
+      const delay = ((i * 0.31) % 9).toFixed(2);
+      const dur = (7 + (i % 10) * 1.2).toFixed(1);
+      const size = 2 + (i % 3);
+      const dx = ((i % 9) - 4) * 8;
       return `<span class="fx-dot" style="--x:${left.toFixed(1)}%;--d:${delay}s;--t:${dur}s;--s:${size}px;--dx:${dx}px"></span>`;
     }).join("");
-    // 无 fx-blob / vignette / noise（会压暗画面）
     layer.innerHTML = `
       <div class="fx-scan"></div>
       <div class="fx-beam"></div>
@@ -160,23 +289,22 @@ function ensureFxLayer() {
     document.body.prepend(layer);
   }
 
-  if (!document.getElementById("fx-toggle")) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.id = "fx-toggle";
-    btn.className = "fx-toggle";
-    btn.setAttribute("aria-label", "切换终端动效");
-    btn.addEventListener("click", () => {
-      setFxEnabled(!isFxEnabled());
-    });
-    document.body.appendChild(btn);
-  }
-
+  ensureChromeControls();
+  // 每次 ensure 只同步 UI，不强制改偏好
   applyFxEnabled(isFxEnabled());
+  applyTheme();
 }
 
-
-export { ensureFxLayer, isFxEnabled, setFxEnabled };
+export {
+  ensureFxLayer,
+  isFxEnabled,
+  setFxEnabled,
+  getThemePref,
+  setThemePref,
+  setBridgeDark,
+  applyTheme,
+  cycleTheme,
+};
 
 function askConfirm(message, opts = {}) {
   const msg = String(message || "确定？");
