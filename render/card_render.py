@@ -136,6 +136,22 @@ DEFAULT_CARD_CSS = """\
   --card-row-pad-x: 14px;
   --card-row-gap: 10px;
   --card-section-gap: 16px;
+
+  /* —— 工具调用条（detail 消息卡；出图可读）—— */
+  --card-tool-bg: #e8f0e9;
+  --card-tool-fg: #14120f;
+  --card-tool-accent: #0f6b3c;
+  --card-tool-border: #c9c2b0;
+  --card-tool-radius: 8px;
+  --card-tool-pad-y: 10px;
+  --card-tool-pad-x: 14px;
+  --card-tool-gap: 12px;
+  --card-tool-bar-w: 4px;
+  /* Edit 差异行 */
+  --card-diff-add: #0f6b3c;
+  --card-diff-del: #6b4a3a;
+  /* Ask 条（可与 tool 区分） */
+  --card-ask-bg: #eef3e8;
 }
 
 /* —— 以下仅 DOM 预览用 —— */
@@ -214,6 +230,27 @@ body {
   font-size: 0.9em;
   white-space: pre-wrap;
 }
+
+
+/* 工具条（DOM 预览；出图读 :root 变量） */
+.tool-block {
+  background: var(--card-tool-bg);
+  color: var(--card-tool-fg);
+  border: 1px solid var(--card-tool-border);
+  border-radius: var(--card-tool-radius);
+  padding: var(--card-tool-pad-y) var(--card-tool-pad-x);
+  margin: 0 0 var(--card-tool-gap) 0;
+  border-left: var(--card-tool-bar-w) solid var(--card-tool-accent);
+}
+.tool-block.ask { background: var(--card-ask-bg); }
+.tool-block .tool-head {
+  font-weight: 700;
+  color: var(--card-tool-accent);
+  margin-bottom: 4px;
+}
+.tool-block .tool-detail { font-family: "HapiCardMono", monospace; font-size: 0.9em; white-space: pre-wrap; }
+.tool-block .diff-add { color: var(--card-diff-add); }
+.tool-block .diff-del { color: var(--card-diff-del); }
 
 .card-brand {
   margin-top: 12px;
@@ -329,6 +366,19 @@ class CardStyle:
     row_pad_x: int = 14
     row_gap: int = 10
     section_gap: int = 16
+    # 工具调用条（消息卡 detail）
+    tool_bg: str = "#e8f0e9"
+    tool_fg: str = "#14120f"
+    tool_accent: str = "#0f6b3c"
+    tool_border: str = "#c9c2b0"
+    tool_radius: int = 8
+    tool_pad_y: int = 10
+    tool_pad_x: int = 14
+    tool_gap: int = 12
+    tool_bar_w: int = 4
+    diff_add: str = "#0f6b3c"
+    diff_del: str = "#6b4a3a"
+    ask_bg: str = "#eef3e8"
 
     def resolved(self) -> "CardStyle":
         preset = self.preset if self.preset in PRESETS else "terminal_light"
@@ -386,6 +436,18 @@ class CardStyle:
             row_pad_x=_i(self.row_pad_x, 4, 40, 14),
             row_gap=_i(self.row_gap, 0, 32, 10),
             section_gap=_i(self.section_gap, 0, 40, 16),
+            tool_bg=self.tool_bg or "#e8f0e9",
+            tool_fg=self.tool_fg or self.fg or "#14120f",
+            tool_accent=self.tool_accent or self.accent or "#0f6b3c",
+            tool_border=self.tool_border or self.border or "#c9c2b0",
+            tool_radius=_i(self.tool_radius, 0, 24, 8),
+            tool_pad_y=_i(self.tool_pad_y, 4, 32, 10),
+            tool_pad_x=_i(self.tool_pad_x, 4, 40, 14),
+            tool_gap=_i(self.tool_gap, 0, 40, 12),
+            tool_bar_w=_i(self.tool_bar_w, 0, 16, 4),
+            diff_add=self.diff_add or self.accent or "#0f6b3c",
+            diff_del=self.diff_del or "#6b4a3a",
+            ask_bg=self.ask_bg or self.tool_bg or "#eef3e8",
         )
 
 
@@ -651,16 +713,36 @@ def style_from_config(cfg: dict[str, Any] | None) -> CardStyle:
         font_scale = float(base.get("font_scale", 1.12))
 
     compact = density == "compact"
+    bg_v = pick_color("--card-bg", "card_bg", "bg")
+    fg_v = pick_color("--card-fg", "card_fg", "fg")
+    accent_v = pick_color("--card-accent", "card_accent", "accent")
+    border_v = str(vars_from_css.get("--card-border") or base["border"])
+    # tool 条默认：略掺强调色的底；用户可在 CSS 里用 --card-tool-* 覆盖
+    tool_bg_default = bg_v
+    try:
+        br, bg_, bb = _hex_to_rgb(bg_v)
+        ar, ag, ab = _hex_to_rgb(accent_v)
+        t = 0.10
+        tool_bg_default = "#{:02x}{:02x}{:02x}".format(
+            int(br * (1 - t) + ar * t),
+            int(bg_ * (1 - t) + ag * t),
+            int(bb * (1 - t) + ab * t),
+        )
+    except Exception:
+        pass
+    tool_bg_v = str(vars_from_css.get("--card-tool-bg") or tool_bg_default)
+    ask_bg_v = str(vars_from_css.get("--card-ask-bg") or tool_bg_v)
+
     return CardStyle(
         preset=preset,
         width=width,
         padding=pad,
         radius=radius,
-        bg=pick_color("--card-bg", "card_bg", "bg"),
-        fg=pick_color("--card-fg", "card_fg", "fg"),
-        accent=pick_color("--card-accent", "card_accent", "accent"),
+        bg=bg_v,
+        fg=fg_v,
+        accent=accent_v,
         muted=str(vars_from_css.get("--card-muted") or base["muted"]),
-        border=str(vars_from_css.get("--card-border") or base["border"]),
+        border=border_v,
         code_bg=str(
             vars_from_css.get("--card-code-bg") or base.get("code_bg", "#efe9d8")
         ),
@@ -688,6 +770,18 @@ def style_from_config(cfg: dict[str, Any] | None) -> CardStyle:
         row_pad_x=int(vnum("--card-row-pad-x", 12 if compact else 14)),
         row_gap=int(vnum("--card-row-gap", 8 if compact else 10)),
         section_gap=int(vnum("--card-section-gap", 12 if compact else 16)),
+        tool_bg=tool_bg_v,
+        tool_fg=str(vars_from_css.get("--card-tool-fg") or fg_v),
+        tool_accent=str(vars_from_css.get("--card-tool-accent") or accent_v),
+        tool_border=str(vars_from_css.get("--card-tool-border") or border_v),
+        tool_radius=int(vnum("--card-tool-radius", 8)),
+        tool_pad_y=int(vnum("--card-tool-pad-y", 10)),
+        tool_pad_x=int(vnum("--card-tool-pad-x", 14)),
+        tool_gap=int(vnum("--card-tool-gap", 12)),
+        tool_bar_w=int(vnum("--card-tool-bar-w", 4)),
+        diff_add=str(vars_from_css.get("--card-diff-add") or accent_v),
+        diff_del=str(vars_from_css.get("--card-diff-del") or "#6b4a3a"),
+        ask_bg=ask_bg_v,
     )
 
 
@@ -1833,6 +1927,18 @@ def render_meta() -> dict[str, Any]:
             "--card-row-pad-x",
             "--card-row-gap",
             "--card-section-gap",
+            "--card-tool-bg",
+            "--card-tool-fg",
+            "--card-tool-accent",
+            "--card-tool-border",
+            "--card-tool-radius",
+            "--card-tool-pad-y",
+            "--card-tool-pad-x",
+            "--card-tool-gap",
+            "--card-tool-bar-w",
+            "--card-diff-add",
+            "--card-diff-del",
+            "--card-ask-bg",
         ],
         "engine": engine_status(),
         "formula_subset": {
@@ -1927,6 +2033,18 @@ def _injected_root_vars(style: CardStyle) -> str:
   --card-pad: {style.padding}px;
   --card-width: {style.width}px;
   --card-font-scale: {style.font_scale};
+  --card-tool-bg: {style.tool_bg};
+  --card-tool-fg: {style.tool_fg};
+  --card-tool-accent: {style.tool_accent};
+  --card-tool-border: {style.tool_border};
+  --card-tool-radius: {style.tool_radius}px;
+  --card-tool-pad-y: {style.tool_pad_y}px;
+  --card-tool-pad-x: {style.tool_pad_x}px;
+  --card-tool-gap: {style.tool_gap}px;
+  --card-tool-bar-w: {style.tool_bar_w}px;
+  --card-diff-add: {style.diff_add};
+  --card-diff-del: {style.diff_del};
+  --card-ask-bg: {style.ask_bg};
 }}
 """
 
@@ -3438,20 +3556,24 @@ def _draw_message_png(
                 h = max(h, _text_size(d0, p.get("text") or " ", font_body)[1])
         return h + 6
 
+    tool_pad_y = max(4, int(style.tool_pad_y))
+    tool_pad_x = max(4, int(style.tool_pad_x))
+    tool_gap = max(0, int(style.tool_gap))
+    tool_inner_w = max(40, content_w - tool_pad_x * 2 - max(0, int(style.tool_bar_w)) - 8)
+
     def _measure_tool_block(b) -> int:
-        """工具调用 / Ask 行：标签 + 名称 + 可选多行详情（含 Edit -/+）。"""
+        """工具调用 / Ask 行：标签 + 名称 + 可选多行详情（含 Edit -/+）。读 style.tool_*。"""
         name = str(b.get("name") or b.get("text") or "tool")
         detail = str(b.get("detail") or "")
         tag = "Tool" if b.get("type") == "tool" else "Ask"
         head = f"[{tag}] {name}"
-        h = _text_size(d0, head, font_body_bold)[1] + 10
+        h = tool_pad_y * 2 + _text_size(d0, head, font_body_bold)[1]
         if detail:
+            h += 6
             for raw_ln in detail.split("\n"):
-                # 差异行整行保留前缀，再按宽度折
-                for ln in _wrap_text(d0, raw_ln, font_code, content_w - 32) or [""]:
+                for ln in _wrap_text(d0, raw_ln, font_code, tool_inner_w) or [""]:
                     h += _text_size(d0, ln or " ", font_code)[1] + 3
-            h += 8
-        return h + 14
+        return h + tool_gap
 
     def _measure_todo_block(b) -> int:
         content = str(b.get("text") or "")
@@ -3696,7 +3818,7 @@ def _draw_message_png(
                 y += 8
             continue
         if b["type"] in ("tool", "ask"):
-            # 无 emoji 的工具调用条：左侧强调条 + 标签 + 名称/多行详情（Edit -/+）
+            # 样式来自 --card-tool-* / --card-ask-bg / --card-diff-*（Pillow 可读）
             is_ask = b["type"] == "ask"
             tag = "Ask" if is_ask else "Tool"
             name = str(
@@ -3711,13 +3833,13 @@ def _draw_message_png(
             if detail:
                 for raw_ln in detail.split("\n"):
                     detail_lines.extend(
-                        _wrap_text(draw, raw_ln, font_code, content_w - 32) or [""]
+                        _wrap_text(draw, raw_ln, font_code, tool_inner_w) or [""]
                     )
             block_h = (
-                12
+                tool_pad_y * 2
                 + _text_size(draw, head, font_body_bold)[1]
                 + (
-                    8
+                    6
                     + sum(
                         _text_size(draw, ln or " ", font_code)[1] + 3
                         for ln in detail_lines
@@ -3725,9 +3847,7 @@ def _draw_message_png(
                     if detail_lines
                     else 0
                 )
-                + 10
             )
-            # 画前若不够高，先扩画布
             if y + block_h + pad + 40 > height:
                 new_h = y + block_h + pad + 80
                 bigger = Image.new("RGB", (width, new_h), bg)
@@ -3735,30 +3855,42 @@ def _draw_message_png(
                 img = bigger
                 draw = ImageDraw.Draw(img)
                 height = new_h
-            fill = _mix_rgb(bg, accent, 0.10 if not is_ask else 0.14)
+            fill = _hex_to_rgb(style.ask_bg if is_ask else style.tool_bg)
+            outline = _hex_to_rgb(style.tool_border)
+            bar = _hex_to_rgb(style.tool_accent)
+            head_fg = _hex_to_rgb(style.tool_accent)
+            body_fg = _hex_to_rgb(style.tool_fg)
+            add_fg = _hex_to_rgb(style.diff_add)
+            del_fg = _hex_to_rgb(style.diff_del)
+            r_tool = max(0, int(style.tool_radius))
+            bar_w = max(0, int(style.tool_bar_w))
             _draw_rounded_rect(
                 draw,
                 (pad, y, width - pad, y + block_h),
-                radius=8,
+                radius=r_tool,
                 fill=fill,
-                outline=border,
+                outline=outline,
                 width=1,
             )
-            draw.rectangle((pad + 2, y + 6, pad + 6, y + block_h - 6), fill=accent)
-            yy = y + 10
-            _draw_text(draw, (pad + 14, yy), head, font_body_bold, accent)
+            if bar_w > 0:
+                draw.rectangle(
+                    (pad + 2, y + 6, pad + 2 + bar_w, y + block_h - 6),
+                    fill=bar,
+                )
+            text_x = pad + tool_pad_x + (bar_w + 4 if bar_w else 0)
+            yy = y + tool_pad_y
+            _draw_text(draw, (text_x, yy), head, font_body_bold, head_fg)
             yy += _text_size(draw, head, font_body_bold)[1] + 6
             for ln in detail_lines:
-                # -/+ 行用不同明度区分（非 emoji）
-                col = fg
+                col = body_fg
                 s = (ln or "").lstrip()
                 if s.startswith("+"):
-                    col = accent
+                    col = add_fg
                 elif s.startswith("-"):
-                    col = _mix_rgb(fg, muted, 0.25)
-                draw.text((pad + 14, yy), ln, font=font_code, fill=col)
+                    col = del_fg
+                draw.text((text_x, yy), ln, font=font_code, fill=col)
                 yy += _text_size(draw, ln or " ", font_code)[1] + 3
-            y += block_h + 12
+            y += block_h + tool_gap
             continue
         if b["type"] == "todo":
             status = str(b.get("status") or "todo")
