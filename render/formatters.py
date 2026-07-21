@@ -173,16 +173,15 @@ def _short_path(path: str, max_len: int = 56) -> str:
     return "…" + p[-(max_len - 1) :]
 
 
-def _diff_snippet(old: str, new: str, *, max_lines: int = 6, max_line_len: int = 100) -> list[str]:
-    """轻量差异行：逐行对比，输出 -/+ 前缀（非完整 diff 算法，够读）。"""
+def _diff_snippet(old: str, new: str, *, max_lines: int = 0, max_line_len: int = 0) -> list[str]:
+    """行级 -/+ 差异。默认完整渲染变更区；max_*=0 表示不截断（仅极端长度有保护上限）。"""
     old_lines = str(old or "").replace("\r\n", "\n").split("\n")
     new_lines = str(new or "").replace("\r\n", "\n").split("\n")
     out: list[str] = []
-    # 相同前缀跳过
+    # 相同前后缀折叠，中间变更区尽量完整输出
     i = 0
     while i < len(old_lines) and i < len(new_lines) and old_lines[i] == new_lines[i]:
         i += 1
-    # 相同后缀跳过
     j = 0
     while (
         j < (len(old_lines) - i)
@@ -192,20 +191,23 @@ def _diff_snippet(old: str, new: str, *, max_lines: int = 6, max_line_len: int =
         j += 1
     old_mid = old_lines[i : len(old_lines) - j if j else None]
     new_mid = new_lines[i : len(new_lines) - j if j else None]
-    if i > 0:
-        out.append(f"  … 前略 {i} 行")
-    for ln in old_mid[:max_lines]:
-        s = ln if len(ln) <= max_line_len else ln[: max_line_len - 1] + "…"
-        out.append(f"  - {s}")
-    if len(old_mid) > max_lines:
-        out.append(f"  - … 另 {len(old_mid) - max_lines} 行")
-    for ln in new_mid[:max_lines]:
-        s = ln if len(ln) <= max_line_len else ln[: max_line_len - 1] + "…"
-        out.append(f"  + {s}")
-    if len(new_mid) > max_lines:
-        out.append(f"  + … 另 {len(new_mid) - max_lines} 行")
-    if j > 0:
-        out.append(f"  … 后略 {j} 行")
+
+    hard_cap = 800 if max_lines <= 0 else max_lines
+    line_cap = 0 if max_line_len <= 0 else max_line_len
+
+    def _clip(ln: str) -> str:
+        if line_cap and len(ln) > line_cap:
+            return ln[: line_cap - 1] + "…"
+        return ln
+
+    for ln in old_mid[:hard_cap]:
+        out.append(f"  - {_clip(ln)}")
+    if len(old_mid) > hard_cap:
+        out.append(f"  - · 另有 {len(old_mid) - hard_cap} 行未展示（过长保护）")
+    for ln in new_mid[:hard_cap]:
+        out.append(f"  + {_clip(ln)}")
+    if len(new_mid) > hard_cap:
+        out.append(f"  + · 另有 {len(new_mid) - hard_cap} 行未展示（过长保护）")
     if not out:
         out.append("  (无文本差异)")
     return out
@@ -227,11 +229,11 @@ def _fmt_edit_tool(name: str, inp: dict, max_len: int) -> str:
     lines = [head]
     if name in ("Write", "write_file", "create_file") and content and not old:
         preview = str(content).replace("\r\n", "\n").split("\n")
-        for ln in preview[:8]:
-            s = ln if len(ln) <= 100 else ln[:99] + "…"
-            lines.append(f"  + {s}")
-        if len(preview) > 8:
-            lines.append(f"  + … 另 {len(preview) - 8} 行")
+        hard_cap = 800
+        for ln in preview[:hard_cap]:
+            lines.append(f"  + {ln}")
+        if len(preview) > hard_cap:
+            lines.append(f"  + · 另有 {len(preview) - hard_cap} 行未展示（过长保护）")
     elif old or new:
         lines.extend(_diff_snippet(str(old), str(new)))
     else:

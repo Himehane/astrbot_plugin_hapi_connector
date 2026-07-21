@@ -80,7 +80,7 @@ const CSS_SIMPLE_FIELDS = [
         key: "--card-diff-del",
         label: "Edit diff -",
         type: "color",
-        fallback: "#6b4a3a",
+        fallback: "#ed333b",
         hint: "删除行颜色",
       },
       { key: "--card-tool-radius", label: "Tool 圆角", type: "text", fallback: "8px" },

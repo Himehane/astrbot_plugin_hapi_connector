@@ -149,7 +149,7 @@ DEFAULT_CARD_CSS = """\
   --card-tool-bar-w: 4px;
   /* Edit 差异行 */
   --card-diff-add: #0f6b3c;
-  --card-diff-del: #6b4a3a;
+  --card-diff-del: #ed333b;
   /* Ask 条（可与 tool 区分） */
   --card-ask-bg: #eef3e8;
 }
@@ -377,7 +377,7 @@ class CardStyle:
     tool_gap: int = 12
     tool_bar_w: int = 4
     diff_add: str = "#0f6b3c"
-    diff_del: str = "#6b4a3a"
+    diff_del: str = "#ed333b"
     ask_bg: str = "#eef3e8"
 
     def resolved(self) -> "CardStyle":
@@ -446,7 +446,7 @@ class CardStyle:
             tool_gap=_i(self.tool_gap, 0, 40, 12),
             tool_bar_w=_i(self.tool_bar_w, 0, 16, 4),
             diff_add=self.diff_add or self.accent or "#0f6b3c",
-            diff_del=self.diff_del or "#6b4a3a",
+            diff_del=self.diff_del or "#ed333b",
             ask_bg=self.ask_bg or self.tool_bg or "#eef3e8",
         )
 
@@ -780,7 +780,7 @@ def style_from_config(cfg: dict[str, Any] | None) -> CardStyle:
         tool_gap=int(vnum("--card-tool-gap", 12)),
         tool_bar_w=int(vnum("--card-tool-bar-w", 4)),
         diff_add=str(vars_from_css.get("--card-diff-add") or accent_v),
-        diff_del=str(vars_from_css.get("--card-diff-del") or "#6b4a3a"),
+        diff_del=str(vars_from_css.get("--card-diff-del") or "#ed333b"),
         ask_bg=ask_bg_v,
     )
 
