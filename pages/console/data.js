@@ -141,23 +141,114 @@ function wireLiveMutations() {
   };
 }
 
+/** render_kinds 比较：忽略顺序与 list/string 形态 */
+function normalizeKindsValue(v) {
+  let arr;
+  if (Array.isArray(v)) arr = v.map((x) => String(x || "").trim()).filter(Boolean);
+  else
+    arr = String(v ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  return [...new Set(arr)].sort().join(",");
+}
+
+/**
+ * 设置字段是否相等（避免 number/string、bool、kinds 顺序导致的假脏）。
+ * @param {{key?: string, type?: string, schema_type?: string}} f
+ */
+function settingsValuesEqual(f, a, b) {
+  const type = f?.type || f?.schema_type || "";
+  const key = f?.key || "";
+  if (key === "render_kinds" || type === "kind_checks") {
+    return normalizeKindsValue(a) === normalizeKindsValue(b);
+  }
+  if (type === "bool" || type === "boolean" || f?.schema_type === "bool") {
+    return Boolean(a) === Boolean(b);
+  }
+  if (
+    type === "number" ||
+    type === "int" ||
+    f?.schema_type === "int" ||
+    f?.schema_type === "float"
+  ) {
+    const na = a === "" || a == null ? null : Number(a);
+    const nb = b === "" || b == null ? null : Number(b);
+    if (na == null && nb == null) return true;
+    if (na == null || nb == null) return false;
+    if (Number.isNaN(na) && Number.isNaN(nb)) return true;
+    return na === nb;
+  }
+  // 时间 / 文本：统一成字符串；null/undefined 当空串
+  return String(a ?? "").trim() === String(b ?? "").trim();
+}
+
 /** 从 draft / 敏感输入收集相对当前 config 的 patch（无变更返回 {}） */
 function buildSettingsPatch() {
   const prev = state.data?.config || {};
   const draft = state.draft;
   if (!draft) return {};
+
+  // 勾选框在 DOM 上：只读，不在脏检查时改写 draft（避免顺序/副作用假脏）
   const kindBoxes = [...document.querySelectorAll("[data-settings-kind]")];
+  let kindsFromDom = null;
   if (kindBoxes.length) {
-    const kinds = kindBoxes.filter((el) => el.checked).map((el) => el.value);
-    draft.render_kinds = kinds.join(",") || "session_list,pending,message";
-    draft.render_kinds_list = kinds;
+    kindsFromDom = kindBoxes.filter((el) => el.checked).map((el) => el.value);
   }
+
   const patch = {};
   for (const f of _allSettingsFields()) {
     if (f.sensitive) continue;
-    if (draft[f.key] !== prev[f.key]) patch[f.key] = draft[f.key];
+    const key = f.key;
+    if (!key) continue;
+
+    let cur = draft[key];
+    if ((key === "render_kinds" || f.type === "kind_checks") && kindsFromDom) {
+      cur = kindsFromDom.join(",") || "session_list,pending,message";
+    }
+
+    if (settingsValuesEqual(f, cur, prev[key])) continue;
+
+    if (key === "render_kinds" || f.type === "kind_checks") {
+      const kinds =
+        kindsFromDom ||
+        (Array.isArray(draft.render_kinds_list)
+          ? draft.render_kinds_list
+          : String(cur || "")
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean));
+      const joined = Array.isArray(kinds)
+        ? kinds.join(",") || "session_list,pending,message"
+        : String(kinds || "session_list,pending,message");
+      patch.render_kinds = joined;
+      draft.render_kinds = joined;
+      draft.render_kinds_list = Array.isArray(kinds)
+        ? kinds
+        : joined.split(",").filter(Boolean);
+      continue;
+    }
+
+    if (
+      f.type === "number" ||
+      f.schema_type === "int" ||
+      f.schema_type === "float"
+    ) {
+      const n = cur === "" || cur == null ? cur : Number(cur);
+      patch[key] = n;
+      draft[key] = n;
+    } else if (f.type === "bool" || f.schema_type === "bool") {
+      patch[key] = Boolean(cur);
+      draft[key] = Boolean(cur);
+    } else {
+      patch[key] = cur;
+    }
   }
-  const token = document.querySelector('#settings-form input[name="access_token"]')?.value;
+
+  // 敏感字段：仅非空才算变更（留空=不修改）
+  const token = document.querySelector(
+    '#settings-form input[name="access_token"]',
+  )?.value;
   const secret = document.querySelector(
     '#settings-form input[name="cf_access_client_secret"]',
   )?.value;
