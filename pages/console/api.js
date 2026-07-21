@@ -88,12 +88,6 @@ export function createApi(bridge) {
     batchLifecycle: (ids, action) => post("sessions/batch", { ids, action }),
     setPrimaryRoute: (umo, user_id) => post("routes/primary", { umo, user_id }),
     setFlavorRoute: (flavor, umo, user_id) => post("routes/flavor", { flavor, umo, user_id }),
-    /** HAPI 官方 Web 启动链（autologin 默认 true） */
-    hubLaunch: (opts = {}) =>
-      get("hub/launch", {
-        autologin: opts.autologin === false ? 0 : 1,
-        ...(opts.path ? { path: opts.path } : {}),
-      }),
     /** 推送卡片：能力元数据 / 实卡预览 / 勾选安装字体或依赖 */
     renderMeta: () => get("render/meta"),
     renderPreview: (body) => post("render/preview", body || {}),

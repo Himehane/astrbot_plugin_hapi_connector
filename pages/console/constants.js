@@ -30,8 +30,9 @@ const PAGE_META = {
   overview: { title: "概览", desc: "连接状态与常用设置" },
   sessions: { title: "会话管理", desc: "Session 管理、通知投递与推送窗口设置" },
   interact: { title: "交互优化", desc: "戳一戳、快捷前缀与推送呈现（图片样式 / 预览）" },
-  help: { title: "帮助", desc: "HAPI 安装文档与 /hapi 命令说明" },
+  help: { title: "命令帮助", desc: "按功能分类的 /hapi 指令说明" },
   settings: { title: "设置", desc: "字段结构来自 _conf_schema.json；值与官方设置页同源" },
+  docs: { title: "部署文档", desc: "HAPI 安装、会话隔离与 CF Access（来自 docs/）" },
 };
 
 

@@ -10,9 +10,6 @@ import {
   ensureFxLayer,
   toast,
   askConfirm,
-  openHubUrl,
-  fetchHubLaunch,
-  copyTextSafe,
   connIsOk,
   connLabel,
 } from "../ui.js?v=3.0.0";

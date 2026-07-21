@@ -2,7 +2,7 @@
   "pages": {
     "console": {
       "title": "管理面板",
-      "description": "HAPI 连接状态、会话路由、官方 Web 嵌入与插件配置"
+      "description": "HAPI 连接状态、会话路由与插件配置"
     }
   }
 }

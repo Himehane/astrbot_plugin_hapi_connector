@@ -54,7 +54,7 @@ python -m py_compile *.py
             StateManager + BindingManager（窗口隔离与路由，KV 持久化）
 ```
 
-### 源码目录（3.0 分包）
+### 源码目录（3.0 版本后对py文件进行了分包）
 
 | 目录 | 职责 |
 |------|------|
@@ -85,8 +85,8 @@ python -m py_compile *.py
 | `chat/create_wizard.py` | `/hapi create` 交互向导（按 profile 动态步骤，如 reasoning effort） |
 | `render/formatters.py` | 用户可见文案、帮助、session 标题 `get_session_title`、审批/列表格式；`export_help_data` 供 WebUI |
 | `chat/flavor_profiles.py` | Agent flavor 能力表：权限/模型/effort/plan/可创建；未知类型降级；`export_profiles_meta` 供 WebUI |
-| `webui/web_api.py` | AstrBot Plugin Pages 后端：`register_pages`、配置落盘、snapshot、会话运维、路由写、重连、`hub/launch` 官方 Web 启动链 |
-| `pages/console/` | Web 管理面板静态资源（`index.html` / `app.js` / `api.js` / `style.css`）；含 HAPI 官方 Web iframe 嵌入页 |
+| `webui/web_api.py` | AstrBot Plugin Pages 后端：`register_pages`、配置落盘、snapshot、会话运维、路由写、重连、docs 读盘、render 预览 |
+| `pages/console/` | Web 管理面板静态资源（`index.html` / `app.js` / `api.js` / `style.css` 等） |
 | `constants.py` | 兼容导出 + `SESSION_TYPES` |
 
 ### 数据流要点
@@ -132,26 +132,6 @@ KV 键（经 `Star.put_kv_data` / `get_kv_data`）：`known_users`、`user_state
 - 可新建：除 gemini 外（Gemini CLI 已 sunset，仅兼容旧 session）  
 - 未知 flavor：通用操作可用，创建允许尝试，差异能力按 profile 降级  
 - Plan / effort 指令依赖较新的 HAPI 版本（见 `CHANGELOG.md` v2.1.0 / v2.2.0）
-
-## 命令路由索引
-
-`command_handlers.cmd_hapi_router` 的 `routes` 字典是子命令权威表。新增子命令时同步：
-
-1. `routes` 与 handler  
-2. `formatters.get_help_text` / `format_unknown_command_help`  
-3. 如需自然语言：`llm_integration` 工具或 `execute_command` 覆盖  
-4. 用户文档：`README.md` 指令表  
-
-## WebUI（Plugin Pages）
-
-正式入口：`pages/console/` + `webui/web_api.py`（`main.__init__` 调用 `register_pages`）。规范见 `dev-docs/plugin-pages.md`；产品边界与 API 清单见 `dev-docs/webui开发计划.md`；视觉原型保留在 `dev-docs/webui-demo/`（不在 `pages/`，不会被扫描）。
-
-要点：
-
-- 路由前缀 `/{plugin_name}/...`，Page 侧 `bridge.apiGet("overview")` 等不带插件名。  
-- 配置读写与 `_conf_schema.json` / 官方设置页同源：`save_config_async` 落盘；敏感键永不回显。  
-- Session 字段：`permissionMode` / `model` 等在 **session 顶层**（与 HAPI 一致），snapshot 勿只读 `metadata`。  
-- 首版不做 Web 内完整聊天、create 向导、文件面板、Web 审批。
 
 ## 文档地图
 

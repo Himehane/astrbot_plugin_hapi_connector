@@ -107,7 +107,7 @@ async function boot() {
         if (docs?.docs?.length) {
           state._docsList = docs.docs;
           state._docsDefault = docs.default || "install";
-          if (!state.helpDocId) state.helpDocId = state._docsDefault;
+          if (!state.docsDocId) state.docsDocId = state._docsDefault;
         }
       } catch (e) {
         console.warn("docs list load failed", e);

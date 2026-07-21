@@ -1,5 +1,5 @@
 /**
- * Shell 渲染、toast、确认框、特效层、打开官方 HAPI
+ * Shell 渲染、toast、确认框、特效层
  */
 import { PAGE_META } from "./constants.js?v=3.0.0";
 import { state, store } from "./state.js?v=3.0.0";
@@ -261,69 +261,6 @@ function toast(msg) {
 
 
 export { askConfirm, askUnsavedLeave, paintSaveStatus, toast };
-
-async function copyTextSafe(text) {
-  const s = String(text || "");
-  if (!s) throw new Error("空内容");
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(s);
-      return;
-    }
-  } catch (_) {}
-  const ta = document.createElement("textarea");
-  ta.value = s;
-  ta.setAttribute("readonly", "");
-  ta.style.cssText = "position:fixed;left:-9999px;top:0";
-  document.body.appendChild(ta);
-  ta.select();
-  const ok = document.execCommand("copy");
-  ta.remove();
-  if (!ok) throw new Error("copy failed");
-}
-
-/** 插件页 iframe 里 window.open 常抛 NotSupportedError，用 <a target=_blank> 打开 */
-function openHubUrl(url) {
-  if (!url) {
-    toast("没有可用链接");
-    return false;
-  }
-  try {
-    const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    return true;
-  } catch (_) {}
-  try {
-    const w = window.open(url, "_blank");
-    if (w) return true;
-  } catch (_) {}
-  copyTextSafe(url)
-    .then(() => toast("无法自动打开，链接已复制，请粘贴到新标签页"))
-    .catch(() => toast("无法自动打开，请到设置查看 HAPI 地址后手动访问"));
-  return false;
-}
-
-async function fetchHubLaunch(opts = {}) {
-  const autologin = opts.autologin !== false;
-  if (isLive() && getApi()) {
-    return getApi().hubLaunch({ autologin });
-  }
-  const cfg = state.data?.config || {};
-  const endpoint = String(cfg.hapi_endpoint || "http://127.0.0.1:3006").replace(/\/$/, "");
-  const page = endpoint + "/";
-  let url = page + "?hub=" + encodeURIComponent(endpoint);
-  if (autologin && cfg.access_token_configured) url += "&token=demo";
-  return { ok: true, url, url_display: page, origin: endpoint };
-}
-
-
-export { copyTextSafe, openHubUrl, fetchHubLaunch };
 
 export function showAlert(msg) {
   const el = $("#alert");

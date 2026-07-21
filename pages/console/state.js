@@ -310,8 +310,7 @@ const state = {
   selected: new Set(),
   draft: null,
   settingsSection: "connection",
-  helpMode: "docs", // docs | commands —— 默认展示部署文档
-  helpDocId: "install",
+  docsDocId: "install",
   helpTopic: "session",
   helpQuery: "",
   data: null,

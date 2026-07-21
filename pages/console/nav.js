@@ -21,6 +21,7 @@ import {
   discardInteractDraft,
 } from "./pages/interact.js?v=3.0.0";
 import { renderHelp } from "./pages/help.js?v=3.0.0";
+import { renderDocs } from "./pages/docs.js?v=3.0.0";
 import { renderSettings, allSettingsFields } from "./pages/settings.js?v=3.0.0";
 
 function repaint(page) {
@@ -28,6 +29,7 @@ function repaint(page) {
   else if (page === "sessions") renderSessions();
   else if (page === "interact") renderInteract();
   else if (page === "help") renderHelp();
+  else if (page === "docs") renderDocs();
   else if (page === "settings") renderSettings();
 }
 
