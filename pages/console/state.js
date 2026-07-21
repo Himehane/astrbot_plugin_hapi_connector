@@ -357,6 +357,7 @@ function ruleText() {
 
 const WIN_VIS_KEY = "hapi_console_hidden_windows";
 
+/** 唯一数据源：localStorage（本浏览器）。读/写都只走这里。 */
 function loadHiddenWindows() {
   try {
     const raw = localStorage.getItem(WIN_VIS_KEY);
@@ -369,15 +370,13 @@ function loadHiddenWindows() {
   }
 }
 
+/** @param {Iterable<string>|Set<string>} hiddenSet */
 function saveHiddenWindows(hiddenSet) {
-  try {
-    localStorage.setItem(WIN_VIS_KEY, JSON.stringify([...hiddenSet]));
-  } catch (_) {
-    /* ignore quota */
-  }
+  const next = [...(hiddenSet || [])].map((x) => String(x || "").trim()).filter(Boolean);
+  localStorage.setItem(WIN_VIS_KEY, JSON.stringify(next));
 }
 
-/** 本页下拉/左侧是否显示该窗口。keep 里的 umo 始终保留（当前已选值）。 */
+/** 本页下拉/左侧是否显示该窗口。keep 里的 umo 始终保留（当前已选值，避免选中项消失）。 */
 function isWindowShown(umo, keep = null) {
   if (!umo) return true;
   const u = String(umo);

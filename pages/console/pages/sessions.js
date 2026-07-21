@@ -202,7 +202,7 @@ function openWindowVisibilityDialog() {
           // 活跃：当前有运行中 session 投递到此窗口
           const isActive = active > 0;
           return `<label class="win-vis-item${isActive ? " is-active-win" : ""}" data-bound="${bound}" data-effective="${effective}" data-active="${active}">
-            <input type="checkbox" data-vis-umo value="${attr(w.umo)}" ${on ? "checked" : ""} />
+            <input type="checkbox" data-vis-umo="${attr(w.umo)}" value="${attr(w.umo)}" ${on ? "checked" : ""} />
             <span class="win-vis-title">${esc(w.title)}</span>
             <span class="win-vis-bind${bound || effective ? "" : " is-zero"}">${esc(meta)}</span>
             <span class="win-vis-umo mono">${esc(w.umo)}</span>
@@ -310,14 +310,26 @@ function openWindowVisibilityDialog() {
   $("#vis-apply") &&
     ($("#vis-apply").onclick = () => {
       const nextHidden = new Set();
-      $$("#dlg-body input[data-vis-umo]").forEach((inp) => {
-        if (!inp.checked && inp.value) nextHidden.add(inp.value);
+      const boxes = $$("#dlg-body input[data-vis-umo]");
+      if (!boxes.length) {
+        toast("未找到窗口列表，请关闭后重试");
+        return;
+      }
+      boxes.forEach((inp) => {
+        const umo = String(inp.getAttribute("data-vis-umo") || inp.value || "").trim();
+        if (!inp.checked && umo) nextHidden.add(umo);
       });
-      saveHiddenWindows(nextHidden);
+      try {
+        saveHiddenWindows(nextHidden);
+      } catch (e) {
+        toast("保存失败: " + (e.message || e));
+        return;
+      }
       $("#dlg").close();
+      const shown = Math.max(0, boxes.length - nextHidden.size);
       toast(
         nextHidden.size
-          ? `已隐藏 ${nextHidden.size} 个窗口（本页列表/下拉）`
+          ? `已隐藏 ${nextHidden.size} 个 · 下拉/左侧保留 ${shown} 个`
           : "已全部显示",
       );
       renderSessions();
