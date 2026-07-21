@@ -352,18 +352,22 @@ function renderOverview() {
         </div>
         <label class="qs-field">
           <span class="qs-label">托管开始</span>
-          <input id="qs-auto-start" class="ctrl" type="time" value="${attr(cfg.auto_approve_start || "23:00")}" />
+          <input id="qs-auto-start" class="ctrl mono" type="text" inputmode="numeric" autocomplete="off"
+            spellcheck="false" placeholder="23:00" maxlength="5"
+            value="${attr(cfg.auto_approve_start || "23:00")}" title="整段输入 HH:MM，如 23:00" />
         </label>
         <label class="qs-field">
           <span class="qs-label">托管结束</span>
-          <input id="qs-auto-end" class="ctrl" type="time" value="${attr(cfg.auto_approve_end || "07:00")}" />
+          <input id="qs-auto-end" class="ctrl mono" type="text" inputmode="numeric" autocomplete="off"
+            spellcheck="false" placeholder="07:00" maxlength="5"
+            value="${attr(cfg.auto_approve_end || "07:00")}" title="整段输入 HH:MM，如 07:00" />
         </label>
         <div class="qs-field qs-note">
           <span class="qs-label">说明</span>
           <span class="qs-note-text">${
             cfg.auto_approve_enabled
               ? "时段内权限请求将自动批准，可跨午夜（如 23:00–07:00）"
-              : "时间始终可改；开启托管后，该时段内权限请求将自动批准"
+              : "开启托管后，该时段内权限请求将自动批准"
           }</span>
         </div>
       </div>
@@ -441,12 +445,34 @@ function renderOverview() {
       if (txt) txt.textContent = on ? "开启托管" : "关闭";
       applyQuick({ auto_approve_enabled: on });
     });
-  $("#qs-auto-start") &&
-    ($("#qs-auto-start").onchange = () =>
-      applyQuick({ auto_approve_start: $("#qs-auto-start").value || "23:00" }));
-  $("#qs-auto-end") &&
-    ($("#qs-auto-end").onchange = () =>
-      applyQuick({ auto_approve_end: $("#qs-auto-end").value || "07:00" }));
+  const normalizeHm = (raw, fallback) => {
+    const s = String(raw ?? "").trim();
+    const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (!m) return fallback;
+    const hh = Math.min(23, Math.max(0, Number(m[1])));
+    const mm = Math.min(59, Math.max(0, Number(m[2])));
+    if (Number.isNaN(hh) || Number.isNaN(mm)) return fallback;
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  };
+  const wireTimeText = (id, key, fallback) => {
+    const el = $(id);
+    if (!el) return;
+    const commit = () => {
+      const next = normalizeHm(el.value, fallback);
+      el.value = next;
+      applyQuick({ [key]: next });
+    };
+    el.addEventListener("change", commit);
+    el.addEventListener("blur", commit);
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        el.blur();
+      }
+    });
+  };
+  wireTimeText("#qs-auto-start", "auto_approve_start", "23:00");
+  wireTimeText("#qs-auto-end", "auto_approve_end", "07:00");
 
   $("#qs-primary") &&
     ($("#qs-primary").onchange = async () => {

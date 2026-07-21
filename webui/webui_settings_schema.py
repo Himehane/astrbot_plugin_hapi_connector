@@ -170,14 +170,16 @@ FIELD_OVERLAY: dict[str, dict[str, Any]] = {
     },
     "auto_approve_start": {
         "label": "托管开始时间",
-        "help": "24 小时制。",
+        "help": "整段输入 24 小时制 HH:MM，如 23:00。",
         "control": "time",
+        "placeholder": "23:00",
         "show_if": {"key": "auto_approve_enabled", "eq": True},
     },
     "auto_approve_end": {
         "label": "托管结束时间",
-        "help": "可跨午夜，如 23:00–07:00。",
+        "help": "整段输入 HH:MM；可跨午夜，如 23:00–07:00。",
         "control": "time",
+        "placeholder": "07:00",
         "show_if": {"key": "auto_approve_enabled", "eq": True},
     },
 }

@@ -95,7 +95,13 @@ function fieldControl(f, d) {
       )
       .join("")}</select>`;
   }
-  const t = f.type === "number" ? "number" : f.type === "time" ? "time" : "text";
+  // time 用整段文本输入（HH:MM），避免 type=time 分栏点选反人类
+  if (f.type === "time") {
+    return `<input type="text" class="ctrl mono" name="${f.key}" inputmode="numeric" autocomplete="off"
+      spellcheck="false" maxlength="5" placeholder="${attr(f.placeholder || "23:00")}"
+      value="${attr(d[f.key] ?? "")}" title="整段输入 HH:MM，如 23:00" />`;
+  }
+  const t = f.type === "number" ? "number" : "text";
   return `<input type="${t}" class="ctrl" name="${f.key}" value="${attr(d[f.key] ?? "")}" ${
     f.placeholder ? `placeholder="${attr(f.placeholder)}"` : ""
   } />`;
@@ -221,7 +227,7 @@ function renderSettings() {
   $$("#settings-form input, #settings-form select").forEach((input) => {
     input.onchange = () => onFieldChange(input);
     // 文本/密码边输边标脏
-    if (input.type === "text" || input.type === "password" || input.type === "number" || input.type === "time") {
+    if (input.type === "text" || input.type === "password" || input.type === "number") {
       input.oninput = () => onFieldChange(input);
     }
   });

@@ -219,7 +219,8 @@ export const CONFIG_SCHEMA_FALLBACK = {
           "key": "auto_approve_start",
           "label": "托管开始时间",
           "type": "time",
-          "help": "24 小时制。",
+          "help": "整段输入 24 小时制 HH:MM，如 23:00。",
+          "placeholder": "23:00",
           "default": "23:00",
           "schema_type": "string",
           "showIf": {
@@ -231,7 +232,8 @@ export const CONFIG_SCHEMA_FALLBACK = {
           "key": "auto_approve_end",
           "label": "托管结束时间",
           "type": "time",
-          "help": "可跨午夜，如 23:00–07:00。",
+          "help": "整段输入 HH:MM；可跨午夜，如 23:00–07:00。",
+          "placeholder": "07:00",
           "default": "07:00",
           "schema_type": "string",
           "showIf": {
