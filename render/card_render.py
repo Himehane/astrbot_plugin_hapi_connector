@@ -3439,17 +3439,19 @@ def _draw_message_png(
         return h + 6
 
     def _measure_tool_block(b) -> int:
-        """工具调用 / Ask 行：标签 + 名称 + 可选详情。"""
+        """工具调用 / Ask 行：标签 + 名称 + 可选多行详情（含 Edit -/+）。"""
         name = str(b.get("name") or b.get("text") or "tool")
         detail = str(b.get("detail") or "")
         tag = "Tool" if b.get("type") == "tool" else "Ask"
         head = f"[{tag}] {name}"
-        h = _text_size(d0, head, font_body_bold)[1] + 8
+        h = _text_size(d0, head, font_body_bold)[1] + 10
         if detail:
-            for ln in _wrap_text(d0, detail, font_code, content_w - 28) or [""]:
-                h += _text_size(d0, ln or " ", font_code)[1] + 2
-            h += 6
-        return h + 12
+            for raw_ln in detail.split("\n"):
+                # 差异行整行保留前缀，再按宽度折
+                for ln in _wrap_text(d0, raw_ln, font_code, content_w - 32) or [""]:
+                    h += _text_size(d0, ln or " ", font_code)[1] + 3
+            h += 8
+        return h + 14
 
     def _measure_todo_block(b) -> int:
         content = str(b.get("text") or "")
@@ -3529,13 +3531,15 @@ def _draw_message_png(
     for b in blocks:
         y += measure_block(b)
     if footer:
-        y += 20
+        y += 28
         for _ in _wrap_text(d0, footer, font_foot, content_w):
-            y += _text_size(d0, "测", font_foot)[1] + line_extra
+            y += _text_size(d0, "测", font_foot)[1] + line_extra + 2
     if style.show_brand:
         y += 14 + _text_size(d0, "hapi", font_foot)[1]
-    y += pad
-    height = max(y, 160)
+    # 工具条多时预估易偏矮：加底部安全边距，画完再按 content_bottom 校准
+    y += pad + 48
+    height = max(int(y), 160)
+    height = min(height, 16000)
 
     bg = _hex_to_rgb(style.bg)
     fg = _hex_to_rgb(style.fg)
@@ -3692,33 +3696,45 @@ def _draw_message_png(
                 y += 8
             continue
         if b["type"] in ("tool", "ask"):
-            # 无 emoji 的工具调用条：左侧强调条 + 标签 + 名称/详情
+            # 无 emoji 的工具调用条：左侧强调条 + 标签 + 名称/多行详情（Edit -/+）
             is_ask = b["type"] == "ask"
             tag = "Ask" if is_ask else "Tool"
-            name = str(b.get("name") or b.get("text") or ("request" if is_ask else "tool"))
+            name = str(
+                b.get("name") or b.get("text") or ("request" if is_ask else "tool")
+            )
             detail = str(b.get("detail") or "")
             if is_ask and not b.get("name"):
-                # ask 只有 text
                 name = str(b.get("text") or "request_user_input")
                 detail = ""
             head = f"[{tag}] {name}"
-            detail_lines = (
-                _wrap_text(draw, detail, font_code, content_w - 28) if detail else []
-            )
+            detail_lines: list[str] = []
+            if detail:
+                for raw_ln in detail.split("\n"):
+                    detail_lines.extend(
+                        _wrap_text(draw, raw_ln, font_code, content_w - 32) or [""]
+                    )
             block_h = (
-                10
+                12
                 + _text_size(draw, head, font_body_bold)[1]
                 + (
-                    6
+                    8
                     + sum(
-                        _text_size(draw, ln or " ", font_code)[1] + 2
+                        _text_size(draw, ln or " ", font_code)[1] + 3
                         for ln in detail_lines
                     )
                     if detail_lines
                     else 0
                 )
-                + 8
+                + 10
             )
+            # 画前若不够高，先扩画布
+            if y + block_h + pad + 40 > height:
+                new_h = y + block_h + pad + 80
+                bigger = Image.new("RGB", (width, new_h), bg)
+                bigger.paste(img, (0, 0))
+                img = bigger
+                draw = ImageDraw.Draw(img)
+                height = new_h
             fill = _mix_rgb(bg, accent, 0.10 if not is_ask else 0.14)
             _draw_rounded_rect(
                 draw,
@@ -3729,13 +3745,20 @@ def _draw_message_png(
                 width=1,
             )
             draw.rectangle((pad + 2, y + 6, pad + 6, y + block_h - 6), fill=accent)
-            yy = y + 8
+            yy = y + 10
             _draw_text(draw, (pad + 14, yy), head, font_body_bold, accent)
-            yy += _text_size(draw, head, font_body_bold)[1] + 4
+            yy += _text_size(draw, head, font_body_bold)[1] + 6
             for ln in detail_lines:
-                draw.text((pad + 14, yy), ln, font=font_code, fill=fg)
-                yy += _text_size(draw, ln or " ", font_code)[1] + 2
-            y += block_h + 10
+                # -/+ 行用不同明度区分（非 emoji）
+                col = fg
+                s = (ln or "").lstrip()
+                if s.startswith("+"):
+                    col = accent
+                elif s.startswith("-"):
+                    col = _mix_rgb(fg, muted, 0.25)
+                draw.text((pad + 14, yy), ln, font=font_code, fill=col)
+                yy += _text_size(draw, ln or " ", font_code)[1] + 3
+            y += block_h + 12
             continue
         if b["type"] == "todo":
             status = str(b.get("status") or "todo")
@@ -3883,12 +3906,38 @@ def _draw_message_png(
         )
         y += used + 8
 
-    if footer and y < height - pad:
-        draw.line((pad, y + 6, width - pad, y + 6), fill=border, width=1)
-        y += 14
+    if footer:
+        y += 8
+        draw.line((pad, y, width - pad, y), fill=border, width=1)
+        y += 12
         for line in _wrap_text(draw, footer, font_foot, content_w):
+            # 画布不够时先扩，避免 footer 被裁
+            need = y + _text_size(draw, line or " ", font_foot)[1] + pad + 24
+            if need > height:
+                bigger = Image.new("RGB", (width, need), bg)
+                bigger.paste(img, (0, 0))
+                img = bigger
+                draw = ImageDraw.Draw(img)
+                height = need
             draw.text((pad, y), line, font=font_foot, fill=accent)
-            y += _text_size(draw, line or " ", font_foot)[1] + line_extra
+            y += _text_size(draw, line or " ", font_foot)[1] + line_extra + 2
+
+    brand_h = 0
+    if style.show_brand:
+        brand_h = _text_size(draw, "hapi connector", font_foot)[1] + 4
+
+    # 按实际内容扩展/裁剪（与 session_list / 结构卡一致）
+    content_bottom = int(y + pad + brand_h + 16)
+    if content_bottom > height:
+        bigger = Image.new("RGB", (width, content_bottom), bg)
+        bigger.paste(img, (0, 0))
+        img = bigger
+        height = content_bottom
+        draw = ImageDraw.Draw(img)
+    elif content_bottom < height:
+        height = max(content_bottom, 160)
+        img = img.crop((0, 0, width, height))
+        draw = ImageDraw.Draw(img)
 
     if style.show_brand:
         brand = "hapi connector"
@@ -3896,6 +3945,16 @@ def _draw_message_png(
         draw.text(
             (width - pad - bw, height - pad - bh), brand, font=font_foot, fill=sub_fg
         )
+
+    # 外框最后画，扩展后不丢边框
+    _draw_rounded_rect(
+        draw,
+        (1, 1, width - 2, height - 2),
+        radius=style.radius,
+        fill=None,
+        outline=border,
+        width=2,
+    )
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
@@ -3940,6 +3999,20 @@ def _parse_md_blocks(text: str) -> list[dict[str, Any]]:
             name, _, detail = rest.partition(":")
             name = name.strip() or "tool"
             detail = detail.strip()
+            # 吃掉后续缩进续行（Edit -/+ 差异、… 省略）
+            i += 1
+            cont: list[str] = []
+            while i < len(lines):
+                nxt = lines[i]
+                if re.match(r"^\s+([+\-…]|\.\.\.)", nxt) or (
+                    nxt.startswith("  ") and nxt.strip()
+                ):
+                    cont.append(nxt.strip())
+                    i += 1
+                    continue
+                break
+            if cont:
+                detail = (detail + "\n" if detail else "") + "\n".join(cont)
             blocks.append(
                 {
                     "type": "tool",
@@ -3948,7 +4021,6 @@ def _parse_md_blocks(text: str) -> list[dict[str, Any]]:
                     "text": rest or name,
                 }
             )
-            i += 1
             continue
         m = re.match(r"^\[Ask\]\s*(.*)$", line)
         if m:

@@ -166,6 +166,83 @@ def _fmt_todo_write(inp: dict) -> str:
     return "\n".join(lines)
 
 
+def _short_path(path: str, max_len: int = 56) -> str:
+    p = str(path or "").strip()
+    if len(p) <= max_len:
+        return p
+    return "…" + p[-(max_len - 1) :]
+
+
+def _diff_snippet(old: str, new: str, *, max_lines: int = 6, max_line_len: int = 100) -> list[str]:
+    """轻量差异行：逐行对比，输出 -/+ 前缀（非完整 diff 算法，够读）。"""
+    old_lines = str(old or "").replace("\r\n", "\n").split("\n")
+    new_lines = str(new or "").replace("\r\n", "\n").split("\n")
+    out: list[str] = []
+    # 相同前缀跳过
+    i = 0
+    while i < len(old_lines) and i < len(new_lines) and old_lines[i] == new_lines[i]:
+        i += 1
+    # 相同后缀跳过
+    j = 0
+    while (
+        j < (len(old_lines) - i)
+        and j < (len(new_lines) - i)
+        and old_lines[-(j + 1)] == new_lines[-(j + 1)]
+    ):
+        j += 1
+    old_mid = old_lines[i : len(old_lines) - j if j else None]
+    new_mid = new_lines[i : len(new_lines) - j if j else None]
+    if i > 0:
+        out.append(f"  … 前略 {i} 行")
+    for ln in old_mid[:max_lines]:
+        s = ln if len(ln) <= max_line_len else ln[: max_line_len - 1] + "…"
+        out.append(f"  - {s}")
+    if len(old_mid) > max_lines:
+        out.append(f"  - … 另 {len(old_mid) - max_lines} 行")
+    for ln in new_mid[:max_lines]:
+        s = ln if len(ln) <= max_line_len else ln[: max_line_len - 1] + "…"
+        out.append(f"  + {s}")
+    if len(new_mid) > max_lines:
+        out.append(f"  + … 另 {len(new_mid) - max_lines} 行")
+    if j > 0:
+        out.append(f"  … 后略 {j} 行")
+    if not out:
+        out.append("  (无文本差异)")
+    return out
+
+
+def _fmt_edit_tool(name: str, inp: dict, max_len: int) -> str:
+    """Edit / Write 类：路径 + 轻量 -/+ 差异，卡片与文本共用。"""
+    path = (
+        inp.get("file_path")
+        or inp.get("path")
+        or inp.get("filePath")
+        or inp.get("target_file")
+        or ""
+    )
+    old = inp.get("old_string") or inp.get("oldString") or inp.get("old_str") or ""
+    new = inp.get("new_string") or inp.get("newString") or inp.get("new_str") or ""
+    content = inp.get("content") or inp.get("contents") or ""
+    head = f"🛠️ {name}: {_short_path(str(path))}" if path else f"🛠️ {name}"
+    lines = [head]
+    if name in ("Write", "write_file", "create_file") and content and not old:
+        preview = str(content).replace("\r\n", "\n").split("\n")
+        for ln in preview[:8]:
+            s = ln if len(ln) <= 100 else ln[:99] + "…"
+            lines.append(f"  + {s}")
+        if len(preview) > 8:
+            lines.append(f"  + … 另 {len(preview) - 8} 行")
+    elif old or new:
+        lines.extend(_diff_snippet(str(old), str(new)))
+    else:
+        # 无结构化字段时回退 JSON 摘要
+        args_str = json.dumps(inp, ensure_ascii=False)
+        if len(args_str) > max_len:
+            args_str = args_str[: max_len - 1] + "…"
+        lines.append(f"  {args_str}")
+    return "\n".join(lines)
+
+
 def _fmt_tool_call(block: dict, max_len: int) -> str:
     """格式化工具调用 block"""
     name = block.get("name", "?")
@@ -185,6 +262,27 @@ def _fmt_tool_call(block: dict, max_len: int) -> str:
                     for i, opt in enumerate(q.get("options", []), 1):
                         lines.append(f"    [{i}] {opt.get('label', '')}")
                 return "\n".join(lines)
+        # Edit / 多实现别名：结构化差异
+        if name in (
+            "Edit",
+            "edit",
+            "StrReplace",
+            "str_replace",
+            "search_replace",
+            "Write",
+            "write_file",
+            "create_file",
+        ) or (
+            ("old_string" in inp or "oldString" in inp or "new_string" in inp)
+            and ("file_path" in inp or "path" in inp or "filePath" in inp)
+        ):
+            return _fmt_edit_tool(name, inp, max_len)
+        # Read：只亮路径
+        if name in ("Read", "read_file", "read") and (
+            inp.get("file_path") or inp.get("path") or inp.get("filePath")
+        ):
+            path = inp.get("file_path") or inp.get("path") or inp.get("filePath")
+            return f"🛠️ {name}: {_short_path(str(path))}"
         cmd = inp.get("command", "")
         if cmd:
             return f"🛠️ {name}: {cmd[:max_len]}"

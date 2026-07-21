@@ -388,6 +388,8 @@ def prepare_agent_body_for_card(text: str) -> str:
 
     文字推送仍用 formatters 的 emoji 版；卡片字体不含 emoji，需结构化标记
     才能在 Pillow 里区分工具调用 / 任务清单 / 系统事件。
+
+    Edit 等多行差异：主行 [Tool] …，后续缩进的 -/+ 行保留，供解析器并入 tool.detail。
     """
     import re
 
@@ -415,7 +417,6 @@ def prepare_agent_body_for_card(text: str) -> str:
         if line.startswith("🛠️"):
             rest = line[len("🛠️") :].lstrip()
             if rest.startswith("TodoWrite"):
-                # "TodoWrite 任务列表:" / "TodoWrite"
                 rest2 = rest[len("TodoWrite") :].lstrip(" :：")
                 if rest2 in ("任务列表", "任务列表:"):
                     out_lines.append("[Tool] TodoWrite")
@@ -430,7 +431,7 @@ def prepare_agent_body_for_card(text: str) -> str:
             rest = line[len("❓") :].lstrip()
             out_lines.append(f"[Ask] {rest}" if rest else "[Ask]")
             continue
-        # 已是卡片/文本统一前缀的保留
+        # Edit 差异续行（已是 "  - "/"  + "/"  …"）原样保留
         out_lines.append(line)
     return _strip_emoji("\n".join(out_lines))
 
