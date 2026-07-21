@@ -14,8 +14,27 @@ class StateManager:
         self.binding_mgr = binding_mgr
         self._user_states_cache: dict[str, dict] = {}
         self._session_owners = binding_mgr._session_owners
+        # WebUI「管理可见窗口」隐藏列表（UMO 字符串），KV: webui_hidden_windows
+        self._webui_hidden_windows: list[str] = []
 
     # ──── 持久化 ────
+
+    def get_webui_hidden_windows(self) -> list[str]:
+        return list(self._webui_hidden_windows)
+
+    async def set_webui_hidden_windows(self, umos: list[str] | None) -> list[str]:
+        """写入 WebUI 隐藏窗口列表并落盘 KV。"""
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for u in umos or []:
+            s = str(u or "").strip()
+            if not s or s in seen:
+                continue
+            seen.add(s)
+            cleaned.append(s)
+        self._webui_hidden_windows = cleaned
+        await self.kv.put_kv_data("webui_hidden_windows", cleaned)
+        return cleaned
 
     async def persist_session_owners(self):
         """持久化 session -> 窗口路由"""
@@ -313,6 +332,19 @@ class StateManager:
                     window_state.get("current_session", ""),
                     window_state.get("current_flavor", "")
                 )
+
+        # WebUI 隐藏窗口列表
+        try:
+            hidden = await self.kv.get_kv_data("webui_hidden_windows", [])
+            if isinstance(hidden, list):
+                self._webui_hidden_windows = [
+                    str(u).strip() for u in hidden if str(u or "").strip()
+                ]
+            else:
+                self._webui_hidden_windows = []
+        except Exception as e:
+            logger.warning("load webui_hidden_windows failed: %s", e)
+            self._webui_hidden_windows = []
 
     async def migrate_to_capture_model(self):
         """数据迁移：绑定模式 → 捕获+默认窗口模式"""

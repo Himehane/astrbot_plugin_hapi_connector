@@ -129,6 +129,8 @@ def register_pages(plugin) -> None:
         (f"{prefix}/sessions/<sid>", api.session_detail, ["GET"], "WebUI session detail"),
         (f"{prefix}/routes/primary", api.routes_primary, ["POST"], "WebUI set primary route"),
         (f"{prefix}/routes/flavor", api.routes_flavor, ["POST"], "WebUI set flavor route"),
+        (f"{prefix}/ui/hidden-windows", api.get_hidden_windows, ["GET"], "WebUI hidden windows"),
+        (f"{prefix}/ui/hidden-windows", api.post_hidden_windows, ["POST"], "WebUI save hidden windows"),
         (f"{prefix}/hub/launch", api.hub_launch, ["GET"], "WebUI HAPI Web launch URL"),
         (f"{prefix}/render/meta", api.render_meta, ["GET"], "WebUI render meta"),
         (f"{prefix}/render/preview", api.render_preview, ["POST"], "WebUI card preview"),
@@ -470,6 +472,11 @@ class WebApi:
                         "known_user_count": 0,
                     },
                     "window_options": [],
+                    "hidden_windows": (
+                        getattr(self.plugin, "state_mgr", None).get_webui_hidden_windows()
+                        if getattr(self.plugin, "state_mgr", None)
+                        else []
+                    ),
                     "config": public_config(self.plugin),
                     "plugin_version": _plugin_version(self.plugin),
                     "error": f"{type(e).__name__}: {e}",
@@ -686,6 +693,48 @@ class WebApi:
         except LifecycleError as e:
             return error_response(str(e), status_code=e.status)
         return json_response(result)
+
+    async def get_hidden_windows(self):
+        """WebUI 会话页「管理可见窗口」隐藏列表（读 AstrBot KV）。"""
+        from astrbot.api.web import json_response
+
+        sm = getattr(self.plugin, "state_mgr", None)
+        hidden = []
+        if sm is not None:
+            try:
+                hidden = sm.get_webui_hidden_windows()
+            except Exception:
+                hidden = list(getattr(sm, "_webui_hidden_windows", None) or [])
+        return json_response({"hidden": list(hidden or [])})
+
+    async def post_hidden_windows(self):
+        """保存 WebUI 隐藏窗口列表到 AstrBot KV（iframe 无 localStorage）。"""
+        from astrbot.api.web import error_response, json_response, request
+
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
+        raw = payload.get("hidden")
+        if raw is None:
+            raw = payload.get("umos")
+        if raw is None:
+            raw = []
+        if not isinstance(raw, list):
+            return error_response("hidden 须为字符串数组", status_code=400)
+
+        sm = getattr(self.plugin, "state_mgr", None)
+        if sm is None:
+            return error_response("StateManager 未初始化", status_code=503)
+        try:
+            hidden = await sm.set_webui_hidden_windows(raw)
+        except Exception as e:
+            logger.exception("save webui_hidden_windows failed")
+            return error_response(f"保存失败: {type(e).__name__}: {e}", status_code=500)
+        return json_response({
+            "ok": True,
+            "hidden": hidden,
+            "message": f"已隐藏 {len(hidden)} 个窗口" if hidden else "已全部显示",
+        })
 
     async def connection_reconnect(self):
         from astrbot.api.web import error_response, json_response
@@ -1973,6 +2022,14 @@ def build_sessions_snapshot(plugin) -> dict:
     machines_ts = float(getattr(plugin, "_machines_cache_ts", 0) or 0)
     machines_age = (time.monotonic() - machines_ts) if machines_ts else None
 
+    hidden_windows: list[str] = []
+    sm = getattr(plugin, "state_mgr", None)
+    if sm is not None:
+        try:
+            hidden_windows = sm.get_webui_hidden_windows()
+        except Exception:
+            hidden_windows = list(getattr(sm, "_webui_hidden_windows", None) or [])
+
     return {
         "connection": conn,
         "metrics": {
@@ -1988,6 +2045,7 @@ def build_sessions_snapshot(plugin) -> dict:
         "columns": columns,
         "defaults": defaults,
         "window_options": window_options,
+        "hidden_windows": list(hidden_windows or []),
         "config": cfg_view,
         "plugin_version": _plugin_version(plugin),
         "cache": {

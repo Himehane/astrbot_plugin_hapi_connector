@@ -89,6 +89,9 @@ export function createApi(bridge) {
     batchLifecycle: (ids, action) => post("sessions/batch", { ids, action }),
     setPrimaryRoute: (umo, user_id) => post("routes/primary", { umo, user_id }),
     setFlavorRoute: (flavor, umo, user_id) => post("routes/flavor", { flavor, umo, user_id }),
+    /** 会话页可见窗口：隐藏列表存插件 KV（iframe 无 localStorage） */
+    getHiddenWindows: () => get("ui/hidden-windows"),
+    setHiddenWindows: (hidden) => post("ui/hidden-windows", { hidden: hidden || [] }),
     /** 推送卡片：能力元数据 / 实卡预览 / 勾选安装字体或依赖 */
     renderMeta: () => get("render/meta"),
     renderPreview: (body) => post("render/preview", body || {}),

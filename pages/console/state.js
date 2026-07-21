@@ -224,6 +224,7 @@ function createStore() {
         columns: columns(),
         defaults: { primary: defaults.primary, flavor: { ...defaults.flavor } },
         window_options: umos(),
+        hidden_windows: Array.isArray(state.hiddenWindows) ? [...state.hiddenWindows] : [],
         config: { ...config },
       };
     },
@@ -334,6 +335,8 @@ const state = {
   docsDocId: "install",
   helpTopic: "session",
   helpQuery: "",
+  /** WebUI 隐藏的推送窗口 UMO 列表（来自插件 KV，见 snapshot.hidden_windows） */
+  hiddenWindows: [],
   data: null,
 };
 
@@ -355,25 +358,28 @@ function ruleText() {
 }
 
 
-const WIN_VIS_KEY = "hapi_console_hidden_windows";
-
-/** 唯一数据源：localStorage（本浏览器）。读/写都只走这里。 */
+/**
+ * WebUI「管理可见窗口」隐藏列表。
+ * AstrBot Page iframe 无 localStorage（sandbox 无 allow-same-origin），
+ * 唯一数据源：插件 KV `webui_hidden_windows`，经 snapshot / ui/hidden-windows 下发。
+ * 前端内存缓存 state.hiddenWindows，应用时 POST 落盘后再重绘。
+ */
 function loadHiddenWindows() {
-  try {
-    const raw = localStorage.getItem(WIN_VIS_KEY);
-    if (!raw) return new Set();
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return new Set();
-    return new Set(arr.map((x) => String(x || "").trim()).filter(Boolean));
-  } catch (_) {
-    return new Set();
-  }
+  const arr = state.hiddenWindows;
+  if (!Array.isArray(arr)) return new Set();
+  return new Set(arr.map((x) => String(x || "").trim()).filter(Boolean));
 }
 
-/** @param {Iterable<string>|Set<string>} hiddenSet */
+/** 仅更新内存；落盘请走 API setHiddenWindows */
+function setHiddenWindowsLocal(hiddenSet) {
+  state.hiddenWindows = [...(hiddenSet || [])]
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+}
+
+/** @deprecated 兼容旧调用名 → 只改内存 */
 function saveHiddenWindows(hiddenSet) {
-  const next = [...(hiddenSet || [])].map((x) => String(x || "").trim()).filter(Boolean);
-  localStorage.setItem(WIN_VIS_KEY, JSON.stringify(next));
+  setHiddenWindowsLocal(hiddenSet);
 }
 
 /** 本页下拉/左侧是否显示该窗口。keep 里的 umo 始终保留（当前已选值，避免选中项消失）。 */
@@ -456,10 +462,10 @@ function bindSelect(s) {
 export {
   store,
   state,
+  setHiddenWindowsLocal,
   createStore,
   wTitle,
   ruleText,
-  WIN_VIS_KEY,
   loadHiddenWindows,
   saveHiddenWindows,
   isWindowShown,

@@ -36,7 +36,15 @@ function applySnapFromResult(res) {
 }
 
 async function fetchSnapshot(opts = {}) {
-  if (!isLive() || !getApi()) return store.snap();
+  if (!isLive() || !getApi()) {
+    const snap = store.snap();
+    if (Array.isArray(snap.hidden_windows)) {
+      state.hiddenWindows = snap.hidden_windows
+        .map((x) => String(x || "").trim())
+        .filter(Boolean);
+    }
+    return snap;
+  }
   const api = getApi();
   const snap = await api.sessionsSnapshot(opts);
   if (!snap || typeof snap !== "object") {
@@ -45,6 +53,11 @@ async function fetchSnapshot(opts = {}) {
   if (!snap.columns) snap.columns = [];
   if (!snap.window_options) snap.window_options = [];
   if (!Array.isArray(snap.machines)) snap.machines = [];
+  if (!Array.isArray(snap.hidden_windows)) snap.hidden_windows = [];
+  // 同步到 state（可见窗口过滤只读这里，不碰 localStorage）
+  state.hiddenWindows = snap.hidden_windows
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
   if (!snap.defaults) snap.defaults = { primary: null, flavor: {}, writable: false };
   if (!snap.connection) {
     snap.connection = {

@@ -9,7 +9,7 @@ import {
   allKnownWindows,
   visibleWindowOptions,
   loadHiddenWindows,
-  saveHiddenWindows,
+  setHiddenWindowsLocal,
   isWindowShown,
   windowSessionStats,
   formatWindowBindMeta,
@@ -308,7 +308,7 @@ function openWindowVisibilityDialog() {
       toast(n ? `已勾选 ${n} 个活跃窗口（有运行中 session）` : "当前没有运行中 session 的窗口");
     });
   $("#vis-apply") &&
-    ($("#vis-apply").onclick = () => {
+    ($("#vis-apply").onclick = async () => {
       const nextHidden = new Set();
       const boxes = $$("#dlg-body input[data-vis-umo]");
       if (!boxes.length) {
@@ -319,19 +319,32 @@ function openWindowVisibilityDialog() {
         const umo = String(inp.getAttribute("data-vis-umo") || inp.value || "").trim();
         if (!inp.checked && umo) nextHidden.add(umo);
       });
+      const list = [...nextHidden];
       try {
-        saveHiddenWindows(nextHidden);
+        if (isLive() && getApi()) {
+          const res = await getApi().setHiddenWindows(list);
+          // 以服务端落盘结果为准
+          setHiddenWindowsLocal(res?.hidden || list);
+          toast(
+            res?.message ||
+              (list.length
+                ? `已隐藏 ${list.length} 个 · 下拉/左侧保留 ${Math.max(0, boxes.length - list.length)} 个`
+                : "已全部显示"),
+          );
+        } else {
+          // 本地 mock：只改内存
+          setHiddenWindowsLocal(list);
+          toast(
+            list.length
+              ? `已隐藏 ${list.length} 个 · 下拉/左侧保留 ${Math.max(0, boxes.length - list.length)} 个`
+              : "已全部显示",
+          );
+        }
       } catch (e) {
         toast("保存失败: " + (e.message || e));
         return;
       }
       $("#dlg").close();
-      const shown = Math.max(0, boxes.length - nextHidden.size);
-      toast(
-        nextHidden.size
-          ? `已隐藏 ${nextHidden.size} 个 · 下拉/左侧保留 ${shown} 个`
-          : "已全部显示",
-      );
       renderSessions();
     });
 }
