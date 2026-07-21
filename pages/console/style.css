@@ -2453,11 +2453,13 @@ select.ctrl-sm {
   margin: 1.4em 0;
 }
 
+/* 代码块固定「深底浅字」：亮/暗主题一致，避免暗色下 --ink 变浅导致底/字都翻白 */
 .md-pre {
   margin: 0.9em 0;
   padding: 12px 14px;
-  background: var(--ink);
+  background: #1c1914;
   color: #e8e4d8;
+  border: 1px solid color-mix(in srgb, #1c1914 80%, var(--line-strong));
   border-radius: var(--radius);
   overflow-x: auto;
   font-size: 12px;
@@ -2468,6 +2470,8 @@ select.ctrl-sm {
 .md-code-block {
   font-family: var(--font);
   white-space: pre;
+  color: inherit;
+  background: transparent;
 }
 
 .md-code {
@@ -2482,11 +2486,39 @@ select.ctrl-sm {
 
 .md-pre .md-code,
 .md-pre .md-code-block {
-  background: transparent;
-  border: 0;
-  color: inherit;
+  background: transparent !important;
+  border: 0 !important;
+  color: #e8e4d8 !important;
   padding: 0;
 }
+
+/* 暗色主题仍保持代码块深底浅字，不被全局 ink 反转 */
+[data-theme="dark"] .md-pre {
+  background: #14120e;
+  color: #e8e4d8;
+  border-color: #3d3a32;
+}
+
+[data-theme="dark"] .md-pre .md-code,
+[data-theme="dark"] .md-pre .md-code-block {
+  color: #e8e4d8 !important;
+}
+
+/* 交互预览等处的 md 代码块同样固定深底 */
+[data-theme="dark"] .rpc-md-pre {
+  background: #14120e;
+  color: #e8e4d8;
+  border: 1px solid #3d3a32;
+}
+[data-theme="dark"] .rpc-md-pre code {
+  color: #e8e4d8;
+  background: transparent;
+}
+[data-theme="dark"] .dlg-pre {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
 
 .md-table-wrap {
   overflow-x: auto;
