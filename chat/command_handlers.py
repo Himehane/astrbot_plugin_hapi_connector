@@ -35,11 +35,16 @@ class CommandHandlers:
 
     def __init__(self, plugin):
         self.plugin = plugin
-        self.client = plugin.client
+        # 不缓存 client：WebUI 保存/重连会替换 plugin.client
         self.sessions_cache = plugin.sessions_cache
         self.state_mgr = plugin.state_mgr
         self.sse_listener = plugin.sse_listener
         self.binding_mgr = plugin.binding_mgr
+
+    @property
+    def client(self):
+        """始终使用插件当前 client（重连后自动生效）。"""
+        return self.plugin.client
 
     def _handler_for(self, subcommand: str):
         """按子命令名解析 handler；别名映射到同一方法。"""

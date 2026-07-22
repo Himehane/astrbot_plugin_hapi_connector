@@ -2,10 +2,10 @@
  * live / mock 数据层：snapshot、refresh、轮询、保存设置
  * 不直接 import pages/*，由 nav/app 注入 repaint，避免循环依赖
  */
-import { hasBridge, initBridge, createApi } from "./api.js?v=3.0.0";
-import { store, state } from "./state.js?v=3.0.0";
-import { $ } from "./utils.js?v=3.0.0";
-import { getApi, isLive, setLiveApi } from "./live.js?v=3.0.0";
+import { hasBridge, initBridge, createApi } from "./api.js?v=3.0.1";
+import { store, state } from "./state.js?v=3.0.1";
+import { $ } from "./utils.js?v=3.0.1";
+import { getApi, isLive, setLiveApi } from "./live.js?v=3.0.1";
 import {
   renderTopConn,
   renderAlert,
@@ -13,7 +13,7 @@ import {
   toast,
   paintSaveStatus,
   setRefresh,
-} from "./ui.js?v=3.0.0";
+} from "./ui.js?v=3.0.1";
 
 /** 当前页重绘（由 nav.js 注入） */
 let _repaintPage = (_page) => {};
@@ -102,7 +102,7 @@ async function refresh(opts = {}) {
   if (opts.silent && !opts.repaint) {
     // 概览页只刷机器负载区，避免整页重绘打断常用设置
     if (state.page === "overview") {
-      import("./pages/overview.js?v=3.0.0")
+      import("./pages/overview.js?v=3.0.1")
         .then((m) => m.patchOverviewMachines?.())
         .catch(() => {});
     }

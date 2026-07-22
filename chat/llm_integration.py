@@ -11,10 +11,15 @@ class LLMIntegration:
 
     def __init__(self, plugin):
         self.plugin = plugin
-        self.client = plugin.client
+        # 不缓存 client：WebUI 保存/重连会替换 plugin.client
         self.state_mgr = plugin.state_mgr
         self.pending_mgr = plugin.pending_mgr
         self.sessions_cache = plugin.sessions_cache
+
+    @property
+    def client(self):
+        """始终使用插件当前 client（重连后自动生效）。"""
+        return self.plugin.client
 
     # ──── 工具可见性控制 ────
 

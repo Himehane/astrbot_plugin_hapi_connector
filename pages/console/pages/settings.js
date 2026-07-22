@@ -2,12 +2,12 @@
  * 设置页 — 字段结构来自 meta.config_schema（_conf_schema + overlay）
  * 值来自 state.data.config（插件真实配置 / mock）
  */
-import { RENDER_KIND_LABELS } from "../constants.js?v=3.0.0";
-import { state } from "../state.js?v=3.0.0";
-import { $, $$, esc, attr } from "../utils.js?v=3.0.0";
-import { renderTopConn, renderAlert } from "../ui.js?v=3.0.0";
-import { syncSettingsSaveStatus } from "../data.js?v=3.0.0";
-import { CONFIG_SCHEMA_FALLBACK } from "../settings_schema_fallback.js?v=3.0.0";
+import { RENDER_KIND_LABELS } from "../constants.js?v=3.0.1";
+import { state } from "../state.js?v=3.0.1";
+import { $, $$, esc, attr } from "../utils.js?v=3.0.1";
+import { renderTopConn, renderAlert } from "../ui.js?v=3.0.1";
+import { syncSettingsSaveStatus } from "../data.js?v=3.0.1";
+import { CONFIG_SCHEMA_FALLBACK } from "../settings_schema_fallback.js?v=3.0.1";
 
 /** 当前生效的设置 schema（live meta 优先，否则 fallback） */
 export function getConfigSchema() {

@@ -1,13 +1,13 @@
 /**
  * 交互优化页：戳一戳 / 快捷前缀 / 推送卡片样式
  */
-import { RENDER_KIND_LABELS } from "../constants.js?v=3.0.0";
-import { state, store } from "../state.js?v=3.0.0";
-import { $, $$, esc, attr } from "../utils.js?v=3.0.0";
-import { renderTopConn, renderAlert, toast, paintSaveStatus } from "../ui.js?v=3.0.0";
-import { refresh } from "../data.js?v=3.0.0";
-import { isLive, getApi } from "../live.js?v=3.0.0";
-import { helpTopics, helpCommands } from "./help.js?v=3.0.0";
+import { RENDER_KIND_LABELS } from "../constants.js?v=3.0.1";
+import { state, store } from "../state.js?v=3.0.1";
+import { $, $$, esc, attr } from "../utils.js?v=3.0.1";
+import { renderTopConn, renderAlert, toast, paintSaveStatus } from "../ui.js?v=3.0.1";
+import { refresh } from "../data.js?v=3.0.1";
+import { isLive, getApi } from "../live.js?v=3.0.1";
+import { helpTopics, helpCommands } from "./help.js?v=3.0.1";
 
 
 /** 当前生效的完整 CSS 文本（默认或已保存自定义） */

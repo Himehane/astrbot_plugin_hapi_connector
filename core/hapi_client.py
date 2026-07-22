@@ -70,12 +70,22 @@ class AsyncTokenManager:
 
     async def _do_auth(self):
         """调用 POST /api/auth 换取 JWT"""
-        url = f"{self._endpoint}/api/auth"
+        endpoint = (self._endpoint or "").rstrip("/")
+        if not endpoint or "://" not in endpoint:
+            raise ValueError(
+                f"HAPI endpoint 无效（当前: {self._endpoint!r}）。"
+                "请在插件设置填写完整 hapi_endpoint（如 http://127.0.0.1:3006）并保存/重连。"
+            )
+        if not (self._access_token or "").strip():
+            raise ValueError(
+                "HAPI access_token 为空。请在插件设置填写 Access Token 并保存/重连。"
+            )
+        url = f"{endpoint}/api/auth"
         payload = {"accessToken": self._access_token}
         # 临时 session 需要携带 CF Access 请求头才能通过 Cloudflare
         extra_headers = self._cf_mgr.get_headers() if self._cf_mgr else {}
 
-        logger.info("正在获取 JWT ...")
+        logger.info("正在获取 JWT ... endpoint=%s", endpoint)
         connector = _build_connector(self._proxy_url)
         try:
             async with aiohttp.ClientSession(

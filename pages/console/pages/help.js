@@ -1,10 +1,10 @@
 /**
  * 命令帮助页（与 /hapi help 同源）
  */
-import { HELP_TOPICS, HELP_COMMANDS } from "../constants.js?v=3.0.0";
-import { state } from "../state.js?v=3.0.0";
-import { $, $$, esc, attr } from "../utils.js?v=3.0.0";
-import { renderTopConn, renderAlert } from "../ui.js?v=3.0.0";
+import { HELP_TOPICS, HELP_COMMANDS } from "../constants.js?v=3.0.1";
+import { state } from "../state.js?v=3.0.1";
+import { $, $$, esc, attr } from "../utils.js?v=3.0.1";
+import { renderTopConn, renderAlert } from "../ui.js?v=3.0.1";
 
 function matchHelpCmd(c, q) {
   if (!q) return true;

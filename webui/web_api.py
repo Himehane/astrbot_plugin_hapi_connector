@@ -1046,6 +1046,19 @@ async def reconnect_hapi(plugin) -> dict:
     jwt_life = int(plugin.config.get("jwt_lifetime", 900) or 900)
     refresh_before = int(plugin.config.get("refresh_before_expiry", 180) or 180)
 
+    if not endpoint:
+        raise ValueError(
+            "hapi_endpoint 为空，无法连接 HAPI。"
+            "请填写完整地址（如 http://127.0.0.1:3006）后保存。"
+        )
+    if "://" not in endpoint:
+        raise ValueError(
+            f"hapi_endpoint 缺少协议前缀: {endpoint!r}。"
+            "请使用 http:// 或 https:// 开头的完整 URL。"
+        )
+    if not str(token).strip():
+        raise ValueError("access_token 为空，无法鉴权。请填写 HAPI Access Token 后保存。")
+
     cf_id = str(plugin.config.get("cf_access_client_id") or "").strip()
     cf_secret = str(plugin.config.get("cf_access_client_secret") or "").strip()
     if cf_id.lower().startswith("cf-access-client-id:"):
@@ -1078,6 +1091,7 @@ async def reconnect_hapi(plugin) -> dict:
     )
     await new_client.init()
     plugin.client = new_client
+    # SSE 持有独立 client 引用，必须同步；命令/LLM 路径经 property 读 plugin.client
     plugin.sse_listener.client = new_client
 
     # restart SSE with current runtime flags
@@ -1707,7 +1721,7 @@ def _plugin_version(plugin) -> str:
                 return line.split(":", 1)[1].strip().strip("\"'").lstrip("v")
     except Exception:
         pass
-    return "3.0.0"
+    return "3.0.1"
 
 
 def _session_permission_mode(session: dict) -> str:
