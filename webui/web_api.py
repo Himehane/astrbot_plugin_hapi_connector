@@ -1721,7 +1721,7 @@ def _plugin_version(plugin) -> str:
                 return line.split(":", 1)[1].strip().strip("\"'").lstrip("v")
     except Exception:
         pass
-    return "3.0.1"
+    return "3.0.2"
 
 
 def _session_permission_mode(session: dict) -> str:

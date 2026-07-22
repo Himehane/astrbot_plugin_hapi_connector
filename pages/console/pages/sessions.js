@@ -1,7 +1,7 @@
 /**
  * 会话管理页（窗口列表 / 推送路由 / session 表 / 详情弹窗）
  */
-import { PERM, LAYER, FLAVOR_ROUTE_KEYS } from "../constants.js?v=3.0.1";
+import { PERM, LAYER, FLAVOR_ROUTE_KEYS } from "../constants.js?v=3.0.2";
 import {
   state,
   store,
@@ -15,16 +15,16 @@ import {
   formatWindowBindMeta,
   groupWindowsByBot,
   bindSelect,
-} from "../state.js?v=3.0.1";
-import { $, $$, esc, attr, pill, layerTag, statusLabel, parseUmo } from "../utils.js?v=3.0.1";
+} from "../state.js?v=3.0.2";
+import { $, $$, esc, attr, pill, layerTag, statusLabel, parseUmo } from "../utils.js?v=3.0.2";
 import {
   renderTopConn,
   renderAlert,
   toast,
   askConfirm,
-} from "../ui.js?v=3.0.1";
-import { refresh, applySnapFromResult } from "../data.js?v=3.0.1";
-import { isLive, getApi } from "../live.js?v=3.0.1";
+} from "../ui.js?v=3.0.2";
+import { refresh, applySnapFromResult } from "../data.js?v=3.0.2";
+import { isLive, getApi } from "../live.js?v=3.0.2";
 
 
 function renderRoutePanel() {

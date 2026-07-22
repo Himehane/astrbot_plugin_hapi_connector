@@ -2,11 +2,11 @@
  * 部署文档页：渲染仓库 docs/*.md
  * 标题取自 md 首个 H1；默认 install
  */
-import { state } from "../state.js?v=3.0.1";
-import { $, $$, esc, attr } from "../utils.js?v=3.0.1";
-import { renderTopConn, renderAlert } from "../ui.js?v=3.0.1";
-import { renderMarkdown, wireMdZoom } from "../md.js?v=3.0.1";
-import { isLive, getApi } from "../live.js?v=3.0.1";
+import { state } from "../state.js?v=3.0.2";
+import { $, $$, esc, attr } from "../utils.js?v=3.0.2";
+import { renderTopConn, renderAlert } from "../ui.js?v=3.0.2";
+import { renderMarkdown, wireMdZoom } from "../md.js?v=3.0.2";
+import { isLive, getApi } from "../live.js?v=3.0.2";
 
 const FALLBACK_DOCS = [
   { id: "install", file: "install.md", title: "HAPI 安装与启动指南" },

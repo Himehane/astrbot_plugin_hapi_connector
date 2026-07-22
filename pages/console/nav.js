@@ -2,27 +2,27 @@
  * 页面导航：注册 go / repaint 到 data 与 go 叶子模块
  * 离开 interact / settings 时拦截未保存更改
  */
-import { state } from "./state.js?v=3.0.1";
-import { setPageChrome, closeSidebar, askUnsavedLeave } from "./ui.js?v=3.0.1";
+import { state } from "./state.js?v=3.0.2";
+import { setPageChrome, closeSidebar, askUnsavedLeave } from "./ui.js?v=3.0.2";
 import {
   setRepaintPage,
   setAllSettingsFields,
   isSettingsDirty,
   saveSettings,
   paintSettingsSaveStatus,
-} from "./data.js?v=3.0.1";
-import { setGo } from "./go.js?v=3.0.1";
-import { renderOverview } from "./pages/overview.js?v=3.0.1";
-import { renderSessions } from "./pages/sessions.js?v=3.0.1";
+} from "./data.js?v=3.0.2";
+import { setGo } from "./go.js?v=3.0.2";
+import { renderOverview } from "./pages/overview.js?v=3.0.2";
+import { renderSessions } from "./pages/sessions.js?v=3.0.2";
 import {
   renderInteract,
   isInteractDirty,
   saveAllInteractDirty,
   discardInteractDraft,
-} from "./pages/interact.js?v=3.0.1";
-import { renderHelp } from "./pages/help.js?v=3.0.1";
-import { renderDocs } from "./pages/docs.js?v=3.0.1";
-import { renderSettings, allSettingsFields } from "./pages/settings.js?v=3.0.1";
+} from "./pages/interact.js?v=3.0.2";
+import { renderHelp } from "./pages/help.js?v=3.0.2";
+import { renderDocs } from "./pages/docs.js?v=3.0.2";
+import { renderSettings, allSettingsFields } from "./pages/settings.js?v=3.0.2";
 
 function repaint(page) {
   if (page === "overview") renderOverview();

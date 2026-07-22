@@ -1,9 +1,9 @@
 /**
  * 本地 mock store + 全局 UI state + 会话页窗口可见性
  */
-import { UMO } from "./constants.js?v=3.0.1";
-import { resolve, parseUmo, attr, esc } from "./utils.js?v=3.0.1";
-import { CONFIG_SCHEMA_FALLBACK } from "./settings_schema_fallback.js?v=3.0.1";
+import { UMO } from "./constants.js?v=3.0.2";
+import { resolve, parseUmo, attr, esc } from "./utils.js?v=3.0.2";
+import { CONFIG_SCHEMA_FALLBACK } from "./settings_schema_fallback.js?v=3.0.2";
 
 function createStore() {
   const sessions = [

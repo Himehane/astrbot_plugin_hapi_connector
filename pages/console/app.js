@@ -7,15 +7,15 @@
  * 入口：组装 shell / boot；页面逻辑见 pages/*
  */
 
-import { PERM } from "./constants.js?v=3.0.1";
-import { state } from "./state.js?v=3.0.1";
-import { $$, $ } from "./utils.js?v=3.0.1";
+import { PERM } from "./constants.js?v=3.0.2";
+import { state } from "./state.js?v=3.0.2";
+import { $$, $ } from "./utils.js?v=3.0.2";
 import {
   closeSidebar,
   ensureFxLayer,
   showAlert,
   toast,
-} from "./ui.js?v=3.0.1";
+} from "./ui.js?v=3.0.2";
 import {
   hasBridge,
   initBridge,
@@ -31,10 +31,10 @@ import {
   onVisibility,
   saveSettings,
   paintSettingsSaveStatus,
-} from "./data.js?v=3.0.1";
-import "./nav.js?v=3.0.1"; // register go / repaint
-import { go } from "./go.js?v=3.0.1";
-import { renderSettings } from "./pages/settings.js?v=3.0.1";
+} from "./data.js?v=3.0.2";
+import "./nav.js?v=3.0.2"; // register go / repaint
+import { go } from "./go.js?v=3.0.2";
+import { renderSettings } from "./pages/settings.js?v=3.0.2";
 
 function bindShell() {
   ensureFxLayer();

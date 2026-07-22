@@ -1,10 +1,10 @@
 /**
  * Shell 渲染、toast、确认框、特效层
  */
-import { PAGE_META } from "./constants.js?v=3.0.1";
-import { state, store } from "./state.js?v=3.0.1";
-import { $, $$, esc } from "./utils.js?v=3.0.1";
-import { getApi, isLive } from "./live.js?v=3.0.1";
+import { PAGE_META } from "./constants.js?v=3.0.2";
+import { state, store } from "./state.js?v=3.0.2";
+import { $, $$, esc } from "./utils.js?v=3.0.2";
+import { getApi, isLive } from "./live.js?v=3.0.2";
 
 /** 由 data.js 注入，避免 ui ↔ data 循环 */
 let _refresh = async () => {};

@@ -1,9 +1,9 @@
 /**
  * 概览页：连接指标 + 机器负载 + 常用设置
  */
-import { OUTPUT_LEVELS } from "../constants.js?v=3.0.1";
-import { state, store, wTitle } from "../state.js?v=3.0.1";
-import { $, $$, esc, attr } from "../utils.js?v=3.0.1";
+import { OUTPUT_LEVELS } from "../constants.js?v=3.0.2";
+import { state, store, wTitle } from "../state.js?v=3.0.2";
+import { $, $$, esc, attr } from "../utils.js?v=3.0.2";
 import {
   renderTopConn,
   renderAlert,
@@ -12,10 +12,10 @@ import {
   askConfirm,
   connIsOk,
   connLabel,
-} from "../ui.js?v=3.0.1";
-import { refresh } from "../data.js?v=3.0.1";
-import { isLive, getApi } from "../live.js?v=3.0.1";
-import { go } from "../go.js?v=3.0.1";
+} from "../ui.js?v=3.0.2";
+import { refresh } from "../data.js?v=3.0.2";
+import { isLive, getApi } from "../live.js?v=3.0.2";
+import { go } from "../go.js?v=3.0.2";
 
 /** 对齐 HAPI 官方阈值：≥90 critical，≥75 warn */
 function percentTone(v) {
