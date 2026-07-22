@@ -287,7 +287,7 @@ def _fmt_tool_call(block: dict, max_len: int) -> str:
             return f"🛠️ {name}: {_short_path(str(path))}"
         cmd = inp.get("command") or inp.get("cmd") or ""
         if cmd:
-            cmd_str = str(cmd)
+            cmd_str = str(cmd).replace("```", "``\u200b`")
             if len(cmd_str) > max_len:
                 cmd_str = cmd_str[:max_len] + "..."
             tool_icon = "🛠️"
