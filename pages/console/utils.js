@@ -1,7 +1,7 @@
 /**
  * DOM / 字符串 / UMO 纯工具（不依赖 state，避免循环）
  */
-import { LAYER } from "./constants.js?v=3.0.2";
+import { LAYER } from "./constants.js?v=3.0.1";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
