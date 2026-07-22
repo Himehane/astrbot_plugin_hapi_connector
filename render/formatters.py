@@ -285,9 +285,13 @@ def _fmt_tool_call(block: dict, max_len: int) -> str:
         ):
             path = inp.get("file_path") or inp.get("path") or inp.get("filePath")
             return f"🛠️ {name}: {_short_path(str(path))}"
-        cmd = inp.get("command", "")
+        cmd = inp.get("command") or inp.get("cmd") or ""
         if cmd:
-            return f"🛠️ {name}: {cmd[:max_len]}"
+            cmd_str = str(cmd)
+            if len(cmd_str) > max_len:
+                cmd_str = cmd_str[:max_len] + "..."
+            tool_icon = "🛠️"
+            return tool_icon + " " + name + ":\n```\n" + cmd_str + "\n```"
         args_str = json.dumps(inp, ensure_ascii=False)[:max_len]
         return f"🛠️ {name}: {args_str}"
     return f"🛠️ {name}"
