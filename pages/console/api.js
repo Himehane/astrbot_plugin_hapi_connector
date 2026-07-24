@@ -95,6 +95,7 @@ export function createApi(bridge) {
     /** 推送卡片：能力元数据 / 实卡预览 / 勾选安装字体或依赖 */
     renderMeta: () => get("render/meta"),
     renderPreview: (body) => post("render/preview", body || {}),
+    renderTextTest: (body) => post("render/text-test", body || {}),
     /** body: { ids: ["font_noto_sc","dep_pillow"], force?: bool } */
     renderInstall: (body) => post("render/install", body || {}),
   };

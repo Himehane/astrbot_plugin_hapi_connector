@@ -4362,3 +4362,58 @@ input[type="range"] {
   line-height: 1.55;
 }
 .font-scan-locs code { font-size: 11px; }
+
+
+/* 纯文本模式 Markdown 测试区 */
+.ix-text-markdown-input {
+  width: 100%;
+  min-height: 250px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  line-height: 1.55;
+}
+.text-markdown-preview {
+  min-height: 260px;
+  padding: 20px;
+  overflow: auto;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+/* 纯文本 Markdown 测试 - 左右两栏 */
+.text-test-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+.text-test-left {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.text-test-right {
+  display: flex;
+  flex-direction: column;
+}
+@media (max-width: 900px) {
+  .text-test-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.text-markdown-preview .md-h:first-child,
+.text-markdown-preview .md-p:first-child {
+  margin-top: 0;
+}
+.text-raw-details summary {
+  cursor: pointer;
+  color: var(--muted, #6b7280);
+}
+.text-raw-preview {
+  margin-top: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 360px;
+  overflow: auto;
+}

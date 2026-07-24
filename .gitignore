@@ -217,3 +217,8 @@ dev-docs/
 
 # Git
 .gitignore
+
+# Font files
+assets/fonts/*.ttf
+assets/fonts/*.otf
+assets/fonts/*.ttc
