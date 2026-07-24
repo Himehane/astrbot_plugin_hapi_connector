@@ -76,9 +76,16 @@ class NotificationManager:
                 chunks = self.split_message(text) if len(text) > 4200 else [text]
 
                 for chunk in chunks:
+                    cached_event = self._event_cache.get(umo)
                     try:
-                        chain = MessageChain().message(chunk)
-                        await self.context.send_message(umo, chain)
+                        if cached_event:
+                            result = cached_event.plain_result(chunk)
+                            logger.warning("send (umo=%s)   ", umo[:20])
+                            await cached_event.send(result)
+                        else:
+                            logger.warning("send_message (umo=%s)", umo[:20])
+                            chain = MessageChain().message(chunk)
+                            await self.context.send_message(umo, chain)
                     except Exception:
                         cached_event = self._event_cache.get(umo)
                         if cached_event:

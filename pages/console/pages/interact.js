@@ -8,6 +8,7 @@ import { renderTopConn, renderAlert, toast, paintSaveStatus } from "../ui.js?v=3
 import { refresh } from "../data.js?v=3.0.1";
 import { isLive, getApi } from "../live.js?v=3.0.1";
 import { helpTopics, helpCommands } from "./help.js?v=3.0.1";
+import { renderMarkdown } from "../md.js?v=3.0.1";
 
 
 /** 当前生效的完整 CSS 文本（默认或已保存自定义） */
@@ -359,12 +360,95 @@ function normalizeRenderMode(m) {
   return String(m || "text").toLowerCase() === "card" ? "card" : "text";
 }
 
+const DEFAULT_TEXT_PREVIEW_MARKDOWN = `# Markdown 测试
+
+这是普通文字，下面用于检查纯文本发送效果。
+
+**粗体文字**  *斜体文字*  ~~删除线~~
+
+- 第一项
+- 第二项
+- 第三项
+
+> 这是一段引用内容。
+
+\`\`\`python
+print("Hello from HAPI Connector")
+\`\`\`
+
+[示例链接](https://example.com)`;
+
+function textWindowOptionsHtml() {
+  const options = Array.isArray(state.data?.window_options)
+    ? state.data.window_options
+    : [];
+  const rows = ['<option value="">请选择窗口</option>'];
+  for (const item of options) {
+    if (!item || !item.umo) continue;
+    rows.push(
+      `<option value="${attr(item.umo)}">${esc(item.title || item.name || item.umo)}</option>`,
+    );
+  }
+  return rows.join("");
+}
+
+function textSessionOptionsHtml() {
+  const sessions = Array.isArray(state.data?.sessions) ? state.data.sessions : [];
+  const rows = ['<option value="">请选择 HAPI Session</option>'];
+  for (const item of sessions) {
+    if (!item || !item.id) continue;
+    const route = item.effective_umo ? ` · 路由 ${item.effective_umo}` : " · 暂无路由";
+    rows.push(
+      `<option value="${attr(item.id)}">${esc(`[${item.flavor || "unknown"}] ${item.title || item.id_short || item.id}${route}`)}</option>`,
+    );
+  }
+  return rows.join("");
+}
+
+const TEXT_TEST_MODE_HINTS = {
+  direct_window: "直接使用 context.send_message() 主动发到窗口；用于和命令回复链路对照。普通 QQ 通常会原样显示 Markdown 标记。",
+  bound_plain: "调用正式 NotificationManager，按 Session 绑定、Agent 默认或全局默认路由推送纯文本。",
+  sse_message: "模拟 HAPI SSE 自动拉取到 Agent 消息后的完整呈现链路，并遵循当前 render_mode / render_kinds 设置。",
+  command_reply: "与 /hapi msg 最接近：使用目标窗口最近缓存的 AstrMessageEvent，通过 plain_result() 返回。需先在该窗口发过消息。",
+};
+
+function syncTextTestControls() {
+  const mode = $("#ix-text-test-mode")?.value || "command_reply";
+  const windowField = $("#ix-text-window-field");
+  const sessionField = $("#ix-text-session-field");
+  const hint = $("#ix-text-mode-hint");
+  const needsWindow = mode === "command_reply" || mode === "direct_window";
+  if (windowField) windowField.hidden = !needsWindow;
+  if (sessionField) sessionField.hidden = needsWindow;
+  if (hint) hint.textContent = TEXT_TEST_MODE_HINTS[mode] || "";
+}
+
+function paintTextMarkdownPreview() {
+  const input = $("#ix-text-markdown");
+  const preview = $("#ix-text-markdown-preview");
+  const raw = $("#ix-text-raw-preview");
+  if (!input) return;
+  const text = String(input.value || "");
+  if (preview) {
+    preview.innerHTML = text.trim()
+      ? renderMarkdown(text)
+      : '<p class="field-help">输入 Markdown 后将在这里显示解析预览。</p>';
+  }
+  if (raw) raw.textContent = text;
+}
+
 function syncCardPanelVisibility(mode) {
   mode = normalizeRenderMode(mode);
   const panel = $("#ix-card-panel");
   const preview = $("#ix-preview-pane");
+  const textPreview = $("#ix-text-preview-pane");
+  const textInner = $("#ix-text-preview-inner");
+  const cardInner = $("#ix-card-preview-inner");
   if (panel) panel.hidden = mode !== "card";
-  if (preview) preview.hidden = mode !== "card";
+  if (preview) preview.hidden = false; // 右栏始终显示
+  if (textPreview) textPreview.hidden = mode !== "text";
+  if (textInner) textInner.hidden = mode !== "text";
+  if (cardInner) cardInner.hidden = mode !== "card";
   // enum-card 高亮
   $$('#ix-rmode-cards input[name="ix-rmode"]').forEach((inp) => {
     const card = inp.closest(".enum-card");
@@ -1501,24 +1585,83 @@ function renderInteract() {
           </div>
 
           </div><!-- /ix-card-panel -->
-        </div>
+
+          <div id="ix-text-preview-pane" ${rs.render_mode === "text" ? "" : "hidden"}>
+            <div class="field-label-row" style="margin-bottom:8px">
+              <div>
+                <div class="field-label">纯文本 Markdown 测试</div>
+                <p class="field-help" style="margin:4px 0 0">发送到聊天窗口时仍按纯文本发送原始 Markdown。</p>
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="field-label">Markdown 内容</div>
+              <textarea id="ix-text-markdown" class="ctrl ix-text-markdown-input" rows="14" spellcheck="false" placeholder="输入要测试的 Markdown…">${esc(DEFAULT_TEXT_PREVIEW_MARKDOWN)}</textarea>
+            </div>
+
+            <div class="field">
+              <div class="field-label">消息输出链路</div>
+              <select id="ix-text-test-mode" class="ctrl" style="width:100%">
+                <option value="direct_window">② 直接主动发送到窗口（对照）</option>
+                <option value="bound_plain">③ 按绑定路由推送纯文本</option>
+                <option value="sse_message">④ SSE Agent 自动消息呈现</option>
+                <option value="command_reply">① /hapi msg 命令回复（plain_result）</option>
+              </select>
+              <p class="field-help" id="ix-text-mode-hint"></p>
+            </div>
+
+            <div class="field" id="ix-text-window-field">
+              <div class="field-label">目标窗口</div>
+              <select id="ix-text-target-window" class="ctrl" style="width:100%">
+                ${textWindowOptionsHtml()}
+              </select>
+            </div>
+
+            <div class="field" id="ix-text-session-field" hidden>
+              <div class="field-label">目标 HAPI Session</div>
+              <select id="ix-text-target-session" class="ctrl" style="width:100%">
+                ${textSessionOptionsHtml()}
+              </select>
+              <p class="field-help">实际窗口由该 Session 当前绑定、Agent 默认路由或全局默认窗口决定。</p>
+            </div>
+          </div>
+        </div><!-- /render-form -->
 
         <div class="render-preview-pane" id="ix-preview-pane" ${rs.render_mode === "card" ? "" : "hidden"}>
-          <div class="field-label-row" style="margin-bottom:8px">
-            <div class="field-label">预览</div>
-            <select id="ix-sample" class="ctrl" style="max-width:160px">
-              ${Object.keys(RENDER_KIND_LABELS)
-                .map((k) => `<option value="${k}">${esc(RENDER_KIND_LABELS[k])}</option>`)
-                .join("")}
-            </select>
+
+          <!-- 纯文本模式预览 -->
+          <div id="ix-text-preview-inner" ${rs.render_mode === "text" ? "" : "hidden"}>
+            <div class="field-label" style="margin-bottom:8px">Markdown 解析预览</div>
+            <div id="ix-text-markdown-preview" class="md-body render-dom-host text-markdown-preview"></div>
+            <details class="text-raw-details" style="margin-top:12px">
+              <summary>查看窗口实际接收的原始文本</summary>
+              <pre id="ix-text-raw-preview" class="render-fallback text-raw-preview"></pre>
+            </details>
+            <div class="render-actions" style="margin-top:16px">
+              <button type="button" class="btn" id="ix-text-refresh-preview">仅刷新预览</button>
+              <button type="button" class="btn btn-primary" id="ix-text-send">执行消息链路测试</button>
+            </div>
+            <div id="ix-text-send-status" class="field-help" style="margin-top:8px"></div>
           </div>
-          <p class="field-help">左侧 DOM 示意结构；点「生成实图」走服务端 Pillow（读自定义 CSS 变量），与聊天发出一致。</p>
-          <div id="ix-dom-preview" class="render-dom-host"></div>
-          <div class="render-actions" style="margin-top:12px">
-            <button type="button" class="btn btn-primary" id="ix-gen-card">生成实图预览</button>
-          </div>
-          <div id="ix-real-meta" class="field-help" style="margin-top:8px"></div>
-          <div id="ix-real-preview" class="render-real-host"></div>
+
+          <!-- 卡片模式预览 -->
+          <div id="ix-card-preview-inner" ${rs.render_mode === "card" ? "" : "hidden"}>
+            <div class="field-label-row" style="margin-bottom:8px">
+              <div class="field-label">预览</div>
+              <select id="ix-sample" class="ctrl" style="max-width:160px">
+                ${Object.keys(RENDER_KIND_LABELS)
+                  .map((k) => `<option value="${k}">${esc(RENDER_KIND_LABELS[k])}</option>`)
+                  .join("")}
+              </select>
+            </div>
+            <p class="field-help">左侧 DOM 示意结构；点「生成实图」走服务端 Pillow（读自定义 CSS 变量），与聊天发出一致。</p>
+            <div id="ix-dom-preview" class="render-dom-host"></div>
+            <div class="render-actions" style="margin-top:12px">
+              <button type="button" class="btn btn-primary" id="ix-gen-card">生成实图预览</button>
+            </div>
+            <div id="ix-real-meta" class="field-help" style="margin-top:8px"></div>
+            <div id="ix-real-preview" class="render-real-host"></div>
+          </div><!-- /ix-card-preview-inner -->
         </div>
       </div>
 
@@ -1724,6 +1867,77 @@ function renderInteract() {
       await saveRenderSettings();
     });
 
+  const textMarkdownInput = $("#ix-text-markdown");
+  if (textMarkdownInput) textMarkdownInput.oninput = paintTextMarkdownPreview;
+  const textModeSelect = $("#ix-text-test-mode");
+  if (textModeSelect) textModeSelect.onchange = syncTextTestControls;
+  syncTextTestControls();
+
+  $("#ix-text-refresh-preview") &&
+    ($("#ix-text-refresh-preview").onclick = () => {
+      paintTextMarkdownPreview();
+      const status = $("#ix-text-send-status");
+      if (status) status.textContent = "预览已更新，没有发送消息。";
+    });
+
+  $("#ix-text-send") &&
+    ($("#ix-text-send").onclick = async () => {
+      paintTextMarkdownPreview();
+      const button = $("#ix-text-send");
+      const status = $("#ix-text-send-status");
+      const mode = $("#ix-text-test-mode")?.value || "command_reply";
+      const target = $("#ix-text-target-window")?.value || "";
+      const sid = $("#ix-text-target-session")?.value || "";
+      const text = $("#ix-text-markdown")?.value || "";
+      const needsWindow = mode === "command_reply" || mode === "direct_window";
+
+      if (!text.trim()) {
+        if (status) status.textContent = "请输入测试内容。";
+        toast("测试内容不能为空");
+        return;
+      }
+      if (needsWindow && !target) {
+        if (status) status.textContent = "请选择目标窗口。";
+        toast("请选择目标窗口");
+        return;
+      }
+      if (!needsWindow && !sid) {
+        if (status) status.textContent = "请选择目标 HAPI Session。";
+        toast("请选择目标 Session");
+        return;
+      }
+      if (!isLive() || !getApi()) {
+        if (status) status.textContent = "本地静态预览模式无法发送，请在 AstrBot 插件面板中操作。";
+        return;
+      }
+
+      const oldText = button?.textContent || "执行消息链路测试";
+      try {
+        if (button) {
+          button.disabled = true;
+          button.classList.add("is-busy");
+          button.textContent = "测试中…";
+        }
+        if (status) status.textContent = "正在执行所选消息输出链路…";
+        const res = await getApi().renderTextTest({ mode, umo: target, sid, text });
+        if (!res?.ok) throw new Error(res?.error || res?.message || "发送失败");
+        if (status) {
+          status.textContent = `${res.mode_label || mode} · 成功 · ${res.chars || text.length} 字符 · 目标 ${res.target || "已按路由选择"}`;
+        }
+        toast("消息链路测试已执行");
+      } catch (e) {
+        const message = e?.message || String(e);
+        if (status) status.textContent = "测试失败：" + message;
+        toast("测试失败：" + message);
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.classList.remove("is-busy");
+          button.textContent = oldText;
+        }
+      }
+    });
+
   $("#ix-gen-card") &&
     ($("#ix-gen-card").onclick = async () => {
       const kind = $("#ix-sample")?.value || "session_list";
@@ -1773,6 +1987,7 @@ function renderInteract() {
     });
 
   paintDomCardPreview();
+  paintTextMarkdownPreview();
   // 以当前表单为基线：未改动时状态区留空
   captureInteractBaseline();
   paintQuickSaveStatus("");

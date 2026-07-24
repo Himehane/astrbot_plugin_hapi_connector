@@ -134,6 +134,7 @@ def register_pages(plugin) -> None:
         (f"{prefix}/hub/launch", api.hub_launch, ["GET"], "WebUI HAPI Web launch URL"),
         (f"{prefix}/render/meta", api.render_meta, ["GET"], "WebUI render meta"),
         (f"{prefix}/render/preview", api.render_preview, ["POST"], "WebUI card preview"),
+        (f"{prefix}/render/text-test", api.render_text_test, ["POST"], "WebUI text test send"),
         (f"{prefix}/render/install", api.render_install, ["POST"], "WebUI install font/deps"),
     ]
     for route, handler, methods, desc in routes:
@@ -207,6 +208,411 @@ class WebApi:
         except Exception as e:
             logger.exception("WebUI render_meta failed")
             return error_response(f"render/meta 失败: {type(e).__name__}: {e}", status_code=500)
+
+    async def render_text_test(self):
+        """从 WebUI 测试不同消息输出链路。
+
+        mode:
+        - direct_window:
+            使用 context.send_message 主动发送到指定窗口
+        - bound_plain:
+            使用 NotificationManager，按照 Session 绑定路由推送纯文本
+        - sse_message:
+            模拟 SSE Agent 消息呈现链路，遵循 render_mode/render_kinds
+        - command_reply:
+            模拟 /hapi msg，使用缓存事件调用 cmd_msg
+        """
+        from astrbot.api.event import MessageChain
+        from astrbot.api.web import error_response, json_response, request
+
+        allowed_modes = {
+            "command_reply",
+            "direct_window",
+            "bound_plain",
+            "sse_message",
+        }
+
+        mode_labels = {
+            "direct_window": "直接主动发送链路",
+            "bound_plain": "绑定路由纯文本通知链路",
+            "sse_message": "SSE Agent 消息呈现链路",
+            "command_reply": "/hapi msg 命令回复链路",
+        }
+
+        try:
+            # ------------------------------------------------------------
+            # 1. 读取请求参数
+            # ------------------------------------------------------------
+            payload = await request.json(default={})
+
+            if not isinstance(payload, dict):
+                return error_response(
+                    "请求体必须是 JSON 对象",
+                    status_code=400,
+                )
+
+            mode = str(
+                payload.get("mode") or "command_reply"
+            ).strip().lower()
+
+            text = str(payload.get("text") or "")
+            umo = str(payload.get("umo") or "").strip()
+            sid = str(payload.get("sid") or "").strip()
+            rounds = str(payload.get("rounds") or "1").strip()
+
+            if mode not in allowed_modes:
+                return error_response(
+                    f"未知发送方式: {mode}",
+                    status_code=400,
+                )
+
+            # command_reply 实际调用 /hapi msg，不直接使用 text。
+            if mode != "command_reply":
+                if not text.strip():
+                    return error_response(
+                        "测试内容不能为空",
+                        status_code=400,
+                    )
+
+                if len(text) > 20000:
+                    return error_response(
+                        "测试内容过长，最多 20000 个字符",
+                        status_code=400,
+                    )
+
+            # ------------------------------------------------------------
+            # 2. 获取窗口、Session 和插件组件
+            # ------------------------------------------------------------
+            snap = build_sessions_snapshot(self.plugin)
+
+            window_options = snap.get("window_options") or []
+            session_options = snap.get("sessions") or []
+
+            allowed_umos = {
+                str(item.get("umo") or "").strip()
+                for item in window_options
+                if isinstance(item, dict)
+                and str(item.get("umo") or "").strip()
+            }
+
+            allowed_sids = {
+                str(item.get("id") or "").strip()
+                for item in session_options
+                if isinstance(item, dict)
+                and str(item.get("id") or "").strip()
+            }
+
+            notification_mgr = getattr(
+                self.plugin,
+                "notification_mgr",
+                None,
+            )
+
+            state_mgr = getattr(
+                self.plugin,
+                "state_mgr",
+                None,
+            )
+
+            sessions_cache = list(
+                getattr(self.plugin, "sessions_cache", None) or []
+            )
+
+            # ------------------------------------------------------------
+            # 3. 校验目标窗口或 Session
+            # ------------------------------------------------------------
+            if mode in {"command_reply", "direct_window"}:
+                if not umo:
+                    return error_response(
+                        "该发送方式需要选择目标窗口",
+                        status_code=400,
+                    )
+
+                if umo not in allowed_umos:
+                    return error_response(
+                        "目标窗口不在当前可用窗口列表中，请刷新页面后重试",
+                        status_code=400,
+                    )
+
+            if mode in {"bound_plain", "sse_message"}:
+                if not sid:
+                    return error_response(
+                        "该发送方式需要选择 HAPI Session",
+                        status_code=400,
+                    )
+
+                if sid not in allowed_sids:
+                    return error_response(
+                        "目标 Session 不在当前会话列表中，请刷新页面后重试",
+                        status_code=400,
+                    )
+
+                if state_mgr is None:
+                    return error_response(
+                        "state_mgr 尚未初始化",
+                        status_code=503,
+                    )
+
+            # ------------------------------------------------------------
+            # 4. 准备文本分片
+            # ------------------------------------------------------------
+            if mode == "command_reply":
+                # command_reply 不直接发送 text。
+                chunks = []
+
+            elif notification_mgr is not None:
+                chunks = notification_mgr.split_message(
+                    text,
+                    max_len=4200,
+                )
+
+            else:
+                chunks = [
+                    text[index:index + 4200]
+                    for index in range(0, len(text), 4200)
+                ]
+
+            sent = 0
+            target_desc = umo or sid
+
+            # ------------------------------------------------------------
+            # 5. 直接主动发送到指定窗口
+            # ------------------------------------------------------------
+            if mode == "direct_window":
+                context = getattr(
+                    self.plugin,
+                    "context",
+                    None,
+                )
+
+                if context is None:
+                    return error_response(
+                        "插件 context 尚未初始化",
+                        status_code=503,
+                    )
+
+                for chunk in chunks:
+                    chain = MessageChain().message(chunk)
+                    await context.send_message(umo, chain)
+                    sent += 1
+
+            # ------------------------------------------------------------
+            # 6. 按 Session 绑定路由推送纯文本
+            # ------------------------------------------------------------
+            elif mode == "bound_plain":
+                if notification_mgr is None:
+                    return error_response(
+                        "notification_mgr 尚未初始化",
+                        status_code=503,
+                    )
+
+                targets = state_mgr.select_notification_targets(
+                    sid,
+                    sessions_cache,
+                )
+
+                if not targets:
+                    return error_response(
+                        "该 Session 当前没有绑定窗口、"
+                        "Agent 默认路由或全局默认窗口",
+                        status_code=409,
+                    )
+
+                await notification_mgr.push_notification(
+                    text,
+                    sid,
+                    sessions_cache,
+                )
+
+                sent = len(chunks)
+                target_desc = ", ".join(
+                    map(str, targets)
+                )
+
+            # ------------------------------------------------------------
+            # 7. 模拟 SSE Agent 消息呈现链路
+            # ------------------------------------------------------------
+            elif mode == "sse_message":
+                listener = getattr(
+                    self.plugin,
+                    "sse_listener",
+                    None,
+                )
+
+                push_card = (
+                    getattr(listener, "_push_message_card", None)
+                    if listener is not None
+                    else None
+                )
+
+                if not callable(push_card):
+                    return error_response(
+                        "SSE 消息呈现链路尚未初始化",
+                        status_code=503,
+                    )
+
+                session = next(
+                    (
+                        item
+                        for item in sessions_cache
+                        if isinstance(item, dict)
+                        and str(item.get("id") or "") == sid
+                    ),
+                    None,
+                )
+
+                label = formatters.session_label_short(
+                    sid,
+                    sessions_cache,
+                )
+
+                title = (
+                    formatters.get_session_title(session)
+                    if session
+                    else "WebUI 消息测试"
+                )
+
+                targets = state_mgr.select_notification_targets(
+                    sid,
+                    sessions_cache,
+                )
+
+                if not targets:
+                    return error_response(
+                        "该 Session 当前没有可用推送路由",
+                        status_code=409,
+                    )
+
+                await push_card(
+                    session_id=sid,
+                    label=label,
+                    body=text,
+                    fallback_text=f"{label}\n{text}",
+                    title=title,
+                    footer="WebUI 测试",
+                )
+
+                sent = 1
+                target_desc = ", ".join(
+                    map(str, targets)
+                )
+
+            # ------------------------------------------------------------
+            # 8. 模拟 /hapi msg 命令回复链路
+            # ------------------------------------------------------------
+            elif mode == "command_reply":
+                if notification_mgr is None:
+                    return error_response(
+                        "notification_mgr 尚未初始化",
+                        status_code=503,
+                    )
+
+                event_cache = getattr(
+                    notification_mgr,
+                    "_event_cache",
+                    None,
+                )
+
+                if not isinstance(event_cache, dict):
+                    logger.warning(
+                        "notification_mgr._event_cache 类型异常: %s",
+                        type(event_cache).__name__,
+                    )
+
+                    return error_response(
+                        "事件缓存尚未初始化",
+                        status_code=503,
+                    )
+
+                cached_event = event_cache.get(umo)
+
+                if cached_event is None:
+                    logger.info(
+                        "WebUI command_reply 无缓存事件: "
+                        "umo=%r cache_keys=%r",
+                        umo,
+                        list(event_cache.keys()),
+                    )
+
+                    return error_response(
+                        "该窗口暂无缓存事件。请先在目标窗口执行一次 "
+                        "/hapi msg 或触发一次快捷前缀命令，再重试。",
+                        status_code=409,
+                    )
+
+                cmd_handlers = getattr(
+                    self.plugin,
+                    "cmd_handlers",
+                    None,
+                )
+
+                cmd_msg = (
+                    getattr(cmd_handlers, "cmd_msg", None)
+                    if cmd_handlers is not None
+                    else None
+                )
+
+                if not callable(cmd_msg):
+                    return error_response(
+                        "cmd_msg 命令处理器尚未初始化",
+                        status_code=503,
+                    )
+
+                logger.info(
+                    "开始模拟 /hapi msg: "
+                    "umo=%r rounds=%r event_type=%s",
+                    umo,
+                    rounds,
+                    type(cached_event).__name__,
+                )
+
+                # cmd_msg 内部使用了 yield，因此它是异步生成器。
+                async for result in cmd_msg(
+                    cached_event,
+                    rounds,
+                ):
+                    if result is None:
+                        continue
+
+                    await cached_event.send(result)
+                    sent += 1
+
+            # ------------------------------------------------------------
+            # 9. 返回测试结果
+            # ------------------------------------------------------------
+            logger.info(
+                "WebUI 消息测试成功: "
+                "mode=%s target=%s text_chars=%d sent=%d",
+                mode,
+                str(target_desc)[:120],
+                len(text),
+                sent,
+            )
+
+            return json_response({
+                "ok": True,
+                "mode": mode,
+                "mode_label": mode_labels.get(mode, mode),
+                "target": target_desc,
+                "chars": len(text),
+                "chunks": sent,
+                "message": "测试消息已提交",
+            })
+
+        except Exception as exc:
+            logger.exception(
+                "WebUI render_text_test failed: "
+                "mode=%r umo=%r sid=%r",
+                locals().get("mode"),
+                locals().get("umo"),
+                locals().get("sid"),
+            )
+
+            return error_response(
+                "render/text-test 失败: "
+                f"{type(exc).__name__}: {exc}",
+                status_code=500,
+            )
 
     async def render_install(self):
         """WebUI 手动安装：字体下载到 assets/fonts/，依赖 pip install Pillow。
